@@ -3,7 +3,7 @@
 ## `ocaml-version` should be in sync with `README.rst` and
 ## `lib.protocol-compiler/tezos-protocol-compiler.opam`
 
-ocaml_version=4.10.2
+ocaml_version=4.12.0
 opam_version=2.0
 recommended_rust_version=1.44.0
 
@@ -13,7 +13,7 @@ full_opam_repository_tag=7026cc03199e7315b5ec592610650ff85c21cd90
 
 ## opam_repository is an additional, tezos-specific opam repository.
 ## This value MUST be the same as `build_deps_image_version` in `.gitlab-ci.yml
-opam_repository_tag=4f2882db0c98232c8c12eaa3ace975ef42dfc12c
+opam_repository_tag=327b6d210c4ce8e63c80633df0302c94267f4cff
 opam_repository_url=https://gitlab.com/tezos/opam-repository
 opam_repository_git=$opam_repository_url.git
 opam_repository=$opam_repository_git\#$opam_repository_tag
