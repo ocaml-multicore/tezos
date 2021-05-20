@@ -1,11 +1,3 @@
-
-
-;
-;        /!\ /!\ Do not modify this file /!\ /!\
-;
-; but the original template in `tezos-protocol-compiler`
-;
-
 ;; generated from src/lib_protocol_compiler/dune_protocol.template.v2
 ;;
 ;; This second version of the template has been introduced after the
@@ -15,24 +7,24 @@
  (targets environment.ml)
  (action
   (write-file %{targets}
-              "module Name = struct let name = \"demo-noops\" end
-include Tezos_protocol_environment.MakeV1(Name)()
+              "module Name = struct let name = \"%%VERSION%%\" end
+include Tezos_protocol_environment.Make%%ENV_VERSION%%(Name)()
 module CamlinternalFormatBasics = struct include CamlinternalFormatBasics end
 ")))
 
 (rule
  (targets registerer.ml)
  (deps
-   main.mli main.ml
+   %%SOURCES%%
    (:src_dir TEZOS_PROTOCOL))
  (action
   (with-stdout-to %{targets}
-                  (chdir %{workspace_root} (run %{bin:tezos-embedded-protocol-packer} "%{src_dir}" "demo_noops")))))
+                  (chdir %{workspace_root} (run %{bin:tezos-embedded-protocol-packer} "%{src_dir}" "%%LIB_VERSION%%")))))
 
 (rule
  (targets functor.ml)
  (deps
-   main.mli main.ml
+   %%SOURCES%%
    (:src_dir TEZOS_PROTOCOL))
  (action (with-stdout-to %{targets}
                          (chdir %{workspace_root}
@@ -41,71 +33,71 @@ module CamlinternalFormatBasics = struct include CamlinternalFormatBasics end
 (rule
  (targets protocol.ml)
  (deps
-   main.mli main.ml)
+   %%SOURCES%%)
  (action
   (write-file %{targets}
-    "module Environment = Tezos_protocol_environment_demo_noops.Environment
-let hash = Tezos_crypto.Protocol_hash.of_b58check_exn \"ProtoDemoNoopsDemoNoopsDemoNoopsDemoNoopsDemo6XBoYp\"
+    "module Environment = Tezos_protocol_environment_%%LIB_VERSION%%.Environment
+let hash = Tezos_crypto.Protocol_hash.of_b58check_exn \"%%HASH%%\"
 let name = Environment.Name.name
-include Tezos_raw_protocol_demo_noops
-include Tezos_raw_protocol_demo_noops.Main
+include Tezos_raw_protocol_%%LIB_VERSION%%
+include Tezos_raw_protocol_%%LIB_VERSION%%.Main
 ")))
 
 (library
- (name tezos_protocol_environment_demo_noops)
- (public_name tezos-protocol-demo-noops.environment)
+ (name tezos_protocol_environment_%%LIB_VERSION%%)
+ (public_name tezos-protocol-%%VERSION%%.environment)
  (library_flags (:standard -linkall))
  (libraries tezos-protocol-environment)
  (modules Environment))
 
 (library
- (name tezos_raw_protocol_demo_noops)
- (public_name tezos-protocol-demo-noops.raw)
- (libraries tezos_protocol_environment_demo_noops)
+ (name tezos_raw_protocol_%%LIB_VERSION%%)
+ (public_name tezos-protocol-%%VERSION%%.raw)
+ (libraries tezos_protocol_environment_%%LIB_VERSION%%)
  (library_flags (:standard -linkall))
  (flags (:standard -nopervasives -nostdlib
                    -w +a-4-6-7-9-29-32-40..42-44-45-48-60-67
                    -warn-error +a
-                   -open Tezos_protocol_environment_demo_noops__Environment
+                   -open Tezos_protocol_environment_%%LIB_VERSION%%__Environment
                    -open Pervasives
                    -open Error_monad))
  (modules
-   Main))
+   %%MODULES%%))
 
 (install
  (section lib)
- (package tezos-protocol-demo-noops)
+ (package tezos-protocol-%%VERSION%%)
  (files (TEZOS_PROTOCOL as raw/TEZOS_PROTOCOL)))
 
 (library
- (name tezos_protocol_demo_noops)
- (public_name tezos-protocol-demo-noops)
+ (name tezos_protocol_%%LIB_VERSION%%)
+ (public_name tezos-protocol-%%VERSION%%)
  (libraries
       tezos-protocol-environment
       tezos-protocol-environment-sigs
-      tezos_raw_protocol_demo_noops)
+      tezos_raw_protocol_%%LIB_VERSION%%)
  (flags -w "+a-4-6-7-9-29-40..42-44-45-48-60-67"
         -warn-error "+a"
         -nopervasives)
  (modules Protocol))
 
 (library
- (name tezos_protocol_demo_noops_functor)
- (public_name tezos-protocol-functor-demo-noops)
+ (name tezos_protocol_%%LIB_VERSION%%_functor)
+ (public_name tezos-protocol-functor-%%VERSION%%)
  (libraries
       tezos-protocol-environment
       tezos-protocol-environment-sigs
-      tezos-protocol-demo-noops.raw)
+      tezos-protocol-%%VERSION%%.raw)
  (flags -w "+a-4-6-7-9-29-40..42-44-45-48-60-67"
         -warn-error "+a"
         -nopervasives)
  (modules Functor))
 
 (library
- (name tezos_embedded_protocol_demo_noops)
- (public_name tezos-embedded-protocol-demo-noops)
+ (name tezos_embedded_protocol_%%LIB_VERSION%%)
+ (public_name tezos-embedded-protocol-%%VERSION%%)
  (library_flags (:standard -linkall))
- (libraries tezos-protocol-demo-noops
+ (libraries tezos-protocol-%%VERSION%%
             tezos-protocol-updater
             tezos-protocol-environment)
  (flags (:standard -w +a-4-6-7-9-29-32-40..42-44-45-48-60-67
@@ -115,17 +107,17 @@ include Tezos_raw_protocol_demo_noops.Main
 (rule
  (alias runtest_compile_protocol)
  (deps
-   main.mli main.ml
+   %%SOURCES%%
   (:src_dir TEZOS_PROTOCOL))
- (action (run %{bin:tezos-protocol-compiler} -no-hash-check .)))
+ (action (run %{bin:tezos-protocol-compiler} %%COMPILE_OPTION%% .)))
 
 (rule
  (alias runtest_sandbox)
- (deps .tezos_protocol_demo_noops.objs/native/tezos_protocol_demo_noops.cmx)
+ (deps .tezos_protocol_%%LIB_VERSION%%.objs/native/tezos_protocol_%%LIB_VERSION%%.cmx)
  (action (progn)))
 
 (rule
  (alias runtest)
- (package tezos-protocol-demo-noops)
+ (package tezos-protocol-%%VERSION%%)
  (deps (alias runtest_sandbox))
  (action (progn)))

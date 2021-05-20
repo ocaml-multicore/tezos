@@ -6,6 +6,10 @@
 ; but the original template in `tezos-protocol-compiler`
 ;
 
+;; generated from src/lib_protocol_compiler/dune_protocol.template.v2
+;;
+;; This second version of the template has been introduced after the
+;; release of OCaml 4.12.
 
 (rule
  (targets environment.ml)

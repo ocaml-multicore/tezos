@@ -6,6 +6,12 @@
 ; but the original template in `tezos-protocol-compiler`
 ;
 
+;; generated from src/lib_protocol_compiler/dune_protocol.template.v1
+;;
+;; This template disables the warn-error option, which means warnings
+;; are no longer treated as errors.  This is necessary to be able to
+;; compile old protocols (whose hash has been fixed) with OCaml 4.12,
+;; as this version introduces new warnings.
 
 (rule
  (targets environment.ml)
@@ -264,8 +270,8 @@ include Tezos_raw_protocol_005_PsBabyM1.Main
  (libraries tezos_protocol_environment_005_PsBabyM1)
  (library_flags (:standard -linkall))
  (flags (:standard -nopervasives -nostdlib
-                   -w +a-4-6-7-9-29-32-40..42-44-45-48-60-67
-                   -warn-error +a
+                   -w +a-4-6-7-9-29-32-40..42-44-45-48-60-67-68
+                   -warn-error -A
                    -open Tezos_protocol_environment_005_PsBabyM1__Environment
                    -open Pervasives
                    -open Error_monad))
@@ -352,8 +358,8 @@ include Tezos_raw_protocol_005_PsBabyM1.Main
       tezos-protocol-environment
       tezos-protocol-environment-sigs
       tezos_raw_protocol_005_PsBabyM1)
- (flags -w "+a-4-6-7-9-29-40..42-44-45-48-60-67"
-        -warn-error "+a"
+ (flags -w "+a-4-6-7-9-29-40..42-44-45-48-60-67-68"
+        -warn-error "-A"
         -nopervasives)
  (modules Protocol))
 
@@ -364,8 +370,8 @@ include Tezos_raw_protocol_005_PsBabyM1.Main
       tezos-protocol-environment
       tezos-protocol-environment-sigs
       tezos-protocol-005-PsBabyM1.raw)
- (flags -w "+a-4-6-7-9-29-40..42-44-45-48-60-67"
-        -warn-error "+a"
+ (flags -w "+a-4-6-7-9-29-40..42-44-45-48-60-67-68"
+        -warn-error "-A"
         -nopervasives)
  (modules Functor))
 
@@ -377,7 +383,7 @@ include Tezos_raw_protocol_005_PsBabyM1.Main
             tezos-protocol-updater
             tezos-protocol-environment)
  (flags (:standard -w +a-4-6-7-9-29-32-40..42-44-45-48-60-67
-                   -warn-error +a))
+                   -warn-error -A))
  (modules Registerer))
 
 (rule
