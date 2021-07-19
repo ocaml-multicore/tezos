@@ -3,7 +3,7 @@
 ## `ocaml-version` should be in sync with `README.rst` and
 ## `lib.protocol-compiler/tezos-protocol-compiler.opam`
 
-ocaml_version=4.12.0+multicore
+ocaml_version=4.12.0+domains
 opam_version=2.0
 recommended_rust_version=1.44.0
 
