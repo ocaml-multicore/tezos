@@ -18,5 +18,8 @@ opam_repository_url=https://github.com/Engil/tezos-opam-repository
 opam_repository_git=$opam_repository_url.git
 opam_repository=$opam_repository_git
 
+## for sapling param, fork is on github, url convention not the same in install_sapling_parameters
+raw_opam_repository_url=https://raw.githubusercontent.com/Engil/tezos-opam-repository/4.12.0%2Bdomains
+
 ## Other variables, used both in Makefile and scripts
 COVERAGE_OUTPUT=_coverage_output
