@@ -29,10 +29,11 @@ RUN echo "test -r /home/ubuntu/.opam/opam-init/init.sh && . /home/ubuntu/.opam/o
 RUN wget https://sh.rustup.rs/rustup-init.sh
 RUN chmod +x rustup-init.sh
 RUN ./rustup-init.sh --profile minimal --default-toolchain 1.44.0 -y
-ENV PATH="$HOME/.cargo/bin:${PATH}"
+ENV PATH="/home/ubuntu/.cargo/bin:${PATH}"
 
 # Install Tezos
-RUN git clone https://github.com/ocaml-multicore/tezos.git
-WORKDIR tezos
+COPY . /source
+WORKDIR /source
+RUN find . -type d -exec sudo chmod 777 {} \;
 RUN make build-deps
 RUN opam exec -- make
