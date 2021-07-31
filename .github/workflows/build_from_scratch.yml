@@ -25,4 +25,4 @@ jobs:
 
       - name: Build Image
         run: |
-          make docker-image-ci
+          docker build -f ci.Dockerfile .
