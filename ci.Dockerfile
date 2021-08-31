@@ -21,7 +21,7 @@ WORKDIR /home/ubuntu
 # Install opam
 RUN sudo apt install -y rsync git m4 build-essential patch unzip wget pkg-config libgmp-dev libev-dev libhidapi-dev libffi-dev opam jq zlib1g-dev curl
 RUN curl -sL https://raw.githubusercontent.com/ocaml/opam/master/shell/install.sh > /tmp/install.sh
-RUN ["/bin/bash", "-c", "sudo /bin/bash /tmp/install.sh <<< /usr/local/bin"]
+RUN ["/bin/bash", "-c", "sudo /bin/bash /tmp/install.sh --version 2.0.9 <<< /usr/local/bin"]
 RUN opam init -y --disable-sandboxing --bare
 RUN echo "test -r /home/ubuntu/.opam/opam-init/init.sh && . /home/ubuntu/.opam/opam-init/init.sh > /dev/null 2> /dev/null || true" >> /home/ubuntu/.profile
 
