@@ -37,3 +37,4 @@ WORKDIR /source
 RUN find . -type d -exec sudo chmod 777 {} \;
 RUN make build-deps
 RUN opam exec -- make
+RUN opam exec -- make test-unit
