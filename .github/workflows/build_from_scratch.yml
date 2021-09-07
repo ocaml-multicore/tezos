@@ -8,7 +8,7 @@ on:
   pull_request:
     branches: [ 4.12.0+domains ]
   schedule:
-    # Runs every Sunday at 00:00 AM 
+    # Runs every Sunday at 00:00 AM
     - cron: 0 0 * * SUN
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
@@ -31,4 +31,9 @@ jobs:
 
       - name: Build Image
         run: |
-          docker build -f ci.Dockerfile .
+          docker build -t tezos:multicore -f ci.Dockerfile .
+
+      - name: Run test suite
+        run: |
+          docker run -it tezos:multicore
+          make test-unit
