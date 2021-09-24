@@ -8,8 +8,8 @@ on:
   pull_request:
     branches: [ 4.12.0+domains ]
   schedule:
-    # Runs every Sunday at 00:00 AM 
-    - cron: 0 0 * * SUN
+    # Runs everyday at 00:00 AM
+    - cron: 0 0 * * *
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
