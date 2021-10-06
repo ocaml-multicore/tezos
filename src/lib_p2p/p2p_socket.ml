@@ -2,7 +2,7 @@
 (*                                                                           *)
 (* Open Source License                                                       *)
 (* Copyright (c) 2018 Dynamic Ledger Solutions, Inc. <contact@tezos.com>     *)
-(* Copyright (c) 2019 Nomadic Labs, <contact@nomadic-labs.com>               *)
+(* Copyright (c) 2019-2021 Nomadic Labs, <contact@nomadic-labs.com>          *)
 (*                                                                           *)
 (* Permission is hereby granted, free of charge, to any person obtaining a   *)
 (* copy of this software and associated documentation files (the "Software"),*)
@@ -73,7 +73,7 @@ module Crypto = struct
     P2p_io_scheduler.write ?canceler fd payload
 
   let read_chunk ?canceler fd cryptobox_data =
-    let open P2p_io_scheduler in
+    let open P2p_buffer_reader in
     let header_buf = Bytes.create header_length in
     read_full ?canceler fd @@ mk_buffer_safe header_buf >>=? fun () ->
     let encrypted_length = TzEndian.get_uint16 header_buf 0 in
@@ -165,7 +165,7 @@ module Connection_message = struct
         return buf
 
   let read ~canceler fd =
-    let open P2p_io_scheduler in
+    let open P2p_buffer_reader in
     let header_buf = Bytes.create Crypto.header_length in
     read_full ~canceler fd @@ mk_buffer_safe header_buf >>=? fun () ->
     let len = TzEndian.get_uint16 header_buf 0 in
@@ -175,7 +175,8 @@ module Connection_message = struct
     (* This call to [mk_buffer] is safe (it can't [Error] out)
        but we cannot use [mk_buffer_safe], because we need to specify
        ~len and ~pos. *)
-    mk_buffer ~len ~pos buf >>?= read_full ~canceler fd >>=? fun () ->
+    mk_buffer ~length_to_copy:len ~pos buf >>?= read_full ~canceler fd
+    >>=? fun () ->
     let buf = Bytes.unsafe_to_string buf in
     match Data_encoding.Binary.read encoding buf pos len with
     | Error re -> fail (P2p_errors.Decoding_error re)
@@ -346,7 +347,10 @@ let authenticate ~canceler ~proof_of_work_target ~incoming scheduled_conn
       version = announced_version;
     }
   >>=? fun sent_msg ->
-  Connection_message.read ~canceler scheduled_conn >>=? fun (msg, recv_msg) ->
+  Connection_message.read
+    ~canceler
+    (P2p_io_scheduler.to_readable scheduled_conn)
+  >>=? fun (msg, recv_msg) ->
   (* TODO: make the below bytes-to-string copy-conversion unnecessary.
      This requires making the consumer of the [recv_msg] value
      ([Crypto_box.generate_nonces]) able to work with strings directly. *)
@@ -382,7 +386,11 @@ let authenticate ~canceler ~proof_of_work_target ~incoming scheduled_conn
     cryptobox_data
     local_metadata
   >>=? fun () ->
-  Metadata.read ~canceler metadata_config scheduled_conn cryptobox_data
+  Metadata.read
+    ~canceler
+    metadata_config
+    (P2p_io_scheduler.to_readable scheduled_conn)
+    cryptobox_data
   >>=? fun remote_metadata ->
   let info =
     {
@@ -403,7 +411,7 @@ module Reader = struct
     canceler : Lwt_canceler.t;
     conn : 'meta authenticated_connection;
     encoding : 'msg Data_encoding.t;
-    messages : (int * 'msg) tzresult Lwt_pipe.t;
+    messages : (int * 'msg) tzresult Lwt_pipe.Maybe_bounded.t;
     mutable worker : unit Lwt.t;
   }
 
@@ -419,7 +427,7 @@ module Reader = struct
       | Await decode_next_buf ->
           Crypto.read_chunk
             ~canceler:st.canceler
-            st.conn.scheduled_conn
+            (P2p_io_scheduler.to_readable st.conn.scheduled_conn)
             st.conn.cryptobox_data
           >>=? fun buf ->
           Events.(emit read_event) (Bytes.length buf, st.conn.info.peer_id)
@@ -430,7 +438,7 @@ module Reader = struct
   let rec worker_loop st stream =
     ( read_message st stream >>=? fun (msg, size, stream) ->
       protect ~canceler:st.canceler (fun () ->
-          Lwt_pipe.push st.messages (Ok (size, msg)) >>= fun () ->
+          Lwt_pipe.Maybe_bounded.push st.messages (Ok (size, msg)) >>= fun () ->
           return_some stream) )
     >>= function
     | Ok (Some stream) -> worker_loop st (Some stream)
@@ -438,31 +446,33 @@ module Reader = struct
     | Error (Canceled :: _) | Error (Exn Lwt_pipe.Closed :: _) ->
         Events.(emit connection_closed) st.conn.info.peer_id
     | Error _ as err ->
-        if Lwt_pipe.is_closed st.messages then ()
+        if Lwt_pipe.Maybe_bounded.is_closed st.messages then ()
         else
           (* best-effort push to the messages, we ignore failures *)
-          (ignore : bool -> unit) @@ Lwt_pipe.push_now st.messages err ;
+          (ignore : bool -> unit)
+          @@ Lwt_pipe.Maybe_bounded.push_now st.messages err ;
         Error_monad.cancel_with_exceptions st.canceler
 
   let run ?size conn encoding canceler =
     let compute_size = function
-      | Ok (size, _) -> (Sys.word_size / 8 * 11) + size + Lwt_pipe.push_overhead
+      | Ok (size, _) ->
+          (Sys.word_size / 8 * 11) + size + Lwt_pipe.Maybe_bounded.push_overhead
       | Error _ -> 0
       (* we push Error only when we close the socket,
                         we don't fear memory leaks in that case... *)
     in
-    let size = Option.map (fun max -> (max, compute_size)) size in
+    let bound = Option.map (fun max -> (max, compute_size)) size in
     let st =
       {
         canceler;
         conn;
         encoding;
-        messages = Lwt_pipe.create ?size ();
+        messages = Lwt_pipe.Maybe_bounded.create ?bound ();
         worker = Lwt.return_unit;
       }
     in
     Lwt_canceler.on_cancel st.canceler (fun () ->
-        Lwt_pipe.close st.messages ;
+        Lwt_pipe.Maybe_bounded.close st.messages ;
         Lwt.return_unit) ;
     st.worker <-
       Lwt_utils.worker
@@ -480,7 +490,8 @@ module Writer = struct
     canceler : Lwt_canceler.t;
     conn : 'meta authenticated_connection;
     encoding : 'msg Data_encoding.t;
-    messages : (Bytes.t list * unit tzresult Lwt.u option) Lwt_pipe.t;
+    messages :
+      (Bytes.t list * unit tzresult Lwt.u option) Lwt_pipe.Maybe_bounded.t;
     mutable worker : unit Lwt.t;
     binary_chunks_size : int; (* in bytes *)
   }
@@ -508,7 +519,7 @@ module Writer = struct
   let rec worker_loop st =
     Lwt_unix.yield () >>= fun () ->
     protect ~canceler:st.canceler (fun () ->
-        Lwt_pipe.pop st.messages >>= return)
+        Lwt_pipe.Maybe_bounded.pop st.messages >>= return)
     >>= function
     | Error (Canceled :: _) | Error (Exn Lwt_pipe.Closed :: _) ->
         Events.(emit connection_closed) st.conn.info.peer_id
@@ -553,25 +564,27 @@ module Writer = struct
       in
       function
       | (buf_l, None) ->
-          Sys.word_size + buf_list_size buf_l + Lwt_pipe.push_overhead
+          Sys.word_size + buf_list_size buf_l
+          + Lwt_pipe.Maybe_bounded.push_overhead
       | (buf_l, Some _) ->
-          (2 * Sys.word_size) + buf_list_size buf_l + Lwt_pipe.push_overhead
+          (2 * Sys.word_size) + buf_list_size buf_l
+          + Lwt_pipe.Maybe_bounded.push_overhead
     in
-    let size = Option.map (fun max -> (max, compute_size)) size in
+    let bound = Option.map (fun max -> (max, compute_size)) size in
     let st =
       {
         canceler;
         conn;
         encoding;
-        messages = Lwt_pipe.create ?size ();
+        messages = Lwt_pipe.Maybe_bounded.create ?bound ();
         worker = Lwt.return_unit;
         binary_chunks_size;
       }
     in
     Lwt_canceler.on_cancel st.canceler (fun () ->
-        Lwt_pipe.close st.messages ;
+        Lwt_pipe.Maybe_bounded.close st.messages ;
         let rec loop () =
-          match Lwt_pipe.pop_now st.messages with
+          match Lwt_pipe.Maybe_bounded.pop_now st.messages with
           | exception Lwt_pipe.Closed -> ()
           | None -> ()
           | Some (_, None) -> loop ()
@@ -618,7 +631,11 @@ let accept ?incoming_message_queue_size ?outgoing_message_queue_size
   protect
     (fun () ->
       Ack.write ~canceler conn.scheduled_conn conn.cryptobox_data Ack
-      >>=? fun () -> Ack.read ~canceler conn.scheduled_conn conn.cryptobox_data)
+      >>=? fun () ->
+      Ack.read
+        ~canceler
+        (P2p_io_scheduler.to_readable conn.scheduled_conn)
+        conn.cryptobox_data)
     ~on_error:(fun err ->
       P2p_io_scheduler.close conn.scheduled_conn >>= fun _ ->
       match err with
@@ -667,7 +684,8 @@ let write {writer; conn; _} msg =
       Events.(emit send_message_event) (conn.info.peer_id, log_msg)
       >>= fun () ->
       Lwt.return (Writer.encode_message writer msg) >>=? fun buf ->
-      Lwt_pipe.push writer.messages (buf, None) >>= fun () -> return_unit)
+      Lwt_pipe.Maybe_bounded.push writer.messages (buf, None) >>= fun () ->
+      return_unit)
 
 let write_sync {writer; conn; _} msg =
   catch_closed_pipe (fun () ->
@@ -676,14 +694,15 @@ let write_sync {writer; conn; _} msg =
       Events.(emit send_message_event) (conn.info.peer_id, log_msg)
       >>= fun () ->
       Lwt.return (Writer.encode_message writer msg) >>=? fun buf ->
-      Lwt_pipe.push writer.messages (buf, Some wakener) >>= fun () -> waiter)
+      Lwt_pipe.Maybe_bounded.push writer.messages (buf, Some wakener)
+      >>= fun () -> waiter)
 
 let write_now {writer; conn; _} msg =
   let log_msg = Data_encoding.Json.construct writer.encoding msg in
   Events.(emit__dont_wait__use_with_care send_message_event)
     (conn.info.peer_id, log_msg) ;
   Writer.encode_message writer msg >>? fun buf ->
-  try Ok (Lwt_pipe.push_now writer.messages (buf, None))
+  try Ok (Lwt_pipe.Maybe_bounded.push_now writer.messages (buf, None))
   with Lwt_pipe.Closed -> error P2p_errors.Connection_closed
 
 let rec split_bytes size bytes =
@@ -696,13 +715,14 @@ let raw_write_sync {writer; _} bytes =
   let bytes = split_bytes writer.binary_chunks_size bytes in
   catch_closed_pipe (fun () ->
       let (waiter, wakener) = Lwt.wait () in
-      Lwt_pipe.push writer.messages (bytes, Some wakener) >>= fun () -> waiter)
+      Lwt_pipe.Maybe_bounded.push writer.messages (bytes, Some wakener)
+      >>= fun () -> waiter)
 
 let read {reader; _} =
-  catch_closed_pipe (fun () -> Lwt_pipe.pop reader.messages)
+  catch_closed_pipe (fun () -> Lwt_pipe.Maybe_bounded.pop reader.messages)
 
 let read_now {reader; _} =
-  try Lwt_pipe.pop_now reader.messages
+  try Lwt_pipe.Maybe_bounded.pop_now reader.messages
   with Lwt_pipe.Closed -> Some (error P2p_errors.Connection_closed)
 
 let stat {conn = {scheduled_conn; _}; _} = P2p_io_scheduler.stat scheduled_conn
@@ -710,10 +730,61 @@ let stat {conn = {scheduled_conn; _}; _} = P2p_io_scheduler.stat scheduled_conn
 let close ?(wait = false) st =
   (if not wait then Lwt.return_unit
   else (
-    Lwt_pipe.close st.reader.messages ;
-    Lwt_pipe.close st.writer.messages ;
+    Lwt_pipe.Maybe_bounded.close st.reader.messages ;
+    Lwt_pipe.Maybe_bounded.close st.writer.messages ;
     st.writer.worker))
   >>= fun () ->
   Reader.shutdown st.reader >>= fun () ->
   Writer.shutdown st.writer >>= fun () ->
   P2p_io_scheduler.close st.conn.scheduled_conn >>= fun _ -> Lwt.return_unit
+
+module Internal_for_tests = struct
+  let mock_authenticated_connection default_metadata =
+    let (secret_key, public_key, _pkh) = Crypto_box.random_keypair () in
+    let cryptobox_data =
+      Crypto.
+        {
+          channel_key = Crypto_box.precompute secret_key public_key;
+          local_nonce = Crypto_box.zero_nonce;
+          remote_nonce = Crypto_box.zero_nonce;
+        }
+    in
+    let scheduled_conn =
+      let f2d_t = Lwt_main.run (P2p_fd.socket PF_INET6 SOCK_STREAM 0) in
+      P2p_io_scheduler.register
+        (P2p_io_scheduler.create ~read_buffer_size:0 ())
+        f2d_t
+    in
+    let info = P2p_connection.Internal_for_tests.Info.mock default_metadata in
+    {scheduled_conn; info; cryptobox_data}
+
+  let make_crashing_encoding () : 'a Data_encoding.t =
+    Data_encoding.conv
+      (fun _ -> assert false)
+      (fun _ -> assert false)
+      Data_encoding.unit
+
+  let mock conn =
+    let reader =
+      Reader.
+        {
+          canceler = Lwt_canceler.create ();
+          conn;
+          encoding = make_crashing_encoding ();
+          messages = Lwt_pipe.Maybe_bounded.create ();
+          worker = Lwt.return_unit;
+        }
+    in
+    let writer =
+      Writer.
+        {
+          canceler = Lwt_canceler.create ();
+          conn;
+          encoding = make_crashing_encoding ();
+          messages = Lwt_pipe.Maybe_bounded.create ();
+          worker = Lwt.return_unit;
+          binary_chunks_size = 0;
+        }
+    in
+    {conn; reader; writer}
+end

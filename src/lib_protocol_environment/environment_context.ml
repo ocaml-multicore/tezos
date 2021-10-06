@@ -37,6 +37,8 @@ module type VIEW = Environment_context_intf.VIEW
 
 module type TREE = Environment_context_intf.TREE
 
+module type CACHE = Environment_context_intf.CACHE
+
 module Equality_witness : sig
   type (_, _) eq = Refl : ('a, 'a) eq
 
@@ -75,6 +77,8 @@ end = struct
   let hash : type a. a t -> int = fun (module A) -> Hashtbl.hash A.Eq
 end
 
+module Int64Map = Map.Make (Int64)
+
 module Context = struct
   type key = string list
 
@@ -91,6 +95,14 @@ module Context = struct
 
   let equiv (a, b) (c, d) = (Equality_witness.eq a c, Equality_witness.eq b d)
 
+  type cache_value = ..
+
+  type delayed_value = unit -> cache_value Lwt.t
+
+  let delay e () = Lwt.return e
+
+  type cache = delayed_value Environment_cache.t
+
   type t =
     | Context : {
         kind : 'a kind;
@@ -98,8 +110,20 @@ module Context = struct
         ctxt : 'a;
         ops : ('a, 'b) ops;
         equality_witness : ('a, 'b) equality_witness;
+        cache : cache;
       }
         -> t
+
+  let make ~kind ~impl_name ~ctxt ~ops ~equality_witness =
+    Context
+      {
+        kind;
+        impl_name;
+        ctxt;
+        ops;
+        equality_witness;
+        cache = Environment_cache.uninitialised;
+      }
 
   let mem (Context {ops = (module Ops); ctxt; _}) key = Ops.mem ctxt key
 
@@ -231,6 +255,240 @@ module Context = struct
       Ops.Tree.clear ?depth tree
   end
 
+  type cache_key = Environment_cache.key
+
+  type block_cache = {block_hash : Block_hash.t; cache : cache}
+
+  type source_of_cache =
+    [`Load | `Lazy | `Inherited of block_cache * Block_hash.t]
+
+  type builder = Environment_cache.key -> cache_value tzresult Lwt.t
+
+  module Cache = struct
+    type key = Environment_cache.key
+
+    type value = cache_value = ..
+
+    type identifier = Environment_cache.identifier
+
+    type size = Environment_cache.size
+
+    type index = Environment_cache.index
+
+    let key_of_identifier = Environment_cache.key_of_identifier
+
+    let identifier_of_key = Environment_cache.identifier_of_key
+
+    let pp fmt (Context {cache; _}) = Environment_cache.pp fmt cache
+
+    let cache_number_path = ["number_of_caches"]
+
+    let cache_path cache_index = ["cache"; string_of_int cache_index]
+
+    let cache_limit_path cache = cache_path cache @ ["limit"]
+
+    let get_cache_number ctxt =
+      find ctxt cache_number_path
+      >>= Option.fold_s ~none:0 ~some:(fun v ->
+              Lwt.return (Data_encoding.(Binary.of_bytes_exn int31) v))
+
+    let set_cache_number ctxt cache_number =
+      if cache_number = 0 then Lwt.return ctxt
+      else
+        let bytes = Data_encoding.(Binary.to_bytes_exn int31) cache_number in
+        add ctxt cache_number_path bytes
+
+    let get_cache_limit ctxt cache_handle =
+      find ctxt (cache_limit_path cache_handle)
+      >>= Option.map_s @@ fun v ->
+          Lwt.return (Data_encoding.(Binary.of_bytes_exn int31) v)
+
+    let set_cache_limit ctxt cache_handle limit =
+      let path = cache_limit_path cache_handle in
+      let bytes = Data_encoding.(Binary.to_bytes_exn int31) limit in
+      add ctxt path bytes
+
+    let set_cache_layout (Context ctxt) layout =
+      let cache = Environment_cache.from_layout layout in
+      let ctxt = Context {ctxt with cache} in
+      let cache_number = List.length layout in
+      set_cache_number ctxt cache_number >>= fun ctxt ->
+      List.fold_left_i_s
+        (fun i ctxt limit -> set_cache_limit ctxt i limit)
+        ctxt
+        layout
+
+    let get_cache_layout ctxt =
+      get_cache_number ctxt >>= fun n ->
+      List.map_s
+        (fun index ->
+          get_cache_limit ctxt index >>= function
+          | None ->
+              (*
+
+                 [set_cache_layout] must be called at the beginning of
+                 each protocol activation so that the storage contains
+                 a consistent description of the layout.  If this
+                 invariant holds, then there always is a limit in the
+                 context.
+
+              *)
+              assert false
+          | Some limit -> Lwt.return limit)
+        (0 -- (n - 1))
+
+    let update (Context ctxt) key value =
+      let delayed_value =
+        Option.map (fun (value, index) -> (delay value, index)) value
+      in
+      let cache = Environment_cache.update ctxt.cache key delayed_value in
+      Context {ctxt with cache}
+
+    let cache_domain_path = ["domain"]
+
+    let sync (Context ctxt) ~cache_nonce =
+      let (cache, domain) = Environment_cache.sync ctxt.cache ~cache_nonce in
+      let bytes =
+        Data_encoding.(
+          Binary.to_bytes_exn Environment_cache.domain_encoding domain)
+      in
+      let ctxt = Context {ctxt with cache} in
+      add ctxt cache_domain_path bytes
+
+    let clear (Context ctxt) =
+      Context {ctxt with cache = Environment_cache.clear ctxt.cache}
+
+    let list_keys (Context {cache; _}) = Environment_cache.list_keys cache
+
+    let future_cache_expectation (Context ctxt) ~time_in_blocks =
+      let cache =
+        Environment_cache.future_cache_expectation ctxt.cache ~time_in_blocks
+      in
+      Context {ctxt with cache}
+
+    let fold_cache_keys cache ~init ~f =
+      let init = ok init in
+      Environment_cache.KeyMap.fold_s
+        (fun key entry acc -> acc >>?= fun acc -> f acc key entry)
+        cache
+        init
+
+    let find_domain ctxt =
+      Data_encoding.(
+        find ctxt cache_domain_path
+        >>= Option.map_s @@ fun v ->
+            Lwt.return
+            @@ (Binary.of_bytes_exn Environment_cache.domain_encoding) v)
+
+    let fold_keys ctxt ~init ~f =
+      find_domain ctxt >>= function
+      | None -> return init
+      | Some domain ->
+          List.fold_left_es
+            (fun acc cache -> fold_cache_keys cache ~init:acc ~f)
+            init
+            domain
+
+    let find (Context {cache; _}) key =
+      match Environment_cache.find cache key with
+      | None -> Lwt.return_none
+      | Some value -> value () >|= Option.some
+
+    let load ctxt initial ~value_of_key =
+      let init = Environment_cache.clear initial in
+      fold_keys ctxt ~init ~f:(fun cache key entry ->
+          match Environment_cache.lookup initial key with
+          | None -> value_of_key key entry cache
+          | Some (value, entry') ->
+              if Bytes.equal entry.cache_nonce entry'.cache_nonce then
+                return
+                @@ Environment_cache.update_cache_key cache key value entry
+              else value_of_key key entry cache)
+
+    let load_now ctxt cache builder =
+      load ctxt cache ~value_of_key:(fun key entry cache ->
+          let open Environment_cache in
+          builder key >>=? fun value ->
+          return (update_cache_key cache key (delay value) entry))
+
+    let load_on_demand ctxt cache builder =
+      let builder key =
+        builder key >>= function
+        | Error _ ->
+            (*
+
+               This error is critical as it means that there have been a
+               cached [value] for [key] in the past but that [builder] is
+               unable to build it again. We stop everything at this point
+               because a node cannot run if it does not have the same
+               cache as other nodes in the chain.
+
+            *)
+            Lwt.fail_with
+              "Environment_context.load_on_demand: Unable to load value"
+        | Ok value -> Lwt.return value
+      in
+      load ctxt cache ~value_of_key:(fun key entry cache ->
+          let open Environment_cache in
+          let lazy_value =
+            let cache = ref None in
+            fun () ->
+              match !cache with
+              | Some value -> Lwt.return value
+              | None ->
+                  builder key >>= fun r ->
+                  cache := Some r ;
+                  Lwt.return r
+          in
+          Lwt.return (update_cache_key cache key lazy_value entry) >|= ok)
+
+    let load_cache ctxt cache mode builder =
+      match mode with
+      | `Load -> load_now ctxt cache builder
+      | `Lazy -> load_on_demand ctxt cache builder
+
+    let ensure_valid_recycling (Context ctxt) cache =
+      get_cache_layout (Context ctxt) >>= fun layout ->
+      if Environment_cache.compatible_layout cache layout then Lwt.return cache
+      else Lwt.return (Environment_cache.from_layout layout)
+
+    let key_rank (Context ctxt) key = Environment_cache.key_rank ctxt.cache key
+
+    let cache_size (Context ctxt) ~cache_index =
+      Environment_cache.cache_size ctxt.cache ~cache_index
+
+    let cache_size_limit (Context ctxt) ~cache_index =
+      Environment_cache.cache_size_limit ctxt.cache ~cache_index
+  end
+
+  let load_cache (Context ctxt) mode builder =
+    (match mode with
+    | `Inherited ({block_hash; cache}, predecessor) ->
+        if Block_hash.equal block_hash predecessor then
+          (*
+
+             We can safely reuse the cache of the predecessor block.
+
+          *)
+          return cache
+        else
+          (*
+
+             The client of [load_cache] has provided a cache that is not
+             the cache of the predecessor but the predecessor and the
+             block have a common ancestor. Therefore, the inherited
+             cache is supposed to contain many entries that can be
+             recycled to build the new cache.
+
+          *)
+          Cache.ensure_valid_recycling (Context ctxt) cache >>= fun cache ->
+          Cache.load_cache (Context ctxt) cache `Load builder
+    | (`Load | `Lazy) as mode ->
+        Cache.get_cache_layout (Context ctxt) >>= fun layout ->
+        let cache = Environment_cache.from_layout layout in
+        Cache.load_cache (Context ctxt) cache mode builder)
+    >>=? fun cache -> return (Context {ctxt with cache})
+
   (* misc *)
 
   let set_protocol (Context ({ops = (module Ops); ctxt; _} as c)) protocol_hash
@@ -244,6 +502,12 @@ module Context = struct
       ~expiration =
     Ops.fork_test_chain ctxt ~protocol ~expiration >|= fun ctxt ->
     Context {c with ctxt}
+
+  let get_hash_version (Context {ops = (module Ops); ctxt; _}) =
+    Ops.get_hash_version ctxt
+
+  let set_hash_version (Context ({ops = (module Ops); ctxt; _} as c)) v =
+    Ops.set_hash_version ctxt v >|=? fun ctxt -> Context {c with ctxt}
 end
 
 module Register (C : CONTEXT) = struct

@@ -1,6 +1,6 @@
 opam-version: "2.0"
 maintainer: "contact@tezos.com"
-authors: [ "Tezos devteam" ]
+authors: ["Tezos devteam"]
 homepage: "https://www.tezos.com/"
 bug-reports: "https://gitlab.com/tezos/tezos/issues"
 dev-repo: "git+https://gitlab.com/tezos/tezos.git"
@@ -8,11 +8,14 @@ license: "MIT"
 depends: [
   "dune" { >= "2.0" }
   "tezos-base"
-  "irmin" { >= "2.5.4" & != "2.6.0" }
-  "irmin-pack" { >= "2.5.4" & != "2.6.0" }
-  "digestif" {>= "0.7.3"}
+  "irmin" { >= "2.7.2" }
+  "irmin-pack" { >= "2.7.2" }
   "tezos-shell-services"
+  "logs"
+  "digestif" { >= "0.7.3" }
   "tezos-stdlib-unix"
+  "bigstringaf" { >= "0.2.0" }
+  "vector" { with-test }
   "alcotest-lwt" { with-test & >= "1.1.0" }
 ]
 build: [

@@ -1,6 +1,3 @@
-.. _rpc:
-
-
 JSON/RPC interface
 ==================
 
@@ -47,7 +44,8 @@ simple HTTP request:
    wget -O - http://localhost:8732/describe/chains/main/blocks/genesis/hash
 
 
-An online :ref:`index <rpc_index>` of RPC calls is also available.
+An online :doc:`index <../active/rpc>` of RPC calls is
+also available.
 
 The general call of an RPC from the client is ``tezos-admin-client rpc
 (get|post) <url>``.
@@ -71,3 +69,8 @@ client you can pass the option `-l` and the client will print all the
 calls with their input/output.
 
 A useful util to manipulate JSON is `jq <https://stedolan.github.io/jq/>`_.
+
+RPC versions
+------------
+
+See :doc:`../user/versioning` and :ref:`RPC-versioning-dev`.

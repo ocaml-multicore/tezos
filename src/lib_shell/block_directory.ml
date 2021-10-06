@@ -24,30 +24,34 @@
 (*                                                                           *)
 (*****************************************************************************)
 
-let rec read_partial_context context path depth =
-  (* non tail-recursive *)
-  if depth = 0 then Lwt.return Block_services.Cut
-  else
-    (* try to read as file *)
-    Context.find context path >>= function
-    | Some v -> Lwt.return (Block_services.Key v)
-    | None ->
-        (* try to read as directory *)
-        Context.fold
-          ~depth:(`Eq 1)
-          context
-          path
-          ~init:TzString.Map.empty
-          ~f:(fun k _ acc ->
-            match path @ k with
-            | [] ->
-                (* This is an invariant of {!Context.fold} *)
-                assert false
-            | khd :: ktl as k ->
-                read_partial_context context k (depth - 1) >>= fun v ->
-                let k = List.last khd ktl in
-                Lwt.return (TzString.Map.add k v acc))
-        >|= fun map -> Block_services.Dir map
+let read_partial_context =
+  let init = Block_services.Dir TzString.Map.empty in
+  fun context path depth ->
+    if depth = 0 then Lwt.return Block_services.Cut
+    else
+      (* According to the documentation of Context.fold,
+         "[f] is never called with an empty key for values; i.e.,
+           folding over a value is a no-op".
+         Therefore, we first need to check that whether its a value.
+      *)
+      Context.find context path >>= function
+      | Some v -> Lwt.return (Block_services.Key v)
+      | None ->
+          (* try to read as directory *)
+          Context.fold
+            ~depth:(`Le depth)
+            context
+            path
+            ~init
+            ~f:(fun k tree acc ->
+              let open Block_services in
+              if List.compare_length_with k depth >= 0 then
+                (* only [=] case is possible because [~depth] is [(`Le depth)] *)
+                Lwt.return (raw_context_insert (k, Cut) acc)
+              else
+                Context.Tree.to_value tree >|= function
+                | None -> acc
+                | Some v -> raw_context_insert (k, Key v) acc)
 
 let build_raw_header_rpc_directory (module Proto : Block_services.PROTO) =
   let dir :
@@ -333,7 +337,7 @@ let build_raw_rpc_directory ~user_activated_upgrades
       Context.mem context path >>= fun mem ->
       Context.mem_tree context path >>= fun dir_mem ->
       if not (mem || dir_mem) then Lwt.fail Not_found
-      else read_partial_context context path depth >>= fun dir -> return dir) ;
+      else read_partial_context context path depth >>= Lwt.return_ok) ;
   register1 S.Context.merkle_tree (fun (chain_store, block) path query () ->
       Store.Block.context_opt chain_store block >>= function
       | None -> return None
@@ -385,7 +389,7 @@ let build_raw_rpc_directory ~user_activated_upgrades
           (fun operations ->
             let operations =
               if q#sort_operations then
-                List.sort Next_proto.compare_operations operations
+                List.sort Next_proto.relative_position_within_block operations
               else operations
             in
             List.map
@@ -420,6 +424,7 @@ let build_raw_rpc_directory ~user_activated_upgrades
         ~predecessor_fitness:header.fitness
         ~predecessor
         ~timestamp:(Time.System.to_protocol (Systime_os.now ()))
+        ~cache:`Lazy
         ()
       >>=? fun state ->
       List.fold_left_es
@@ -429,7 +434,9 @@ let build_raw_rpc_directory ~user_activated_upgrades
         (state, [])
         ops
       >>=? fun (state, acc) ->
-      Next_proto.finalize_block state >>=? fun _ -> return (List.rev acc)) ;
+      (* A pre application must not commit into the protocol caches.
+         Hence, we set [cache_nonce] to None. *)
+      Next_proto.finalize_block state None >>=? fun _ -> return (List.rev acc)) ;
   register1 S.Helpers.complete (fun (chain_store, block) prefix () () ->
       Store.Block.context chain_store block >>=? fun ctxt ->
       Base58.complete prefix >>= fun l1 ->
@@ -451,13 +458,49 @@ let build_raw_rpc_directory ~user_activated_upgrades
   merge
     (RPC_directory.map
        (fun (chain_store, block) ->
-         Store.Block.context_exn chain_store block >|= fun context ->
-         let context = Shell_context.wrap_disk_context context in
-         {
-           Tezos_protocol_environment.block_hash = Store.Block.hash block;
-           block_header = Store.Block.shell_header block;
-           context;
-         })
+         ( Store.Block.context_exn chain_store block >>= fun context ->
+           let predecessor_context = Shell_context.wrap_disk_context context in
+           let chain_id = Store.Chain.chain_id chain_store in
+           let Block_header.
+                 {
+                   timestamp = predecessor_timestamp;
+                   level = predecessor_level;
+                   fitness = predecessor_fitness;
+                   _;
+                 } =
+             Store.Block.shell_header block
+           in
+           (*
+             Reactivity is important when executing RPCs and there are
+             no constraints to be consistent with other nodes. For this
+             reason, the RPC directory loads the cache lazily.
+             See {!Environment_context.source_of_cache}.
+           *)
+           let predecessor = Store.Block.hash block in
+           let timestamp = Time.System.to_protocol (Systime_os.now ()) in
+           Next_proto.value_of_key
+             ~chain_id
+             ~predecessor_context
+             ~predecessor_timestamp
+             ~predecessor_level
+             ~predecessor_fitness
+             ~predecessor
+             ~timestamp
+           >>=? fun value_of_key ->
+           Tezos_protocol_environment.Context.load_cache
+             predecessor_context
+             `Lazy
+             value_of_key
+           >>=? fun context ->
+           return
+             {
+               Tezos_protocol_environment.block_hash = Store.Block.hash block;
+               block_header = Store.Block.shell_header block;
+               context;
+             } )
+         >>= function
+         | Ok result -> Lwt.return result
+         | Error _ -> Lwt.fail Not_found)
        proto_services) ;
   !dir
 
@@ -515,7 +558,11 @@ let get_directory ~user_activated_upgrades ~user_activated_protocol_overrides
                 (module Proto)
                 (module Next_proto)
             in
-            Store.Chain.set_rpc_directory chain_store Proto.hash dir
+            Store.Chain.set_rpc_directory
+              chain_store
+              ~protocol_hash:Proto.hash
+              ~next_protocol_hash:Next_proto.hash
+              dir
             >>= fun () -> Lwt.return dir)
 
 let get_block chain_store = function

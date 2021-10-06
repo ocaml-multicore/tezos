@@ -43,12 +43,17 @@ module Term = struct
   open Cmdliner
   open Node_shared_arg.Term
 
+  let ( let+ ) t f = Term.(const f $ t)
+
+  let ( and+ ) a b = Term.(const (fun x y -> (x, y)) $ a $ b)
+
   type subcommand =
     | Stat_index
     | Stat_pack
     | Integrity_check
     | Reconstruct_index
     | Integrity_check_inodes
+    | Integrity_check_index
 
   let read_config_file config_file =
     Option.filter Sys.file_exists config_file
@@ -104,10 +109,10 @@ module Term = struct
     | false -> return_unit
     | true -> fail (Existing_index_dir index_dir)
 
-  let reconstruct_index config_file data_dir output =
+  let reconstruct_index config_file data_dir output index_log_size =
     root config_file data_dir >>=? fun root ->
     index_dir_exists root output >>=? fun () ->
-    Context.Checks.Pack.Reconstruct_index.run ~root ~output ;
+    Context.Checks.Pack.Reconstruct_index.run ~root ~output ~index_log_size () ;
     return_unit
 
   let to_context_hash chain_store (hash : Block_hash.t) =
@@ -144,20 +149,27 @@ module Term = struct
     Context.Checks.Pack.Integrity_check_inodes.run ~root ~heads:(Some [head])
     >>= fun () -> return_unit
 
+  let check_index config_file data_dir auto_repair =
+    root config_file data_dir >>=? fun root ->
+    Context.Checks.Pack.Integrity_check_index.run ~root ~auto_repair () ;
+    return_unit
+
   let dispatch_subcommand subcommand config_file data_dir auto_repair dest head
-      =
+      log_size =
     let run =
       match subcommand with
       | Stat_index -> stat_index config_file data_dir
       | Stat_pack -> stat_pack config_file data_dir
       | Integrity_check -> integrity_check config_file data_dir auto_repair
-      | Reconstruct_index -> reconstruct_index config_file data_dir dest
+      | Reconstruct_index ->
+          reconstruct_index config_file data_dir dest log_size
       | Integrity_check_inodes ->
           integrity_check_inodes config_file data_dir head
+      | Integrity_check_index -> check_index config_file data_dir auto_repair
     in
     match Lwt_main.run @@ Lwt_exit.wrap_and_exit run with
     | Ok () -> `Ok ()
-    | Error err -> `Error (false, Format.asprintf "%a" pp_print_error err)
+    | Error err -> `Error (false, Format.asprintf "%a" pp_print_trace err)
 
   let subcommand_arg =
     let parser = function
@@ -166,6 +178,7 @@ module Term = struct
       | "integrity-check" -> `Ok Integrity_check
       | "reconstruct-index" -> `Ok Reconstruct_index
       | "integrity-check-inodes" -> `Ok Integrity_check_inodes
+      | "integrity-check-index" -> `Ok Integrity_check_index
       | s -> `Error ("invalid argument: " ^ s)
     and printer ppf = function
       | Stat_index -> Format.fprintf ppf "stat-index"
@@ -173,12 +186,13 @@ module Term = struct
       | Integrity_check -> Format.fprintf ppf "integrity-check"
       | Reconstruct_index -> Format.fprintf ppf "reconstruct-index"
       | Integrity_check_inodes -> Format.fprintf ppf "integrity-check-inodes"
+      | Integrity_check_index -> Format.fprintf ppf "integrity-check-index"
     in
     let open Cmdliner.Arg in
     let doc =
       "Operation to perform. Possible values: $(b,stat-index), $(b,stat-pack), \
        $(b,integrity-check), $(b,reconstruct-index), \
-       $(b,integrity-check-inodes)."
+       $(b,integrity-check-inodes), $(b,integrity-check-index)."
     in
     required
     & pos 0 (some (parser, printer)) None
@@ -189,7 +203,9 @@ module Term = struct
     value
     & flag
       @@ info
-           ~doc:"Automatically repair issues; option for integrity-check"
+           ~doc:
+             "Automatically repair issues; option for integrity-check and \
+              integrity-check-index."
            ["auto-repair"]
 
   let dest =
@@ -197,24 +213,56 @@ module Term = struct
     value
     & opt (some string) None
       @@ info
-           ~doc:"Path to the new index file; option for reconstruct-index"
+           ~doc:"Path to the new index file; option for reconstruct-index."
            ~docv:"DEST"
            ["output"; "o"]
+
+  let index_log_size =
+    let open Cmdliner.Arg in
+    value
+    & opt int 10_000_000
+      @@ info
+           ~doc:
+             "Size of the index write-ahead log; option for reconstruct-index. \
+              Increasing the log size will reduce the total time necessary to \
+              reconstruct the index, at the cost of increased memory usage."
+           ~docv:"ENTRIES"
+           ["index-log-size"]
 
   let head =
     let open Cmdliner.Arg in
     value
     & opt (some string) None
       @@ info
-           ~doc:"Head; option for integrity-check-inodes"
+           ~doc:"Head; option for integrity-check-inodes."
            ~docv:"HEAD"
            ["head"; "h"]
+
+  let setup_logs =
+    let+ style_renderer = Fmt_cli.style_renderer ()
+    and+ level =
+      let+ vopts =
+        let doc =
+          "Increase verbosity. Repeatable, but more than twice does not bring \
+           more."
+        in
+        Arg.(value & flag_all & info ["v"; "verbose"] ~doc)
+      in
+      match List.length vopts with
+      | 0 -> Some Logs.Error
+      | 1 -> Some Logs.Info
+      | _ -> Some Logs.Debug
+    in
+    Fmt_tty.setup_std_outputs ?style_renderer () ;
+    Logs.set_level level ;
+    Logs.set_reporter (Logs_fmt.reporter ())
 
   let term =
     Term.(
       ret
-        (const dispatch_subcommand $ subcommand_arg $ config_file $ data_dir
-       $ auto_repair $ dest $ head))
+        (const (fun () -> dispatch_subcommand)
+        $ setup_logs $ subcommand_arg $ config_file $ data_dir $ auto_repair
+        $ dest $ head $ index_log_size))
 end
 
 module Manpage = struct
@@ -236,6 +284,9 @@ module Manpage = struct
         "$(b,integrity-check-inodes) search the store for corrupted inodes. If \
          no block hash is provided (through the $(b,--head) argument) then the \
          current head is chosen as the default context to start with.";
+      `P
+        "$(b,integrity-check-index) checks the index for corruptions. If \
+         $(b,--auto-repair) flag is set it also tries to repair the index.";
       `P
         "$(b,WARNING): this API is experimental and may change in future \
          versions.";

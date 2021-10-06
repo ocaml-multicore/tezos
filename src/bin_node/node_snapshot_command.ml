@@ -25,23 +25,12 @@
 (*****************************************************************************)
 
 type error +=
-  | Invalid_sandbox_file of string
   | Missing_file_argument
   | Cannot_locate_file of string
   | Data_dir_not_found of {path : string}
   | Cannot_read_info
 
 let () =
-  register_error_kind
-    `Permanent
-    ~id:"main.snapshots.invalid_sandbox_file"
-    ~title:"Invalid sandbox file"
-    ~description:"The provided sandbox file is not a valid sandbox JSON file."
-    ~pp:(fun ppf s ->
-      Format.fprintf ppf "The file '%s' is not a valid JSON sandbox file" s)
-    Data_encoding.(obj1 (req "sandbox_file" string))
-    (function Invalid_sandbox_file s -> Some s | _ -> None)
-    (fun s -> Invalid_sandbox_file s) ;
   register_error_kind
     `Permanent
     ~id:"main.snapshots.missing_file_argument"
@@ -206,7 +195,8 @@ module Term = struct
               return_some (parameters.context_key, parameters.values)
           | (_, Some filename) -> (
               Lwt_utils_unix.Json.read_file filename >>= function
-              | Error _err -> fail (Invalid_sandbox_file filename)
+              | Error _err ->
+                  fail (Node_run_command.Invalid_sandbox_file filename)
               | Ok json -> return_some ("sandbox_parameter", json)))
           >>=? fun sandbox_parameters ->
           let context_root = Node_data_version.context_dir data_dir in
@@ -252,26 +242,19 @@ module Term = struct
               ~user_activated_protocol_overrides:
                 node_config.blockchain_network.user_activated_protocol_overrides
           else return_unit
-      | Info -> (
+      | Info ->
           check_snapshot_path snapshot_path >>=? fun snapshot_path ->
-          Snapshots.read_snapshot_metadata ~snapshot_path >>=? function
-          | Snapshots.Current_metadata metadata ->
-              Format.printf
-                "@[<v 2>Snapshot information:@ %a@]@."
-                Snapshots.pp_metadata
-                metadata ;
-              return_unit
-          | Legacy_metadata {version; legacy_history_mode} ->
-              Format.printf
-                "@[<v 2>Snapshot version %s in %a@ @]@."
-                version
-                History_mode.Legacy.pp
-                legacy_history_mode ;
-              return_unit)
+          Snapshots.read_snapshot_header ~snapshot_path
+          >>=? fun snapshot_header ->
+          Format.printf
+            "@[<v 2>Snapshot information:@ %a@]@."
+            Snapshots.pp_snapshot_header
+            snapshot_header ;
+          return_unit
     in
     match Lwt_main.run @@ Lwt_exit.wrap_and_exit run with
     | Ok () -> `Ok ()
-    | Error err -> `Error (false, Format.asprintf "%a" pp_print_error err)
+    | Error err -> `Error (false, Format.asprintf "%a" pp_print_trace err)
 
   open Cmdliner.Arg
 

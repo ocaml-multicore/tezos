@@ -47,12 +47,38 @@ val get_chain_id :
   Client.t ->
   JSON.t Lwt.t
 
+(** Call RPC /chain/[chain]/blocks/[block] *)
+val get_block :
+  ?endpoint:Client.endpoint ->
+  ?hooks:Process.hooks ->
+  ?chain:string ->
+  ?block:string ->
+  Client.t ->
+  JSON.t Lwt.t
+
+(** Call RPC /chain/[chain]/blocks/[block]/metadata *)
+val get_block_metadata :
+  ?endpoint:Client.endpoint ->
+  ?hooks:Process.hooks ->
+  ?chain:string ->
+  ?block:string ->
+  Client.t ->
+  JSON.t Lwt.t
+
 (** Call RPC /chain/[chain] *)
 val force_bootstrapped :
   ?endpoint:Client.endpoint ->
   ?hooks:Process.hooks ->
   ?chain:string ->
   ?bootstrapped:bool ->
+  Client.t ->
+  JSON.t Lwt.t
+
+(** Call RPC /chain/[chain]/is_bootstrapped *)
+val is_bootstrapped :
+  ?endpoint:Client.endpoint ->
+  ?hooks:Process.hooks ->
+  ?chain:string ->
   Client.t ->
   JSON.t Lwt.t
 
@@ -71,6 +97,30 @@ val inject_operation :
   data:JSON.u ->
   Client.t ->
   JSON.t Lwt.t
+
+(** Same as {!inject_operation}, but do not wait for the process to exit. *)
+val spawn_inject_operation :
+  ?endpoint:Client.endpoint ->
+  ?hooks:Process.hooks ->
+  data:JSON.u ->
+  Client.t ->
+  Process.t
+
+(** Call RPC /private/injection/operation *)
+val private_inject_operation :
+  ?endpoint:Client.endpoint ->
+  ?hooks:Process.hooks ->
+  data:JSON.u ->
+  Client.t ->
+  JSON.t Lwt.t
+
+(** Same as {!private_inject_operation}, but do not wait for the process to exit. *)
+val spawn_private_inject_operation :
+  ?endpoint:Client.endpoint ->
+  ?hooks:Process.hooks ->
+  data:JSON.u ->
+  Client.t ->
+  Process.t
 
 (** Call RPC /injection/block *)
 val inject_block :
@@ -112,6 +162,44 @@ val get_mempool_pending_operations :
   ?endpoint:Client.endpoint ->
   ?hooks:Process.hooks ->
   ?chain:string ->
+  ?version:string ->
+  Client.t ->
+  JSON.t Lwt.t
+
+(** Call RPC /chains/[chain]/mempool/request_operations *)
+val post_request_operations :
+  ?endpoint:Client.endpoint ->
+  ?hooks:Process.hooks ->
+  ?chain:string ->
+  Client.t ->
+  JSON.t Lwt.t
+
+(** Call RPC /chains/[chain]/mempool/ban_operation *)
+val mempool_ban_operation :
+  ?endpoint:Client.endpoint ->
+  ?chain:string ->
+  data:JSON.u ->
+  Client.t ->
+  JSON.t Lwt.t
+
+(** Call RPC /chains/[chain]/mempool/unban_operation *)
+val mempool_unban_operation :
+  ?endpoint:Client.endpoint ->
+  ?chain:string ->
+  data:JSON.u ->
+  Client.t ->
+  JSON.t Lwt.t
+
+(** Call RPC /chains/[chain]/mempool/unban_all_operations *)
+val mempool_unban_all_operations :
+  ?endpoint:Client.endpoint -> ?chain:string -> Client.t -> JSON.t Lwt.t
+
+(** Call RPC POST /chains/[chain]/mempool/filter *)
+val post_mempool_filter :
+  ?endpoint:Client.endpoint ->
+  ?hooks:Process.hooks ->
+  ?chain:string ->
+  data:JSON.u ->
   Client.t ->
   JSON.t Lwt.t
 
@@ -146,6 +234,20 @@ val post_run_operation :
   JSON.t Lwt.t
 
 (** {2 Protocol RPCs} *)
+
+type ctxt_type = Bytes | Json
+
+(** Call RPC /chain/[chain]/blocks/[block]/context/raw/[ctxt_type]/[value_path]
+*)
+val get_context_value :
+  ?endpoint:Client.endpoint ->
+  ?hooks:Process.hooks ->
+  ?chain:string ->
+  ?block:string ->
+  ?ctxt_type:ctxt_type ->
+  value_path:string list ->
+  Client.t ->
+  JSON.t Lwt.t
 
 (** Call RPC /chain/[chain]/blocks/[block]/context/constants *)
 val get_constants :
@@ -698,15 +800,6 @@ module Votes : sig
 
   (** Call RPC /chain/[chain]/blocks/[block]/votes/ballots *)
   val get_ballots :
-    ?endpoint:Client.endpoint ->
-    ?hooks:Process.hooks ->
-    ?chain:string ->
-    ?block:string ->
-    Client.t ->
-    JSON.t Lwt.t
-
-  (** Call RPC /chain/[chain]/blocks/[block]/votes/current_period_kind *)
-  val get_current_period_kind :
     ?endpoint:Client.endpoint ->
     ?hooks:Process.hooks ->
     ?chain:string ->

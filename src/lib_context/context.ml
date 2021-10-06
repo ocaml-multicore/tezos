@@ -136,36 +136,19 @@ let () =
               | _ -> ()))
         args
 
-module Conf = struct
-  let entries = 32
-
-  let stable_hash = 256
-end
-
 module Store =
-  Irmin_pack.Make_ext
-    (struct
-      let io_version = `V1
-    end)
-    (Conf)
-    (Metadata)
+  Irmin_pack.Make_ext (Irmin_pack.Version.V1) (Conf) (Node) (Commit) (Metadata)
     (Contents)
     (Path)
     (Branch)
     (Hash)
-    (Node)
-    (Commit)
-
 module P = Store.Private
 
 module Checks = struct
-  module Maker (V : Irmin_pack.VERSION) =
-    Irmin_pack.Make_ext (V) (Conf) (Irmin.Metadata.None) (Contents)
-      (Irmin.Path.String_list)
-      (Irmin.Branch.String)
+  module Maker (V : Irmin_pack.Version.S) =
+    Irmin_pack.Make_ext (V) (Conf) (Node) (Commit) (Metadata) (Contents) (Path)
+      (Branch)
       (Hash)
-      (Node)
-      (Commit)
 
   module Pack : Irmin_pack.Checks.S = Irmin_pack.Checks.Make (Maker)
 
@@ -201,17 +184,6 @@ let current_predecessor_block_metadata_hash_key =
 
 let current_predecessor_ops_metadata_hash_key =
   ["predecessor_ops_metadata_hash"]
-
-let restore_integrity ?ppf index =
-  match Store.integrity_check ?ppf ~auto_repair:true index.repo with
-  | Ok (`Fixed n) -> Ok (Some n)
-  | Ok `No_error -> Ok None
-  | Error (`Cannot_fix msg) -> error (failure "%s" msg)
-  | Error (`Corrupted n) ->
-      error
-        (failure
-           "unable to fix the corrupted context: %d bad entries detected"
-           n)
 
 let sync index =
   if index.readonly then Store.sync index.repo ;
@@ -251,19 +223,25 @@ let unshallow context =
               >|= fun _ -> ())
         children)
 
+let get_hash_version _c = Context_hash.Version.of_int 0
+
+let set_hash_version c v =
+  if Context_hash.Version.(of_int 0 = v) then return c
+  else fail (Tezos_context_helpers.Context.Unsupported_context_hash_version v)
+
 let raw_commit ~time ?(message = "") context =
   let info =
-    Irmin.Info.v ~date:(Time.Protocol.to_seconds time) ~author:"Tezos" message
+    Info.v ~author:"Tezos" ~date:(Time.Protocol.to_seconds time) message
   in
   let parents = List.map Store.Commit.hash context.parents in
   unshallow context >>= fun () ->
-  Store.Commit.v context.index.repo ~info ~parents context.tree >|= fun h ->
+  Store.Commit.v context.index.repo ~info ~parents context.tree >|= fun c ->
   Store.Tree.clear context.tree ;
-  h
+  c
 
 let hash ~time ?(message = "") context =
   let info =
-    Irmin.Info.v ~date:(Time.Protocol.to_seconds time) ~author:"Tezos" message
+    Info.v ~author:"Tezos" ~date:(Time.Protocol.to_seconds time) message
   in
   let parents = List.map (fun c -> Store.Commit.hash c) context.parents in
   let node = Store.Tree.hash context.tree in
@@ -568,9 +546,27 @@ module Dumpable_context = struct
 
   type tree = Store.tree
 
-  type hash = [`Blob of Store.hash | `Node of Store.hash]
+  type hash = Store.hash
 
-  type commit_info = Irmin.Info.t
+  module Kinded_hash = struct
+    type t = [`Blob of hash | `Node of hash]
+
+    let encoding : t Data_encoding.t =
+      let open Data_encoding in
+      let kind_encoding = string_enum [("node", `Node); ("blob", `Blob)] in
+      conv
+        (function
+          | `Blob h -> (`Blob, Context_hash.to_bytes (Hash.to_context_hash h))
+          | `Node h -> (`Node, Context_hash.to_bytes (Hash.to_context_hash h)))
+        (function
+          | (`Blob, h) ->
+              `Blob (Hash.of_context_hash (Context_hash.of_bytes_exn h))
+          | (`Node, h) ->
+              `Node (Hash.of_context_hash (Context_hash.of_bytes_exn h)))
+        (obj2 (req "kind" kind_encoding) (req "value" bytes))
+  end
+
+  type commit_info = Info.t
 
   type batch =
     | Batch of
@@ -583,26 +579,12 @@ module Dumpable_context = struct
     let open Data_encoding in
     conv
       (fun irmin_info ->
-        let author = Irmin.Info.author irmin_info in
-        let message = Irmin.Info.message irmin_info in
-        let date = Irmin.Info.date irmin_info in
+        let author = Info.author irmin_info in
+        let message = Info.message irmin_info in
+        let date = Info.date irmin_info in
         (author, message, date))
-      (fun (author, message, date) -> Irmin.Info.v ~author ~date message)
+      (fun (author, message, date) -> Info.v ~author ~date message)
       (obj3 (req "author" string) (req "message" string) (req "date" int64))
-
-  let hash_encoding : hash Data_encoding.t =
-    let open Data_encoding in
-    let kind_encoding = string_enum [("node", `Node); ("blob", `Blob)] in
-    conv
-      (function
-        | `Blob h -> (`Blob, Context_hash.to_bytes (Hash.to_context_hash h))
-        | `Node h -> (`Node, Context_hash.to_bytes (Hash.to_context_hash h)))
-      (function
-        | (`Blob, h) ->
-            `Blob (Hash.of_context_hash (Context_hash.of_bytes_exn h))
-        | (`Node, h) ->
-            `Node (Hash.of_context_hash (Context_hash.of_bytes_exn h)))
-      (obj2 (req "kind" kind_encoding) (req "value" bytes))
 
   let hash_equal (h1 : hash) (h2 : hash) = h1 = h2
 
@@ -629,12 +611,6 @@ module Dumpable_context = struct
 
   let context_tree ctxt = ctxt.tree
 
-  let tree_hash tree =
-    let hash = Store.Tree.hash tree in
-    match Store.Tree.destruct tree with
-    | `Node _ -> `Node hash
-    | `Contents _ -> `Blob hash
-
   type binding = {
     key : string;
     value : tree;
@@ -655,34 +631,42 @@ module Dumpable_context = struct
                    iterating over existing keys *)
                assert false
            | Some value_kind ->
-               let value_hash = tree_hash value in
+               let value_hash = Store.Tree.hash value in
                {key; value; value_kind; value_hash})
     >|= fun bindings ->
     Store.Tree.clear tree ;
     bindings
 
-  module Hashtbl = Hashtbl.MakeSeeded (struct
-    type t = hash
+  module Hashset = struct
+    module String_set = Utils.String_set
 
-    let hash = Hashtbl.seeded_hash
+    let create () =
+      String_set.create ~elt_length:Hash.hash_size ~initial_capacity:100_000
 
-    let equal = hash_equal
-  end)
+    let mem t h = String_set.mem t (Hash.to_raw_string h)
+
+    let add t h = String_set.add t (Hash.to_raw_string h)
+  end
 
   let tree_iteri_unique f tree =
     let total_visited = ref 0 in
     (* Noting the visited hashes *)
-    let visited_hash = Hashtbl.create 1000 in
-    let visited h = Hashtbl.mem visited_hash h in
+    let visited_hash = Hashset.create () in
+    let visited h = Hashset.mem visited_hash h in
     let set_visit h =
       incr total_visited ;
-      Hashtbl.add visited_hash h ()
+      Hashset.add visited_hash h
     in
     let rec aux : type a. tree -> (unit -> a) -> a Lwt.t =
      fun tree k ->
       bindings tree
       >>= List.map_s (fun {key; value; value_hash; value_kind} ->
-              let kv = (key, value_hash) in
+              let kinded_value_hash =
+                match value_kind with
+                | `Node -> `Node value_hash
+                | `Contents -> `Blob value_hash
+              in
+              let kv = (key, kinded_value_hash) in
               if visited value_hash then Lwt.return kv
               else
                 match value_kind with
@@ -912,9 +896,27 @@ module Dumpable_context_legacy = struct
 
   type tree = Store.tree
 
-  type hash = [`Blob of Store.hash | `Node of Store.hash]
+  type hash = Store.hash
 
-  type commit_info = Irmin.Info.t
+  module Kinded_hash = struct
+    type t = [`Blob of hash | `Node of hash]
+
+    let encoding : t Data_encoding.t =
+      let open Data_encoding in
+      let kind_encoding = string_enum [("node", `Node); ("blob", `Blob)] in
+      conv
+        (function
+          | `Blob h -> (`Blob, Context_hash.to_bytes (Hash.to_context_hash h))
+          | `Node h -> (`Node, Context_hash.to_bytes (Hash.to_context_hash h)))
+        (function
+          | (`Blob, h) ->
+              `Blob (Hash.of_context_hash (Context_hash.of_bytes_exn h))
+          | (`Node, h) ->
+              `Node (Hash.of_context_hash (Context_hash.of_bytes_exn h)))
+        (obj2 (req "kind" kind_encoding) (req "value" bytes))
+  end
+
+  type commit_info = Info.t
 
   type batch =
     | Batch of
@@ -927,26 +929,12 @@ module Dumpable_context_legacy = struct
     let open Data_encoding in
     conv
       (fun irmin_info ->
-        let author = Irmin.Info.author irmin_info in
-        let message = Irmin.Info.message irmin_info in
-        let date = Irmin.Info.date irmin_info in
+        let author = Info.author irmin_info in
+        let message = Info.message irmin_info in
+        let date = Info.date irmin_info in
         (author, message, date))
-      (fun (author, message, date) -> Irmin.Info.v ~author ~date message)
+      (fun (author, message, date) -> Info.v ~author ~date message)
       (obj3 (req "author" string) (req "message" string) (req "date" int64))
-
-  let hash_encoding : hash Data_encoding.t =
-    let open Data_encoding in
-    let kind_encoding = string_enum [("node", `Node); ("blob", `Blob)] in
-    conv
-      (function
-        | `Blob h -> (`Blob, Context_hash.to_bytes (Hash.to_context_hash h))
-        | `Node h -> (`Node, Context_hash.to_bytes (Hash.to_context_hash h)))
-      (function
-        | (`Blob, h) ->
-            `Blob (Hash.of_context_hash (Context_hash.of_bytes_exn h))
-        | (`Node, h) ->
-            `Node (Hash.of_context_hash (Context_hash.of_bytes_exn h)))
-      (obj2 (req "kind" kind_encoding) (req "value" bytes))
 
   let hash_equal (h1 : hash) (h2 : hash) = h1 = h2
 
@@ -976,12 +964,6 @@ module Dumpable_context_legacy = struct
 
   let context_tree ctxt = ctxt.tree
 
-  let tree_hash tree =
-    let hash = Store.Tree.hash tree in
-    match Store.Tree.destruct tree with
-    | `Node _ -> `Node hash
-    | `Contents _ -> `Blob hash
-
   type binding = {
     key : string;
     value : tree;
@@ -1002,34 +984,42 @@ module Dumpable_context_legacy = struct
                   iterating over existing keys *)
                assert false
            | Some value_kind ->
-               let value_hash = tree_hash value in
+               let value_hash = Store.Tree.hash value in
                {key; value; value_kind; value_hash})
     >|= fun bindings ->
     Store.Tree.clear tree ;
     bindings
 
-  module Hashtbl = Hashtbl.MakeSeeded (struct
-    type t = hash
+  module Hashset = struct
+    module String_set = Utils.String_set
 
-    let hash = Hashtbl.seeded_hash
+    let create () =
+      String_set.create ~elt_length:Hash.hash_size ~initial_capacity:100_000
 
-    let equal = hash_equal
-  end)
+    let mem t h = String_set.mem t (Hash.to_raw_string h)
+
+    let add t h = String_set.add t (Hash.to_raw_string h)
+  end
 
   let tree_iteri_unique f tree =
     let total_visited = ref 0 in
     (* Noting the visited hashes *)
-    let visited_hash = Hashtbl.create 1000 in
-    let visited h = Hashtbl.mem visited_hash h in
+    let visited_hash = Hashset.create () in
+    let visited h = Hashset.mem visited_hash h in
     let set_visit h =
       incr total_visited ;
-      Hashtbl.add visited_hash h ()
+      Hashset.add visited_hash h
     in
     let rec aux : type a. tree -> (unit -> a) -> a Lwt.t =
      fun tree k ->
       bindings tree
       >>= List.map_s (fun {key; value; value_hash; value_kind} ->
-              let kv = (key, value_hash) in
+              let kinded_value_hash =
+                match value_kind with
+                | `Node -> `Node value_hash
+                | `Contents -> `Blob value_hash
+              in
+              let kv = (key, kinded_value_hash) in
               if visited value_hash then Lwt.return kv
               else
                 match value_kind with
@@ -1095,9 +1085,9 @@ let data_node_hash context =
 let retrieve_commit_info index block_header =
   checkout_exn index block_header.Block_header.shell.context >>= fun context ->
   let irmin_info = Dumpable_context.context_info context in
-  let author = Irmin.Info.author irmin_info in
-  let message = Irmin.Info.message irmin_info in
-  let timestamp = Time.Protocol.of_seconds (Irmin.Info.date irmin_info) in
+  let author = Info.author irmin_info in
+  let message = Info.message irmin_info in
+  let timestamp = Time.Protocol.of_seconds (Info.date irmin_info) in
   get_protocol context >>= fun protocol_hash ->
   get_test_chain context >>= fun test_chain_status ->
   find_predecessor_block_metadata_hash context
@@ -1156,7 +1146,7 @@ let check_protocol_commit_consistency index ~expected_context_hash
   | None -> Lwt.return tree)
   >>= fun tree ->
   let info =
-    Irmin.Info.v ~date:(Time.Protocol.to_seconds timestamp) ~author message
+    Info.v ~author ~date:(Time.Protocol.to_seconds timestamp) message
   in
   let data_tree = Store.Tree.shallow index.repo (`Node data_merkle_root) in
   Store.Tree.add_tree tree current_data_key data_tree >>= fun node ->
@@ -1238,9 +1228,9 @@ let legacy_get_protocol_data_from_header index block_header =
   checkout_exn index block_header.Block_header.shell.context >>= fun context ->
   let level = block_header.shell.level in
   let irmin_info = Dumpable_context.context_info context in
-  let date = Irmin.Info.date irmin_info in
-  let author = Irmin.Info.author irmin_info in
-  let message = Irmin.Info.message irmin_info in
+  let date = Info.date irmin_info in
+  let author = Info.author irmin_info in
+  let message = Info.message irmin_info in
   let info = {timestamp = Time.Protocol.of_seconds date; author; message} in
   let parents = Dumpable_context.context_parents context in
   get_protocol context >>= fun protocol_hash ->
@@ -1363,7 +1353,7 @@ let validate_context_hash_consistency_and_commit ~data_hash
   | None -> Lwt.return tree)
   >>= fun tree ->
   let info =
-    Irmin.Info.v ~date:(Time.Protocol.to_seconds timestamp) ~author message
+    Info.v ~author ~date:(Time.Protocol.to_seconds timestamp) message
   in
   let data_tree = Store.Tree.shallow index.repo (`Node data_hash) in
   Store.Tree.add_tree tree current_data_key data_tree >>= fun node ->

@@ -34,6 +34,7 @@ type validation_store = {
   message : string option;
   max_operations_ttl : int;
   last_allowed_fork_level : Int32.t;
+      (** Oldest block for which reorganizations can happen *)
 }
 
 val may_patch_protocol :
@@ -45,6 +46,13 @@ val may_patch_protocol :
 
 val update_testchain_status :
   Context.t -> Block_header.t -> Time.Protocol.t -> Context.t Lwt.t
+
+(** [check_proto_environment_version_increasing hash before after]
+    returns successfully if the environment version stays the same or
+    increases from [before] to [after]. Otherwise, an
+    [Invalid_protocol_environment_transition] error is returned. *)
+val check_proto_environment_version_increasing :
+  Block_hash.t -> Protocol.env_version -> Protocol.env_version -> unit tzresult
 
 (** [init_test_chain] must only be called on a forking block. *)
 val init_test_chain :
@@ -61,7 +69,7 @@ type result = {
 val result_encoding : result Data_encoding.t
 
 (** [check_liveness live_blocks live_operations hash ops] checks
-    there is no duplicate operation and that is not outdate *)
+    there is no duplicate operation and that is not out-of-date *)
 val check_liveness :
   live_blocks:Block_hash.Set.t ->
   live_operations:Operation_hash.Set.t ->
@@ -86,7 +94,7 @@ type apply_environment = {
       (** user activated protocol overrides *)
 }
 
-(** [apply env header ops] get the protocol [P] of the context of the predecessor
+(** [apply env header ops] gets the protocol [P] of the context of the predecessor
     block and calls successively:
     1. [P.begin_application]
     2. [P.apply]
@@ -94,6 +102,7 @@ type apply_environment = {
 *)
 val apply :
   apply_environment ->
+  cache:Environment_context.Context.source_of_cache ->
   Block_header.t ->
   Operation.t list list ->
-  result tzresult Lwt.t
+  (result * Environment_context.Context.cache) tzresult Lwt.t

@@ -73,7 +73,7 @@ val raw_upgrade :
   Genesis.t ->
   unit tzresult Lwt.t
 
-(** [upgrade_0_0_4 ~data_dir genesis patch_context ~chain_name]
+(** [upgrade_0_0_4 ~data_dir ?patch_context ~chain_name genesis]
     upgrades a store located in [data_dir] base on v.0.0.4 to a
     v0.0.5. It outputs information regarding the necessary actions in
     order to cleanely complete the upgrade. Here this case, the user
@@ -85,3 +85,9 @@ val upgrade_0_0_4 :
   chain_name:Distributed_db_version.Name.t ->
   Genesis.t ->
   unit tzresult Lwt.t
+
+(** [upgrade_0_0_5 ~data_dir genesis] upgrades a v0.0.5 store located
+    in [data_dir] to the v0.0.6 format. This upgrade consists in
+    removing the broken floating indexes of the former store and
+    re-rewriting some fresh ones. *)
+val upgrade_0_0_5 : data_dir:string -> Genesis.t -> unit tzresult Lwt.t

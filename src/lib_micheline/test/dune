@@ -1,20 +1,7 @@
-(executables
- (names test_parser)
- (libraries tezos-micheline
-            alcotest-lwt)
+(test
+ (name test_parser)
+ (package tezos-micheline)
+ (libraries
+  tezos-micheline
+  alcotest-lwt)
  (flags (:standard -open Tezos_micheline)))
-
-(rule
-  (alias buildtest)
-  (deps test_parser.exe)
-  (action progn))
-
-(rule
-  (alias runtest_micheline_parser)
-  (action (run %{exe:test_parser.exe})))
-
-(rule
-  (alias runtest)
-  (package tezos-micheline)
-  (deps (alias runtest_micheline_parser))
-  (action progn))

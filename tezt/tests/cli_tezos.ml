@@ -39,6 +39,25 @@ let on_terminate resolver status =
   | Unix.WEXITED x when x = 1 -> Lwt.wakeup resolver ()
   | _ -> ()
 
+(* Wait for a node to be ready or to exit, and fail if the node became ready.
+
+   In this module we sometimes have to wait for an error to happen
+   before the node is ready. After this error happens the node exits.
+   If the node becomes ready, we know that what we are waiting for will not happen,
+   so we raise an error instead of waiting forever.
+
+   But [Node.wait_for_ready] also raises an error if the node exits
+   before the node is ready. If we're unlucky with concurrency, we could notice
+   that the node exited before reading the error that we expect.
+   We make sure this does not happen by catching [Node.Terminated_before_event]. *)
+let fail_if_ready node error_message =
+  Lwt.catch (fun () ->
+      let* () = Node.wait_for_ready node in
+      return @@ Test.fail "%s" error_message)
+  @@ function
+  | Node.Terminated_before_event _ -> unit
+  | exn -> raise exn
+
 let check_connections_above_cap () =
   Test.register
     ~__FILE__
@@ -53,18 +72,47 @@ let check_connections_above_cap () =
       node
       [Connections (cap * 2)]
   in
-  let is_ready_p =
-    let* () = Node.wait_for_ready node in
-    Lwt.return_true
+  let is_ready =
+    fail_if_ready node "The node should fail and should not be ready"
   in
-  let has_failed_p =
-    let* () = has_failed in
-    Lwt.return_false
+  Lwt.pick [is_ready; has_failed]
+
+let check_node_addr_colision_message net_port1 net_port2 rpc_port1 rpc_port2
+    title msg =
+  Test.register ~__FILE__ ~title ~tags:["cli"; "address"] @@ fun () ->
+  let* _node1 = Node.init ~net_port:net_port1 ~rpc_port:rpc_port1 [] in
+  let node2 = Node.create ~net_port:net_port2 ~rpc_port:rpc_port2 [] in
+  let readiness =
+    fail_if_ready
+      node2
+      "Node was unexpectedly started instead of failing because of network \
+       binding collision"
   in
-  let* is_ready = Lwt.pick [is_ready_p; has_failed_p] in
-  if is_ready then Test.fail "The node should fail and should not be ready"
-  else unit
+  let error_checking =
+    let* () = Node.identity_generate node2 in
+    let* () = Node.config_init node2 [] in
+    let* () = Node.run node2 [] in
+    let error_rex = rex ~opts:[`Dotall] msg in
+    Node.check_error ~msg:error_rex node2
+  in
+  Lwt.pick [error_checking; readiness]
+
+let check_node_net_addr_colision_message () =
+  let p1 = Node.fresh_port () in
+  let p2 = Node.fresh_port () in
+  let p3 = Node.fresh_port () in
+  check_node_addr_colision_message
+    p1
+    p1
+    p2
+    p3
+    "CLI --net-addr collision message"
+    (Printf.sprintf
+       "127\\.0\\.0\\.1:%d.*Another tezos node is probably running on this \
+        address.*P2P"
+       p1)
 
 let register_protocol_independent () =
   check_connections_below_cap () ;
-  check_connections_above_cap ()
+  check_connections_above_cap () ;
+  check_node_net_addr_colision_message ()

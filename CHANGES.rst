@@ -1,3 +1,6 @@
+Changelog
+'''''''''
+
 This file lists the changes added to each version of tezos-node,
 tezos-client, and the other Tezos binaries. The changes to the Tezos
 protocol are documented in the ``docs/protocols/`` directory; in
@@ -20,8 +23,286 @@ be documented here either.
 Node
 ----
 
+- Added version ``1`` to RPC ``GET chains/main/mempool/pending_operations``.
+  It can be used by calling the RPC with the parameter ``?version=1``
+  (default version is still ``0``).
+
+Client
+------
+
+Baker / Endorser / Accuser
+--------------------------
+
+Proxy server
+------------
+
+Protocol Compiler And Environment
+---------------------------------
+
+Codec
+-----
+
+Docker Images
+-------------
+
+Miscellaneous
+-------------
+
+Version 11.0~rc1
+================
+
+Node
+----
+
+-  **Breaking change**:
+   updated the output of the ``/stats/gc`` RPC entry point: it now also
+   reports the number of full major collections made by the OCaml
+   garbage collector.
+
+-  **Breaking change**:
+   updated the encoding of chain validator events.
+   The output of RPC ``GET /workers/chain_validators/<chain_id>``
+   was modified as a result.
+
+-  Updated RPC ``GET /workers/prevalidators``: field ``backlog`` now
+   always returns an empty list. The events in this backlog can now be
+   obtained either via stdout, or by configuring a new sink for events
+   via the environment variable ``TEZOS_EVENTS_CONFIG`` (to be set
+   before launching the node).
+
+-  Updated RPC ``GET /chains/<chain_id>/mempool/monitor_operation``:
+   output was extended to include operation hashes (field name is
+   ``hash``) and errors (field name is ``error``) when the operation
+   is classified as ``Branch_delayed``, ``Branch_refused`` or ``Refused``.
+
+-  Improved how the distributed database (DDB) handles the mempool cache.
+   This should make the DDB RAM consumption strongly correlated
+   to the one of the mempool.
+
+-  Fixed wrong error message in case of P2P network address binding collision.
+
+-  Added new RPCs to ban/unban operations locally.
+
+   -  POST ``/chains/<chain_id>/mempool/ban_operation``: ban a given
+      operation hash. The operation is removed from the mempool, and
+      its effect is reverted if it was applied. It is also added to
+      the prevalidator's set of banned operations, to prevent it from
+      being fetched/processed/injected in the future.
+
+   -  POST ``/chains/<chain_id>/mempool/unban_operation``: unban a given
+      operation hash, removing it from the prevalidator's set of banned
+      operations. Nothing happens if the operation was not banned.
+
+   -  POST ``/chains/<chain_id>/mempool/unban_all_operations``: unban
+      all operations, i.e. clear the set of banned operations.
+
+-  Added the possibility to use the ``~``, ``-`` and ``+`` operators
+   when querying blocks by their level using the
+   ``/chains/.../blocks/`` RPC. For instance,
+   ``/chains/main/blocks/41+1`` requests the block at level 42. Before
+   this change, these notations were only available with aliases (such
+   as ``head-1``).
+
+-  Added the possibility to use the ``+`` operator when specifying the
+   block to export, using the ``--block`` argument of the snapshot
+   export command. Before, only ``~`` and ``-`` were allowed.
+
+-  Fixed a bug where the mempool forgot about ``refused`` operations
+   on flush, leading to these operations being potentially reevaluated
+   in the future (e.g. if they are advertised again by a peer).
+
+-  Removed the built-in network aliases for Edonet and Florencenet,
+   since Edo and Florence have been replaced by Granada.
+
+-  Added a built-in network alias for Hangzhounet.
+
+-  Improved the snapshot export mechanism by reducing both the export
+   time and the memory footprint.
+
+-  Added new RPCs to inspect the storage status:
+
+   -  GET ``chains/main/levels/checkpoint``: checkpoint block hash and
+      level.
+   -  GET ``chains/main/levels/savepoint``: savepoint block hash and
+      level.
+   -  GET ``chains/main/levels/caboose``: caboose block hash and
+      level.
+   -  GET ``config/history_mode``: history mode of the node.
+
+-  Deprecated the ``chains/main/checkpoint`` RPC.
+
+-  The ``tezos-admin-client show current checkpoint`` command now
+   only outputs the current checkpoint. It no longer outputs the savepoint,
+   caboose and history mode.
+
+-  Fixed an issue in the store were the table in charge of maintaining
+   the associations between a protocol and its activation block was
+   not well updated.
+
+Client
+------
+
+-  Disabled indentation checking by default in the ``tezos-client
+   convert script`` and ``tezos-client hash script`` commands. In
+   particular, ``tezos-client convert script <script> from Michelson
+   to Michelson`` can now be used as a Michelson script formatter. To
+   force the indentation check, the new ``--enforce-indentation``
+   command line switch can be used.
+
+-  Added admin commands ``ban operation <operation_hash>``,
+   ``unban operation <operation_hash>``, and ``unban all operations``
+   that call the corresponding RPCs.
+
+-  Made mode light ``--endpoint`` / ``--sources`` consistency check
+   happen earlier, so that it is guaranteed to catch mismatches.
+
+-  Added commands ``list proxy protocols`` and ``list light protocols``,
+   to get the list of protocols supported by ``--mode proxy`` and ``--mode light``
+
+-  Fix gas simulation for operation batches for Granada, Hangzhou and Alpha
+
+-  Added timestamp display of the snapshot's block target when running
+   the ``tezos-node snapshot info`` command.
+
+Baker / Endorser / Accuser
+--------------------------
+
+-  Removed baker, endorser and accuser for Edo and Florence, since they
+   have been replaced by Granada.
+
+Protocol Compiler And Environment
+---------------------------------
+
+-  Added a new version of the protocol environment (V3).
+
+   -  Updated some dependency libraries that have had releases since V2.
+
+   -  Improved safety by removing access to some potentially dangerous functions
+      (functions that make assumptions about their input, functions that rely on
+      implicit comparison, etc.).
+
+   -  Added new features: ``Timelock`` and ``FallbackArray``.
+
+   -  Added new feature: RPC outputs can now be chunked.
+      RPCs that use this feature in the protocol can now respond without blocking
+      during the encoding of the output.
+
+Docker Images
+-------------
+
+-  The entrypoint script now starts the node with ``--allow-all-rpc``.
+   This means that ACLs are inactive in the Docker image on the default RPC port.
+   Note that the Docker image does not expose this port by default.
+   If you use ``tezos-docker-manager.sh``, it will expose this port only to
+   other Octez containers.
+   In summary, you can now call all RPCs if you use Docker images, without
+   compromising security as long as you do not explicitely expose the RPC port.
+
+Version 10.2
+============
+
+- Fixed a critical issue in the chain storage layer.
+
+Version 10.1
+============
+
+-  Really added the CLI option ``--allow-all-rpc`` to enable full
+   access to all RPC endpoints on a given listening address.
+
+-  Fixed recycling of operations in the mempool when the node changes
+   its head. Broadcasting of endorsements received earlier than the
+   end of the validation of the endorsed block is restored.
+
+Version 10.0
+============
+
+-  Improved some error messages related to P2P initialization.
+
+Version 10.0~rc3
+================
+
+Node
+----
+
+-  Included fixes from versions 9.6 and 9.7.
+
+-  Fixed an issue in the store that prevented some blocks from being queried,
+   resulting in "block not found" errors.
+
+-  Store version is now 0.0.6.
+   If you were previously using Octez 10.0~rc1 or 10.0~rc2, you were using
+   store version 0.0.5. If you were previously using Octez 9.x, you were
+   using store version 0.0.4. In both cases, use command
+   ``tezos-node upgrade storage`` to upgrade to 0.0.6.
+
+-  Added an upgrade procedure to upgrade from `v0.0.5` to `v0.0.6`. The
+   procedure is implemented through the ``tezos-node upgrade storage``
+   command.
+
+-  Added an ``integrity-check-index`` subcommand to ``tezos-node
+   storage``, which can be used to check for corruptions (missing
+   entries) in the index of the store. This command also accepts an
+   optional flag ``--auto-repair`` to fix those specific corruptions
+   by adding back missing entries.
+
+-  Fixed an RPC inconsistency where, after a migration occured, the
+   metadata from blocks returned by RPCs would return inconsistent
+   data (blocks prior to a migration from a protocol A to B would
+   return that their current protocol is A and next protocol is B
+   instead of A and A).
+
+Baker
+-----
+
+-  Improved error reporting for ill-formed liquidity-baking escape vote files.
+
+Version 10.0~rc2
+================
+
+Node
+----
+
+-  Added a check to prevent protocol migrations that decrease the protocol
+   environment version.
+
+-  Old stores of nodes running Granadanet can now be upgraded to the new store format
+   introduced in 10.0~rc1. Before, this was only possible for Mainnet, Edonet and
+   Florencenet.
+
+-  Empty stores can now be migrated to the new store format too.
+
+-  Fixed a case where the context could become corrupted.
+
+-  Fixed a memory leak in the cache of the mempool. This issue could
+   also cause operations to not be propagated correctly in some cases.
+
+Docker Images
+-------------
+
+-  Running the node with the ``--version`` flag now correctly returns the commit date.
+
+Version 10.0~rc1
+================
+
+Node
+----
+
+-  **Breaking change**:
+   Introduced Access Control Lists for RPC servers, which allow to restrict
+   access to selected RPC endpoints for different listening addresses. The
+   default Access Control List is quite restrictive. RPC endpoints that are
+   considered unsafe will now be blocked by default for all requests coming from
+   default Access Control List is quite restrictive. Requests from remote hosts
+   to unsafe RPC endpoints are now blocked by default.
+   Among other things, this breaks bakers and endorsers running
+   remotely. For processes operating on the same host as the node, nothing
+   changes. If necessary, the old behaviour can be restored by editing the
+   node's configuration file, but it is discouraged due to security concerns
+   of open unsafe endpoints on public networks. See Node Configuration section
+   of the Tezos documentation for details.
+
 -  Replaced the chain storage layer with a more efficient backend in
-   both terms of performance and storage size.
+   terms of both performance and storage size.
 
 -  Added an upgrade procedure to upgrade from the previous store to the
    new one. The procedure is implemented through the
@@ -68,6 +349,15 @@ Node
    for instance, to compute rewards payouts. The default number of extra
    preserved cycles is 5 (``5 + 5`` on mainnet).
 
+-  Updated the semantics of the history mode configuration parameter/option
+   of the node in full and rolling modes. If the number of additional cycles
+   is not explicitly specified, the default value is used. The default
+   number of additional cycles to keep is set to 5.
+
+-  Updated the RPC ``chains/main/checkpoint`` by renaming the
+   `save_point` field into `savepoint` to be consistent to the
+   `v0.0.5` store naming.
+
 -  Improved the shutdown procedure for external validator process.
 
 -  Added command ``replay`` which takes a list of block levels, hashes
@@ -91,15 +381,6 @@ Node
 -  Fixed a potential interleaving of distinct events written to a file
    descriptor sink simultaneously.
 
-- Introduced Access Control Lists for RPC servers, which allow to
-  restrict access to selected RPC endpoints for different listening
-  addresses.
-
-- Updated the behaviour of the history mode field in the node's
-  `config.json` configuration file. If the number of additional cycles
-  is not explicitly specified, the default value is used. The default
-  number of additional cycles to keep is set to 5.
-
 -  You can now control the verbosity of the logs of the context
    storage backend using the ``TEZOS_CONTEXT`` environment
    variable. Set it to ``v`` to display log messages with level "info"
@@ -108,24 +389,12 @@ Node
 -  The ``TEZOS_STORAGE`` variable now has no effect. Use
    ``TEZOS_CONTEXT`` instead (see previous item).
 
-- Added an RPC to run `TZIP-4
-  views<https://gitlab.com/tzip/tzip/-/blob/master/proposals/tzip-4/tzip-4.md#view-entrypoints>`__
-  offchain, accessible via ``../<block_id>/helpers/scripts/run_view``.
+-  Added an RPC to run `TZIP-4
+   views <https://gitlab.com/tezos/tzip/-/blob/master/proposals/tzip-4/tzip-4.md#view-entrypoints>`__
+   offchain, accessible via ``../<block_id>/helpers/scripts/run_view``.
 
--  Reintroduced the following RPCs in the Granada RPC plugin. These
-   RPCs were already present in the Edo and Florence protocol plugin
-   and are deprecated, they will be removed in the successor protocol
-   of Granada.
-
-   - ``../<block_id>/helpers/scripts/run_code/normalized``
-     (deprecated alias of ``../<block_id>/helpers/scripts/run_code``)
-   - ``../<block_id>/helpers/scripts/trace_code/normalized``
-     (deprecated alias of ``../<block_id>/helpers/scripts/trace_code``)
-
--  Updated the output of the ``/stats/gc`` RPC entry point: it now also
-   reports the number of full major collections made by the OCaml
-   garbage collector. Because this changes the JSON schema of this
-   existing RPC entry point, it is a breaking change.
+- Added a CLI option ``--allow-all-rpc`` to enable full access to all RPC
+  endpoints on a given listening address.
 
 Client
 ------
@@ -136,28 +405,33 @@ Client
    considered final with quasi-certainty if there are at least 5 blocks
    built on top of it. See Emmy\* TZIP for more detailed explanations.
 
-- Added ``--mode light`` which makes the client execute some RPCs
-  locally (to lower the load of nodes and to avoid having to trust
-  the nodes). This mode is akin to light clients and SPV clients:
-  it uses Merkle proofs to make the light mode super safe.
+-  Added ``--mode light`` which makes the client execute some RPCs
+   locally (to lower the load of nodes and to avoid having to trust
+   the nodes). This mode is akin to light clients and SPV clients:
+   it uses Merkle proofs to make the light mode super safe.
 
--  Added commands to display the hash of Michelson script from files and
-   from addresses.
+-  Added commands to display the hash of Michelson script from files
+   (``tezos-client hash script``) and from addresses (``tezos-client
+   get contract script hash``).
 
 -  Added support for a new generic version of the multisig contract.
 
 -  Added a new flag, ``--simulation``, which simulates operations instead of preapplying them.
 
-- ``hash data`` command now supports the optional ``--for-script [TSV|CSV]``
+-  ``hash data`` command now supports the optional ``--for-script [TSV|CSV]``.
 
-- Rename ``--block`` option of ``sign message`` command to ``--branch``.
+-  Renamed ``--block`` option of ``sign message`` command to ``--branch``.
 
 -  Commands using an encrypted key now fail after the user fails to give the correct
-   password three times
+   password three times.
 
 -  Added support for FA1.2 standard, allowing to interact with fungible
    assets contracts using the ``from fa1.2 contract ...`` commands, and
    support for running the view entrypoints offchain.
+
+
+-  Added a ``--legacy`` flag to the ``convert script`` command. This flag permits to use the
+   legacy typechecking mode when the input of the command is typechecked.
 
 Baker / Endorser / Accuser
 --------------------------
@@ -178,19 +452,57 @@ Proxy server
    Please refer to the `online documentation <https://tezos.gitlab.io/user/proxy-server.html>`__
    for further details.
 
-Protocol Compiler And Environment
----------------------------------
+Version 9.7
+===========
 
-- Export the environment V3 so protocols can be built against it.
+-  The mempool plugin now avoids some costly operations on outdated
+   consensus operations such as endorsements for old blocks.
 
-Codec
------
+-  The mempool now filters out old consensus operations to avoid
+   reevaluating them again after flushing when the node receives a new
+   head.
 
-Docker Images
--------------
+Version 9.6
+===========
 
-Miscellaneous
--------------
+-  Increased the delay after which the endorser gives up on endorsing to
+   1200 seconds (previously 110 seconds), to prevent an issue where
+   blocks that arrived too late were not endorsed at all, causing the
+   next block to also be produced late.
+
+Version 9.5
+===========
+
+-  Fixed a bug that could result in a corrupted storage and in assert
+   failure errors.
+
+Version 9.4
+===========
+
+- Fixed an issue in the mempool that caused too many operations
+  referring to unknown blocks to be kept, resulting in the node
+  running out of memory.
+
+Version 9.3
+===========
+
+-  Reintroduced the following RPCs in the Granada RPC plugin. These
+   RPCs were already present in the Edo and Florence protocol plugin
+   and are deprecated, they will be removed in the successor protocol
+   of Granada.
+
+   - ``../<block_id>/helpers/scripts/run_code/normalized``
+     (deprecated alias of ``../<block_id>/helpers/scripts/run_code``)
+   - ``../<block_id>/helpers/scripts/trace_code/normalized``
+     (deprecated alias of ``../<block_id>/helpers/scripts/trace_code``)
+
+-  Increased the LMDB store mapsize limit to avoid ``MDB_MAP_FULL`` failures.
+
+-  Fixed a case where the node was unable to fetch an operation because
+   a remote peer did not answer.
+
+-  Fixed various issues with the TLS layer that could in particular
+   cause some valid certificates to be refused from remote nodes.
 
 Version 9.2
 ===========

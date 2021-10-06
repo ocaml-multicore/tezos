@@ -90,9 +90,13 @@ update_all_dot_ocamlformats () {
     done
 }
 
+function shellcheck_script () {
+    shellcheck --external-sources "$1"
+}
+
 check_scripts () {
     # Gather scripts
-    scripts=$(find "${source_directories[@]}" tests_python/ scripts/ -name "*.sh" -type f -print)
+    scripts=$(find "${source_directories[@]}" packaging/ tests_python/ scripts/ -name "*.sh" -type f -print)
     exit_code=0
 
     # Check scripts do not contain the tab character
@@ -114,12 +118,18 @@ check_scripts () {
 
     for script in ${scripts}; do
         if [[ "${shellcheck_skips}" == *"${script}"* ]]; then
-          # script is skipped, we leave a log however, to incite
-          # devs to enhance the scripts
-          say "$script shellcheck SKIPPED ⚠️"
+          # check whether the skipped script, in reality, is warning-free
+          if shellcheck_script "${script}" > /dev/null; then
+              say "$script shellcheck marked as SKIPPED but actually pass: update shellcheck_skips ❌️"
+              exit_code=1
+          else
+              # script is skipped, we leave a log however, to incite
+              # devs to enhance the scripts
+              say "$script shellcheck SKIPPED ⚠️"
+          fi
         else
           # script is not skipped, let's shellcheck it
-          if shellcheck "${script}"; then
+          if shellcheck_script "${script}"; then
             say "$script shellcheck PASSED ✅"
           else
             say "$script shellcheck FAILED ❌"
@@ -166,7 +176,7 @@ check_redirects () {
 update_gitlab_ci_yml () {
     # Check that a rule is not defined twice, which would result in the first
     # one being ignored. Gitlab linter doesn't warn for it
-    repeated=$(grep '^[^ #]' .gitlab-ci.yml | sort | uniq --repeated)
+    repeated=$(grep '^[^ #]' .gitlab-ci.yml .gitlab/ci/*.yml | sort | uniq --repeated)
     if [ -n "$repeated" ]; then
         echo ".gitlab-ci.yml contains repeated rules:"
         echo "$repeated"

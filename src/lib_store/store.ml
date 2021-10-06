@@ -172,8 +172,7 @@ let try_lock_for_write lockfile =
       Lwt_unix.lockf lockfile Unix.F_TLOCK 0 >>= fun () -> Lwt.return_true)
     (fun _ -> Lwt.return_false)
 
-let may_unlock lockfile =
-  Lwt.catch (fun () -> unlock lockfile) (fun _ -> Lwt.return_unit)
+let may_unlock lockfile = Unit.catch_s (fun () -> unlock lockfile)
 
 module Block = struct
   type nonrec block = block
@@ -773,8 +772,10 @@ module Chain = struct
             Block.all_operation_hashes block
             |> List.flatten |> Operation_hash.Set.of_list
           in
-          let live_blocks = Block_hash.Set.add most_recent_block live_blocks in
-          let live_ops =
+          let new_live_blocks =
+            Block_hash.Set.add most_recent_block live_blocks
+          in
+          let new_live_operations =
             Operation_hash.Set.union most_recent_ops live_operations
           in
           match
@@ -782,13 +783,15 @@ module Chain = struct
               live_data_cache
               (most_recent_block, most_recent_ops)
           with
-          | None -> Lwt.return (live_blocks, live_ops)
+          | None -> Lwt.return (new_live_blocks, new_live_operations)
           | Some (last_block, last_ops) ->
-              let live_blocks = Block_hash.Set.remove last_block live_blocks in
-              let live_operations =
-                Operation_hash.Set.diff live_operations last_ops
+              let diffed_new_live_blocks =
+                Block_hash.Set.remove last_block new_live_blocks
               in
-              Lwt.return (live_blocks, live_operations))
+              let diffed_new_live_operations =
+                Operation_hash.Set.diff new_live_operations last_ops
+              in
+              Lwt.return (diffed_new_live_blocks, diffed_new_live_operations))
       | _ when update_cache ->
           let new_cache = Ringo.Ring.create expected_capacity in
           Chain_traversal.live_blocks_with_ring
@@ -1664,7 +1667,7 @@ module Chain = struct
         Format.kasprintf
           (fun e -> fail (Missing_commit_info e))
           "%a"
-          Error_monad.pp_print_error
+          Error_monad.pp_print_trace
           err)
       (fun () ->
         Context.retrieve_commit_info index header >>=? fun tup ->
@@ -1943,7 +1946,12 @@ module Chain = struct
                     commit_info = commit_info_opt;
                   }
                   protocol_levels))
-        >>=? fun () -> return_unit)
+        >>=? fun () ->
+        Store_events.(
+          emit
+            update_protocol_table
+            (protocol_hash, protocol_level, Block.hash block, Block.level block))
+        >>= fun () -> return_unit)
 
   let find_activation_block chain_store ~protocol_level =
     Shared.use chain_store.chain_state (fun {protocol_levels_data; _} ->
@@ -1955,12 +1963,49 @@ module Chain = struct
     | None -> Lwt.return_none
     | Some {Protocol_levels.protocol; _} -> Lwt.return_some protocol
 
-  let may_update_protocol_level chain_store ~protocol_level
+  let may_update_protocol_level chain_store ?pred ?protocol_level
       (block, protocol_hash) =
-    find_activation_block chain_store ~protocol_level >>= function
-    | Some _ -> return_unit
-    | None ->
-        set_protocol_level chain_store ~protocol_level (block, protocol_hash)
+    (match pred with
+    | None -> Block.read_predecessor chain_store block
+    | Some pred -> return pred)
+    >>=? fun pred ->
+    let prev_proto_level = Block.proto_level pred in
+    let protocol_level =
+      Option.value ~default:(Block.proto_level block) protocol_level
+    in
+    if Compare.Int.(prev_proto_level < protocol_level) then
+      find_activation_block chain_store ~protocol_level >>= function
+      | Some {block = (bh, _); _} ->
+          if Block_hash.(bh <> Block.hash block) then
+            set_protocol_level chain_store ~protocol_level (block, protocol_hash)
+          else return_unit
+      | None ->
+          set_protocol_level chain_store ~protocol_level (block, protocol_hash)
+    else return_unit
+
+  let may_update_ancestor_protocol_level chain_store ~head =
+    let head_proto_level = Block.proto_level head in
+    find_activation_block chain_store ~protocol_level:head_proto_level
+    >>= function
+    | None -> return_unit
+    | Some {block; protocol; _} -> (
+        savepoint chain_store >>= fun (_, savepoint_level) ->
+        if Compare.Int32.(savepoint_level > snd block) then
+          (* the block is too far in the past *)
+          return_unit
+        else
+          is_ancestor chain_store ~head:(Block.descriptor head) ~ancestor:block
+          >>= function
+          | true -> (* nothing to do *) return_unit
+          | false -> (
+              let distance =
+                Int32.(sub (Block.level head) (snd block) |> to_int)
+              in
+              Block.read_block_opt chain_store ~distance (Block.hash head)
+              >>= function
+              | None -> return_unit
+              | Some ancestor ->
+                  may_update_protocol_level chain_store (ancestor, protocol)))
 
   let all_protocol_levels chain_store =
     Shared.use chain_store.chain_state (fun {protocol_levels_data; _} ->
@@ -1992,7 +2037,7 @@ module Chain = struct
             Block.protocol_hash_exn chain_store block >>= fun next_protocol ->
             Lwt.return (Protocol_hash.Map.find next_protocol map))
 
-  let set_rpc_directory chain_store protocol_hash dir =
+  let set_rpc_directory chain_store ~protocol_hash ~next_protocol_hash dir =
     let map =
       Option.value
         ~default:Protocol_hash.Map.empty
@@ -2003,7 +2048,7 @@ module Chain = struct
     Protocol_hash.Table.replace
       chain_store.block_rpc_directories
       protocol_hash
-      (Protocol_hash.Map.add protocol_hash dir map) ;
+      (Protocol_hash.Map.add next_protocol_hash dir map) ;
     Lwt.return_unit
 end
 
@@ -2525,6 +2570,9 @@ module Unsafe = struct
 
   let set_caboose chain_store new_caboose =
     Chain.unsafe_set_caboose chain_store new_caboose
+
+  let set_protocol_level chain_store ~protocol_level (b, ph) =
+    Chain.set_protocol_level chain_store ~protocol_level (b, ph)
 
   let load_testchain = Chain.load_testchain
 

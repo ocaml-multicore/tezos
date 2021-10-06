@@ -25,11 +25,10 @@
 (*****************************************************************************)
 
 open Tezos_context_encoding.Context
-module AO = Irmin.Content_addressable (Irmin_mem.Append_only)
-module RW = Irmin_mem.Atomic_write
 module Store =
-  Irmin.Make_ext (AO) (RW) (Metadata) (Contents) (Path) (Branch) (Hash) (Node)
-    (Commit)
+  Irmin_pack_mem.Make (Node) (Commit) (Conf) (Metadata) (Contents) (Path)
+    (Branch)
+    (Hash)
 
 type t = Store.tree
 
@@ -72,6 +71,12 @@ let get_protocol t =
 let add_protocol t key =
   let key = Protocol_hash.to_bytes key in
   Tree.add t current_protocol_key key
+
+let get_hash_version _c = Context_hash.Version.of_int 0
+
+let set_hash_version c v =
+  if Context_hash.Version.(of_int 0 = v) then return c
+  else fail (Tezos_context_helpers.Context.Unsupported_context_hash_version v)
 
 let empty = Store.Tree.empty
 

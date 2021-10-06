@@ -50,7 +50,7 @@ let make_argument = function
   | Connections x -> ["--connections"; string_of_int x]
   | Private_mode -> ["--private-mode"]
   | Peer x -> ["--peer"; x]
-  | No_bootstrap_peers -> ["--no-boostrap-peers"]
+  | No_bootstrap_peers -> ["--no-bootstrap-peers"]
 
 let make_arguments arguments = List.flatten (List.map make_argument arguments)
 
@@ -181,6 +181,56 @@ module Config_file = struct
     output_string chan (JSON.encode config)
 
   let update node update = read node |> update |> write node
+
+  let set_sandbox_network_with_user_activated_upgrades node upgrade_points =
+    let network_json =
+      `O
+        [
+          ( "genesis",
+            `O
+              [
+                ("timestamp", `String "2018-06-30T16:07:32Z");
+                ( "block",
+                  `String "BLockGenesisGenesisGenesisGenesisGenesisf79b5d1CoW2"
+                );
+                ( "protocol",
+                  `String "ProtoGenesisGenesisGenesisGenesisGenesisGenesk612im"
+                );
+              ] );
+          ( "genesis_parameters",
+            `O
+              [
+                ( "values",
+                  `O
+                    [
+                      ( "genesis_pubkey",
+                        `String
+                          "edpkuSLWfVU1Vq7Jg9FucPyKmma6otcMHac9zG4oU1KMHSTBpJuGQ2"
+                      );
+                    ] );
+              ] );
+          ("chain_name", `String "TEZOS");
+          ("sandboxed_chain_name", `String "SANDBOXED_TEZOS");
+          ( "user_activated_upgrades",
+            `A
+              (List.map
+                 (fun (level, protocol) ->
+                   `O
+                     [
+                       ("level", `Float (float level));
+                       ("replacement_protocol", `String (Protocol.hash protocol));
+                     ])
+                 upgrade_points) );
+        ]
+    in
+    update node @@ fun json ->
+    JSON.update
+      "network"
+      (fun _ ->
+        JSON.annotate
+          ~origin:"set_sandbox_network_with_user_activated_upgrades"
+          network_json)
+      json
 end
 
 let trigger_ready node value =
@@ -233,7 +283,11 @@ let handle_event node {name; value} =
   | "node_chain_validator.v0" -> (
       match JSON.as_list_opt value with
       | Some [_timestamp; details] -> (
-          match JSON.(details |-> "event" |-> "level" |> as_int_opt) with
+          match
+            JSON.(
+              details |-> "event" |-> "processed_block" |-> "level"
+              |> as_int_opt)
+          with
           | None ->
               (* There are several kinds of [node_chain_validator.v0] events
                  and maybe this one is not the one with the level: ignore it. *)
@@ -356,7 +410,36 @@ let add_peer_with_id node peer =
   add_argument node (Peer peer) ;
   Lwt.return_unit
 
-let run ?(on_terminate = fun _ -> ()) ?event_level node arguments =
+(** [runlike_command_arguments node command arguments]
+    evaluates in a list of strings containing all command
+    line arguments needed to spawn a [command] like [run]
+    or [replay] for the given [node] and extra [arguments]. *)
+let runlike_command_arguments node command arguments =
+  let (net_addr, rpc_addr) =
+    match node.persistent_state.runner with
+    | None -> ("127.0.0.1:", node.persistent_state.rpc_host ^ ":")
+    | Some _ ->
+        (* FIXME spawn an ssh tunnel in case of remote host *)
+        ("0.0.0.0:", "0.0.0.0:")
+  in
+  let arguments = node.persistent_state.arguments @ arguments in
+  command
+  ::
+  "--data-dir"
+  ::
+  node.persistent_state.data_dir
+  ::
+  "--net-addr"
+  ::
+  (net_addr ^ string_of_int node.persistent_state.net_port)
+  ::
+  "--rpc-addr"
+  ::
+  (rpc_addr ^ string_of_int node.persistent_state.rpc_port)
+  :: make_arguments arguments
+
+let do_runlike_command ?(on_terminate = fun _ -> ()) ?event_level node arguments
+    =
   (match node.status with
   | Not_running -> ()
   | Running _ -> Test.fail "node %s is already running" node.name) ;
@@ -372,30 +455,6 @@ let run ?(on_terminate = fun _ -> ()) ?event_level node arguments =
               level ;
             None)
     | None -> None
-  in
-  let (net_addr, rpc_addr) =
-    match node.persistent_state.runner with
-    | None -> ("127.0.0.1:", node.persistent_state.rpc_host ^ ":")
-    | Some _ ->
-        (* FIXME spawn an ssh tunnel in case of remote host *)
-        ("0.0.0.0:", "0.0.0.0:")
-  in
-  let arguments = node.persistent_state.arguments @ arguments in
-  let arguments =
-    "run"
-    ::
-    "--data-dir"
-    ::
-    node.persistent_state.data_dir
-    ::
-    "--net-addr"
-    ::
-    (net_addr ^ string_of_int node.persistent_state.net_port)
-    ::
-    "--rpc-addr"
-    ::
-    (rpc_addr ^ string_of_int node.persistent_state.rpc_port)
-    :: make_arguments arguments
   in
   let on_terminate status =
     on_terminate status ;
@@ -418,6 +477,14 @@ let run ?(on_terminate = fun _ -> ()) ?event_level node arguments =
     {ready = false; level = Unknown; identity = Unknown}
     arguments
     ~on_terminate
+
+let run ?on_terminate ?event_level node arguments =
+  let arguments = runlike_command_arguments node "run" arguments in
+  do_runlike_command ?on_terminate ?event_level node arguments
+
+let replay ?on_terminate ?event_level ?(blocks = ["head"]) node arguments =
+  let arguments = runlike_command_arguments node "replay" arguments @ blocks in
+  do_runlike_command ?on_terminate ?event_level node arguments
 
 let init ?runner ?path ?name ?color ?data_dir ?event_pipe ?net_port ?rpc_host
     ?rpc_port ?event_level arguments =

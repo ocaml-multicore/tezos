@@ -23,7 +23,21 @@
 (*                                                                           *)
 (*****************************************************************************)
 
-module Events = Store_events
+module Events = struct
+  include Internal_event.Simple
+
+  let section = ["db"]
+
+  let serializing_error =
+    declare_1
+      ~section
+      ~name:"serializing_error"
+      ~msg:"exception while serializing value {write_error}"
+      ~level:Error
+      ~pp1:Data_encoding.Binary.pp_write_error
+      ("write_error", Data_encoding.Binary.write_error_encoding)
+end
+
 open Store_sigs
 
 module Make_value (V : ENCODED_VALUE) = struct
@@ -32,10 +46,7 @@ module Make_value (V : ENCODED_VALUE) = struct
   let of_bytes b =
     match Data_encoding.Binary.of_bytes V.encoding b with
     | Error re ->
-        generic_error
-          "Cannot parse data: %a"
-          Data_encoding.Binary.pp_read_error
-          re
+        error_with "Cannot parse data: %a" Data_encoding.Binary.pp_read_error re
     | Ok v -> ok v
 
   let to_bytes v =
