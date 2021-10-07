@@ -39,9 +39,7 @@ let get_chain_id store =
   | `Hash chain_id -> Lwt.return chain_id
 
 let get_chain_id_opt store chain =
-  Lwt.catch
-    (fun () -> get_chain_id store chain >>= Lwt.return_some)
-    (fun _exn -> Lwt.return_none)
+  Option.catch_s (fun () -> get_chain_id store chain)
 
 let get_chain_store_exn store chain =
   get_chain_id store chain >>= fun chain_id ->
@@ -144,6 +142,12 @@ let rpc_directory ~user_activated_upgrades ~user_activated_protocol_overrides
       Store.Chain.caboose chain_store >>= fun (_, caboose_level) ->
       let history_mode = Store.Chain.history_mode chain_store in
       return (checkpoint_header, savepoint_level, caboose_level, history_mode)) ;
+  register0 S.Levels.checkpoint (fun chain_store () () ->
+      Store.Chain.checkpoint chain_store >>= return) ;
+  register0 S.Levels.savepoint (fun chain_store () () ->
+      Store.Chain.savepoint chain_store >>= return) ;
+  register0 S.Levels.caboose (fun chain_store () () ->
+      Store.Chain.caboose chain_store >>= return) ;
   register0 S.is_bootstrapped (fun chain_store () () ->
       match Validator.get validator (Store.Chain.chain_id chain_store) with
       | Error _ -> Lwt.fail Not_found
@@ -155,7 +159,7 @@ let rpc_directory ~user_activated_upgrades ~user_activated_protocol_overrides
       match Validator.get validator (Store.Chain.chain_id chain_store) with
       | Error _ -> Lwt.fail Not_found
       | Ok chain_validator ->
-          return (Chain_validator.force_bootstrapped chain_validator b)) ;
+          Chain_validator.force_bootstrapped chain_validator b >>= return) ;
   (* blocks *)
   register0 S.Blocks.list (fun chain q () ->
       list_blocks chain ?length:q#length ?min_date:q#min_date q#heads) ;

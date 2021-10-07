@@ -83,7 +83,7 @@ let store_block =
     ~pp1:pp_block_descriptor
     ("block", block_descriptor_encoding)
 
-(* Notice*)
+(* Notice *)
 let fork_testchain =
   declare_4
     ~section
@@ -155,7 +155,7 @@ let inconsistent_store =
     ~level:Internal_event.Notice
     ~name:"inconsistent_store"
     ~msg:"the store is in an inconsistent state: {errs}"
-    ~pp1:(fun ppf -> Format.fprintf ppf "%a" Error_monad.pp_print_error)
+    ~pp1:(fun ppf -> Format.fprintf ppf "%a" Error_monad.pp_print_trace)
     ("errs", Error_monad.trace_encoding)
 
 let fix_store =
@@ -240,6 +240,45 @@ let recover_merge =
     ~name:"recovering_merge"
     ~msg:"recovering from an interrupted store merge"
     ()
+
+let restore_protocol_activation =
+  declare_2
+    ~section
+    ~level:Internal_event.Notice
+    ~name:"restore_protocol_activation"
+    ~msg:"protocol {protocol_level} ({protocol_hash}) was successfully restored"
+    ("protocol_level", Data_encoding.int31)
+    ~pp2:Protocol_hash.pp
+    ("protocol_hash", Protocol_hash.encoding)
+
+let update_protocol_table =
+  declare_4
+    ~section
+    ~level:Internal_event.Notice
+    ~name:"update_protocol_table"
+    ~msg:
+      "the protocol table was updated: protocol {proto_hash} (level \
+       {proto_level}) was activated on block {block_hash} (level \
+       {block_level})"
+    ("proto_hash", Protocol_hash.encoding)
+    ~pp1:Protocol_hash.pp_short
+    ("proto_level", Data_encoding.int31)
+    ("block_hash", Block_hash.encoding)
+    ~pp3:Block_hash.pp
+    ("block_level", Data_encoding.int32)
+    ~pp4:pp_int32
+
+(* Warning *)
+let warning_incomplete_storage =
+  Internal_event.Simple.declare_1
+    ~level:Internal_event.Warning
+    ~section
+    ~name:"incomplete_storage"
+    ~msg:
+      "the storage is missing the commit information for protocol \
+       {protocol_level} - operation receipt verification for this protocol \
+       will be unavailable"
+    ("protocol_level", Data_encoding.int31)
 
 (* Error *)
 let merge_error =

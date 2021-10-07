@@ -102,7 +102,7 @@ let active_peer_ids p2p () =
     (P2p.connections p2p)
 
 let raw_try_send p2p peer_id msg =
-  match P2p.find_connection p2p peer_id with
+  match P2p.find_connection_by_peer_id p2p peer_id with
   | None -> ()
   | Some conn -> ignore (P2p.try_send p2p conn msg : bool)
 
@@ -175,14 +175,14 @@ let activate
               P2p.send p2p conn (Get_current_branch chain_id) :: acc)
         in
         Error_monad.dont_wait
-          (fun exc ->
-            Format.eprintf "Uncaught exception: %s\n%!" (Printexc.to_string exc))
+          (fun () -> join_ep sends)
           (fun trace ->
             Format.eprintf
               "Uncaught error: %a\n%!"
-              Error_monad.pp_print_error
+              Error_monad.pp_print_trace
               trace)
-          (fun () -> join_ep sends) ;
+          (fun exc ->
+            Format.eprintf "Uncaught exception: %s\n%!" (Printexc.to_string exc)) ;
         Chain_id.Table.add active_chains chain_id local_db ;
         local_db
   in
@@ -203,11 +203,11 @@ let deactivate chain_db =
       chain_db.reader_chain_db.active_connections
   in
   Error_monad.dont_wait
-    (fun exc ->
-      Format.eprintf "Uncaught exception: %s\n%!" (Printexc.to_string exc))
+    (fun () -> sends)
     (fun trace ->
-      Format.eprintf "Uncaught error: %a\n%!" Error_monad.pp_print_error trace)
-    (fun () -> sends) ;
+      Format.eprintf "Uncaught error: %a\n%!" Error_monad.pp_print_trace trace)
+    (fun exc ->
+      Format.eprintf "Uncaught exception: %s\n%!" (Printexc.to_string exc)) ;
   Distributed_db_requester.Raw_operation.shutdown
     chain_db.reader_chain_db.operation_db
   >>= fun () ->
@@ -222,7 +222,7 @@ let greylist {global_db = {p2p; _}; _} peer_id =
   Lwt.return (P2p.greylist_peer p2p peer_id)
 
 let disconnect {global_db = {p2p; _}; _} peer_id =
-  match P2p.find_connection p2p peer_id with
+  match P2p.find_connection_by_peer_id p2p peer_id with
   | None -> Lwt.return_unit
   | Some conn -> P2p.disconnect p2p conn
 

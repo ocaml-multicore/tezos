@@ -40,11 +40,24 @@ let get_chain_id ?endpoint ?hooks ?(chain = "main") client =
   let path = ["chains"; chain; "chain_id"] in
   Client.rpc ?endpoint ?hooks GET path client
 
+let get_block ?endpoint ?hooks ?(chain = "main") ?(block = "head") client =
+  let path = ["chains"; chain; "blocks"; block] in
+  Client.rpc ?endpoint ?hooks GET path client
+
+let get_block_metadata ?endpoint ?hooks ?(chain = "main") ?(block = "head")
+    client =
+  let path = ["chains"; chain; "blocks"; block; "metadata"] in
+  Client.rpc ?endpoint ?hooks GET path client
+
 let force_bootstrapped ?endpoint ?hooks ?(chain = "main") ?(bootstrapped = true)
     client =
   let path = ["chains"; chain] in
   let data = `O [("bootstrapped", `Bool bootstrapped)] in
   Client.rpc ?endpoint ?hooks ~data PATCH path client
+
+let is_bootstrapped ?endpoint ?hooks ?(chain = "main") client =
+  let path = ["chains"; chain; "is_bootstrapped"] in
+  Client.rpc ?endpoint ?hooks GET path client
 
 let get_checkpoint ?endpoint ?hooks ?(chain = "main") client =
   let path = ["chains"; chain; "checkpoint"] in
@@ -64,9 +77,36 @@ let get_operations ?endpoint ?hooks ?(chain = "main") ?(block = "head") client =
   let path = ["chains"; chain; "blocks"; block; "operations"] in
   Client.rpc ?endpoint ?hooks GET path client
 
-let get_mempool_pending_operations ?endpoint ?hooks ?(chain = "main") client =
+let get_mempool_pending_operations ?endpoint ?hooks ?(chain = "main") ?version
+    client =
   let path = ["chains"; chain; "mempool"; "pending_operations"] in
-  Client.rpc ?endpoint ?hooks GET path client
+  Client.rpc
+    ?endpoint
+    ?hooks
+    ~query_string:(match version with None -> [] | Some v -> [("version", v)])
+    GET
+    path
+    client
+
+let post_request_operations ?endpoint ?hooks ?(chain = "main") client =
+  let path = ["chains"; chain; "mempool"; "request_operations"] in
+  Client.rpc ?endpoint ?hooks POST path client
+
+let mempool_ban_operation ?endpoint ?(chain = "main") ~data client =
+  let path = ["chains"; chain; "mempool"; "ban_operation"] in
+  Client.rpc ?endpoint ~data POST path client
+
+let mempool_unban_operation ?endpoint ?(chain = "main") ~data client =
+  let path = ["chains"; chain; "mempool"; "unban_operation"] in
+  Client.rpc ?endpoint ~data POST path client
+
+let mempool_unban_all_operations ?endpoint ?(chain = "main") client =
+  let path = ["chains"; chain; "mempool"; "unban_all_operations"] in
+  Client.rpc ?endpoint POST path client
+
+let post_mempool_filter ?endpoint ?hooks ?(chain = "main") ~data client =
+  let path = ["chains"; chain; "mempool"; "filter"] in
+  Client.rpc ?endpoint ?hooks ~data POST path client
 
 let preapply_block ?endpoint ?hooks ?(chain = "main") ?(block = "head") ~data
     client =
@@ -83,6 +123,18 @@ let inject_operation ?endpoint ?hooks ~data client =
   let path = ["injection"; "operation"] in
   Client.rpc ?endpoint ?hooks ~data POST path client
 
+let spawn_inject_operation ?endpoint ?hooks ~data client =
+  let path = ["injection"; "operation"] in
+  Client.spawn_rpc ?endpoint ?hooks ~data POST path client
+
+let private_inject_operation ?endpoint ?hooks ~data client =
+  let path = ["private"; "injection"; "operation"] in
+  Client.rpc ?endpoint ?hooks ~data POST path client
+
+let spawn_private_inject_operation ?endpoint ?hooks ~data client =
+  let path = ["private"; "injection"; "operation"] in
+  Client.spawn_rpc ?endpoint ?hooks ~data POST path client
+
 let get_constants ?endpoint ?hooks ?(chain = "main") ?(block = "head") client =
   let path = ["chains"; chain; "blocks"; block; "context"; "constants"] in
   Client.rpc ?endpoint ?hooks GET path client
@@ -91,6 +143,26 @@ let get_constants_errors ?endpoint ?hooks ?(chain = "main") ?(block = "head")
     client =
   let path =
     ["chains"; chain; "blocks"; block; "context"; "constants"; "errors"]
+  in
+  Client.rpc ?endpoint ?hooks GET path client
+
+type ctxt_type = Bytes | Json
+
+let ctxt_type_to_string = function Bytes -> "bytes" | Json -> "json"
+
+let get_context_value ?endpoint ?hooks ?(chain = "main") ?(block = "head")
+    ?(ctxt_type = Json) ~value_path client =
+  let path =
+    [
+      "chains";
+      chain;
+      "blocks";
+      block;
+      "context";
+      "raw";
+      ctxt_type_to_string ctxt_type;
+    ]
+    @ value_path
   in
   Client.rpc ?endpoint ?hooks GET path client
 
@@ -437,11 +509,6 @@ module Votes = struct
   let get_ballot_list ?endpoint ?hooks ?(chain = "main") ?(block = "head")
       client =
     let path = sub_path ~chain ~block "ballot_list" in
-    Client.rpc ?endpoint ?hooks GET path client
-
-  let get_current_period_kind ?endpoint ?hooks ?(chain = "main")
-      ?(block = "head") client =
-    let path = sub_path ~chain ~block "current_period_kind" in
     Client.rpc ?endpoint ?hooks GET path client
 
   let get_ballots ?endpoint ?hooks ?(chain = "main") ?(block = "head") client =

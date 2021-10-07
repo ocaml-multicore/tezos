@@ -21,7 +21,7 @@
  (action
   (write-file %{targets}
               "module Name = struct let name = \"alpha\" end
-include Tezos_protocol_environment.MakeV3(Name)()
+include Tezos_protocol_environment.MakeV4(Name)()
 module CamlinternalFormatBasics = struct include CamlinternalFormatBasics end
 ")))
 
@@ -29,6 +29,7 @@ module CamlinternalFormatBasics = struct include CamlinternalFormatBasics end
  (targets registerer.ml)
  (deps
    misc.mli misc.ml
+   path_encoding.mli path_encoding.ml
    storage_description.mli storage_description.ml
    state_hash.mli state_hash.ml
    nonce_hash.mli nonce_hash.ml
@@ -48,10 +49,12 @@ module CamlinternalFormatBasics = struct include CamlinternalFormatBasics end
    level_repr.mli level_repr.ml
    seed_repr.mli seed_repr.ml
    voting_period_repr.mli voting_period_repr.ml
+   script_string_repr.mli script_string_repr.ml
    script_int_repr.mli script_int_repr.ml
    script_timestamp_repr.mli script_timestamp_repr.ml
    michelson_v1_primitives.mli michelson_v1_primitives.ml
    script_repr.mli script_repr.ml
+   cache_memory_helpers.ml
    contract_repr.mli contract_repr.ml
    roll_repr.mli roll_repr.ml
    vote_repr.mli vote_repr.ml
@@ -91,12 +94,22 @@ module CamlinternalFormatBasics = struct include CamlinternalFormatBasics end
    liquidity_baking_migration.mli liquidity_baking_migration.ml
    init_storage.mli init_storage.ml
    sapling_validator.ml
+   global_constants_costs.mli global_constants_costs.ml
+   global_constants_storage.mli global_constants_storage.ml
+   cache_costs.mli cache_costs.ml
    alpha_context.mli alpha_context.ml
-   script_typed_ir.ml
    script_tc_errors.ml
+   script_typed_ir.mli script_typed_ir.ml
+   script_typed_ir_size.mli script_typed_ir_size.ml
+   script_typed_ir_size_costs.mli script_typed_ir_size_costs.ml
    michelson_v1_gas.mli michelson_v1_gas.ml
    script_ir_annot.mli script_ir_annot.ml
+   script_list.mli script_list.ml
+   script_comparable.mli script_comparable.ml
+   script_set.mli script_set.ml
+   script_map.mli script_map.ml
    script_ir_translator.mli script_ir_translator.ml
+   script_cache.mli script_cache.ml
    script_tc_errors_registration.mli script_tc_errors_registration.ml
    script_interpreter_defs.ml
    script_interpreter.mli script_interpreter.ml
@@ -121,6 +134,7 @@ module CamlinternalFormatBasics = struct include CamlinternalFormatBasics end
  (targets functor.ml)
  (deps
    misc.mli misc.ml
+   path_encoding.mli path_encoding.ml
    storage_description.mli storage_description.ml
    state_hash.mli state_hash.ml
    nonce_hash.mli nonce_hash.ml
@@ -140,10 +154,12 @@ module CamlinternalFormatBasics = struct include CamlinternalFormatBasics end
    level_repr.mli level_repr.ml
    seed_repr.mli seed_repr.ml
    voting_period_repr.mli voting_period_repr.ml
+   script_string_repr.mli script_string_repr.ml
    script_int_repr.mli script_int_repr.ml
    script_timestamp_repr.mli script_timestamp_repr.ml
    michelson_v1_primitives.mli michelson_v1_primitives.ml
    script_repr.mli script_repr.ml
+   cache_memory_helpers.ml
    contract_repr.mli contract_repr.ml
    roll_repr.mli roll_repr.ml
    vote_repr.mli vote_repr.ml
@@ -183,12 +199,22 @@ module CamlinternalFormatBasics = struct include CamlinternalFormatBasics end
    liquidity_baking_migration.mli liquidity_baking_migration.ml
    init_storage.mli init_storage.ml
    sapling_validator.ml
+   global_constants_costs.mli global_constants_costs.ml
+   global_constants_storage.mli global_constants_storage.ml
+   cache_costs.mli cache_costs.ml
    alpha_context.mli alpha_context.ml
-   script_typed_ir.ml
    script_tc_errors.ml
+   script_typed_ir.mli script_typed_ir.ml
+   script_typed_ir_size.mli script_typed_ir_size.ml
+   script_typed_ir_size_costs.mli script_typed_ir_size_costs.ml
    michelson_v1_gas.mli michelson_v1_gas.ml
    script_ir_annot.mli script_ir_annot.ml
+   script_list.mli script_list.ml
+   script_comparable.mli script_comparable.ml
+   script_set.mli script_set.ml
+   script_map.mli script_map.ml
    script_ir_translator.mli script_ir_translator.ml
+   script_cache.mli script_cache.ml
    script_tc_errors_registration.mli script_tc_errors_registration.ml
    script_interpreter_defs.ml
    script_interpreter.mli script_interpreter.ml
@@ -213,6 +239,7 @@ module CamlinternalFormatBasics = struct include CamlinternalFormatBasics end
  (targets protocol.ml)
  (deps
    misc.mli misc.ml
+   path_encoding.mli path_encoding.ml
    storage_description.mli storage_description.ml
    state_hash.mli state_hash.ml
    nonce_hash.mli nonce_hash.ml
@@ -232,10 +259,12 @@ module CamlinternalFormatBasics = struct include CamlinternalFormatBasics end
    level_repr.mli level_repr.ml
    seed_repr.mli seed_repr.ml
    voting_period_repr.mli voting_period_repr.ml
+   script_string_repr.mli script_string_repr.ml
    script_int_repr.mli script_int_repr.ml
    script_timestamp_repr.mli script_timestamp_repr.ml
    michelson_v1_primitives.mli michelson_v1_primitives.ml
    script_repr.mli script_repr.ml
+   cache_memory_helpers.ml
    contract_repr.mli contract_repr.ml
    roll_repr.mli roll_repr.ml
    vote_repr.mli vote_repr.ml
@@ -275,12 +304,22 @@ module CamlinternalFormatBasics = struct include CamlinternalFormatBasics end
    liquidity_baking_migration.mli liquidity_baking_migration.ml
    init_storage.mli init_storage.ml
    sapling_validator.ml
+   global_constants_costs.mli global_constants_costs.ml
+   global_constants_storage.mli global_constants_storage.ml
+   cache_costs.mli cache_costs.ml
    alpha_context.mli alpha_context.ml
-   script_typed_ir.ml
    script_tc_errors.ml
+   script_typed_ir.mli script_typed_ir.ml
+   script_typed_ir_size.mli script_typed_ir_size.ml
+   script_typed_ir_size_costs.mli script_typed_ir_size_costs.ml
    michelson_v1_gas.mli michelson_v1_gas.ml
    script_ir_annot.mli script_ir_annot.ml
+   script_list.mli script_list.ml
+   script_comparable.mli script_comparable.ml
+   script_set.mli script_set.ml
+   script_map.mli script_map.ml
    script_ir_translator.mli script_ir_translator.ml
+   script_cache.mli script_cache.ml
    script_tc_errors_registration.mli script_tc_errors_registration.ml
    script_interpreter_defs.ml
    script_interpreter.mli script_interpreter.ml
@@ -307,6 +346,7 @@ include Tezos_raw_protocol_alpha.Main
 
 (library
  (name tezos_protocol_environment_alpha)
+ (instrumentation (backend bisect_ppx))
  (public_name tezos-protocol-alpha.environment)
  (library_flags (:standard -linkall))
  (libraries tezos-protocol-environment)
@@ -314,6 +354,7 @@ include Tezos_raw_protocol_alpha.Main
 
 (library
  (name tezos_raw_protocol_alpha)
+ (instrumentation (backend bisect_ppx))
  (public_name tezos-protocol-alpha.raw)
  (libraries tezos_protocol_environment_alpha)
  (library_flags (:standard -linkall))
@@ -325,6 +366,7 @@ include Tezos_raw_protocol_alpha.Main
                    -open Error_monad))
  (modules
    Misc
+   Path_encoding
    Storage_description
    State_hash
    Nonce_hash
@@ -344,10 +386,12 @@ include Tezos_raw_protocol_alpha.Main
    Level_repr
    Seed_repr
    Voting_period_repr
+   Script_string_repr
    Script_int_repr
    Script_timestamp_repr
    Michelson_v1_primitives
    Script_repr
+   Cache_memory_helpers
    Contract_repr
    Roll_repr
    Vote_repr
@@ -387,12 +431,22 @@ include Tezos_raw_protocol_alpha.Main
    Liquidity_baking_migration
    Init_storage
    Sapling_validator
+   Global_constants_costs
+   Global_constants_storage
+   Cache_costs
    Alpha_context
-   Script_typed_ir
    Script_tc_errors
+   Script_typed_ir
+   Script_typed_ir_size
+   Script_typed_ir_size_costs
    Michelson_v1_gas
    Script_ir_annot
+   Script_list
+   Script_comparable
+   Script_set
+   Script_map
    Script_ir_translator
+   Script_cache
    Script_tc_errors_registration
    Script_interpreter_defs
    Script_interpreter
@@ -416,6 +470,7 @@ include Tezos_raw_protocol_alpha.Main
 
 (library
  (name tezos_protocol_alpha)
+ (instrumentation (backend bisect_ppx))
  (public_name tezos-protocol-alpha)
  (libraries
       tezos-protocol-environment
@@ -428,6 +483,7 @@ include Tezos_raw_protocol_alpha.Main
 
 (library
  (name tezos_protocol_alpha_functor)
+ (instrumentation (backend bisect_ppx))
  (public_name tezos-protocol-functor-alpha)
  (libraries
       tezos-protocol-environment
@@ -440,6 +496,7 @@ include Tezos_raw_protocol_alpha.Main
 
 (library
  (name tezos_embedded_protocol_alpha)
+ (instrumentation (backend bisect_ppx))
  (public_name tezos-embedded-protocol-alpha)
  (library_flags (:standard -linkall))
  (libraries tezos-protocol-alpha
@@ -453,6 +510,7 @@ include Tezos_raw_protocol_alpha.Main
  (alias runtest_compile_protocol)
  (deps
    misc.mli misc.ml
+   path_encoding.mli path_encoding.ml
    storage_description.mli storage_description.ml
    state_hash.mli state_hash.ml
    nonce_hash.mli nonce_hash.ml
@@ -472,10 +530,12 @@ include Tezos_raw_protocol_alpha.Main
    level_repr.mli level_repr.ml
    seed_repr.mli seed_repr.ml
    voting_period_repr.mli voting_period_repr.ml
+   script_string_repr.mli script_string_repr.ml
    script_int_repr.mli script_int_repr.ml
    script_timestamp_repr.mli script_timestamp_repr.ml
    michelson_v1_primitives.mli michelson_v1_primitives.ml
    script_repr.mli script_repr.ml
+   cache_memory_helpers.ml
    contract_repr.mli contract_repr.ml
    roll_repr.mli roll_repr.ml
    vote_repr.mli vote_repr.ml
@@ -515,12 +575,22 @@ include Tezos_raw_protocol_alpha.Main
    liquidity_baking_migration.mli liquidity_baking_migration.ml
    init_storage.mli init_storage.ml
    sapling_validator.ml
+   global_constants_costs.mli global_constants_costs.ml
+   global_constants_storage.mli global_constants_storage.ml
+   cache_costs.mli cache_costs.ml
    alpha_context.mli alpha_context.ml
-   script_typed_ir.ml
    script_tc_errors.ml
+   script_typed_ir.mli script_typed_ir.ml
+   script_typed_ir_size.mli script_typed_ir_size.ml
+   script_typed_ir_size_costs.mli script_typed_ir_size_costs.ml
    michelson_v1_gas.mli michelson_v1_gas.ml
    script_ir_annot.mli script_ir_annot.ml
+   script_list.mli script_list.ml
+   script_comparable.mli script_comparable.ml
+   script_set.mli script_set.ml
+   script_map.mli script_map.ml
    script_ir_translator.mli script_ir_translator.ml
+   script_cache.mli script_cache.ml
    script_tc_errors_registration.mli script_tc_errors_registration.ml
    script_interpreter_defs.ml
    script_interpreter.mli script_interpreter.ml

@@ -77,6 +77,21 @@ let parse_block s =
         (String.split delim s, delim)
     | _ -> raise Exit
   in
+  (* Converts a string representing a block level into a Int32. Fails
+     if the resulting integer is negative. *)
+  let to_valid_level_id s =
+    let l = Int32.of_string s in
+    if Compare.Int32.(l < 0l) then raise Exit else l
+  in
+  (* Converts an Int32 into a level identifier. If [?offset] is given,
+     returns the level identifier minus that offset. *)
+  let to_level ?offset l =
+    if Compare.Int32.(l = 0l) then Ok `Genesis
+    else
+      match offset with
+      | Some ofs -> Ok (`Level Int32.(sub l ofs))
+      | None -> Ok (`Level l)
+  in
   try
     match split_on_delim (count_delims s) with
     | (["genesis"], _) -> Ok `Genesis
@@ -98,15 +113,19 @@ let parse_block s =
     | ([hol], _) -> (
         match Block_hash.of_b58check_opt hol with
         | Some h -> Ok (`Hash (h, 0))
+        | None -> to_level (to_valid_level_id s))
+    | ([hol; n], '~') | ([hol; n], '-') -> (
+        match Block_hash.of_b58check_opt hol with
+        | Some h -> Ok (`Hash (h, int_of_string n))
         | None ->
-            let l = Int32.of_string s in
-            if Compare.Int32.(l < 0l) then raise Exit
-            else if Compare.Int32.(l = 0l) then Ok `Genesis
-            else Ok (`Level (Int32.of_string s)))
-    | ([h; n], '~') | ([h; n], '-') ->
-        Ok (`Hash (Block_hash.of_b58check_exn h, int_of_string n))
-    | ([h; n], '+') ->
-        Ok (`Hash (Block_hash.of_b58check_exn h, -int_of_string n))
+            let offset = to_valid_level_id n in
+            to_level ~offset (to_valid_level_id hol))
+    | ([hol; n], '+') -> (
+        match Block_hash.of_b58check_opt hol with
+        | Some h -> Ok (`Hash (h, -int_of_string n))
+        | None ->
+            let offset = Int32.neg (to_valid_level_id n) in
+            to_level ~offset (to_valid_level_id hol))
     | _ -> raise Exit
   with _ -> Error ("Cannot parse block identifier: " ^ s)
 
@@ -167,6 +186,13 @@ let operation_list_quota_encoding =
 
 type raw_context = Key of Bytes.t | Dir of raw_context TzString.Map.t | Cut
 
+let rec raw_context_eq rc1 rc2 =
+  match (rc1, rc2) with
+  | (Key bytes1, Key bytes2) -> Bytes.equal bytes1 bytes2
+  | (Dir dir1, Dir dir2) -> TzString.Map.(equal raw_context_eq dir1 dir2)
+  | (Cut, Cut) -> true
+  | _ -> false
+
 let rec pp_raw_context ppf = function
   | Cut -> Format.fprintf ppf "..."
   | Key v -> Hex.pp ppf (Hex.of_bytes v)
@@ -207,6 +233,25 @@ let raw_context_encoding =
             (fun () -> Cut);
         ])
 
+let raw_context_insert =
+  let default = Dir TzString.Map.empty in
+  (* not tail recursive but over the length of [k], which is small *)
+  let rec aux (k, v) ctx =
+    let d = match ctx with Dir d -> d | Key _ | Cut -> TzString.Map.empty in
+    match k with
+    | [] -> v
+    | [kh] -> Dir (TzString.Map.add kh v d)
+    | kh :: ktl ->
+        Dir
+          (TzString.Map.update
+             kh
+             (fun ctxtopt ->
+               let ctx' = Option.value ctxtopt ~default in
+               Some (aux (ktl, v) ctx'))
+             d)
+  in
+  aux
+
 type error += Invalid_depth_arg of int
 
 type merkle_hash_kind = Contents | Node
@@ -217,6 +262,16 @@ type merkle_node =
   | Continue of merkle_tree
 
 and merkle_tree = merkle_node TzString.Map.t
+
+let rec merkle_node_eq n1 n2 =
+  match (n1, n2) with
+  | (Hash (mhk1, s1), Hash (mhk2, s2)) -> mhk1 = mhk2 && String.equal s1 s2
+  | (Data rc1, Data rc2) -> raw_context_eq rc1 rc2
+  | (Continue mtree1, Continue mtree2) -> merkle_tree_eq mtree1 mtree2
+  | _ -> false
+
+and merkle_tree_eq mtree1 mtree2 =
+  TzString.Map.equal merkle_node_eq mtree1 mtree2
 
 type merkle_leaf_kind = Hole | Raw_context
 
@@ -886,7 +941,7 @@ module Make (Proto : PROTO) (Next_proto : PROTO) = struct
         unprocessed : Next_proto.operation Operation_hash.Map.t;
       }
 
-      let encoding =
+      let version_0_encoding =
         conv
           (fun {applied; refused; branch_refused; branch_delayed; unprocessed} ->
             (applied, refused, branch_refused, branch_delayed, unprocessed))
@@ -929,13 +984,144 @@ module Make (Proto : PROTO) (Next_proto : PROTO) = struct
                 (Operation_hash.Map.encoding
                    (dynamic_size next_operation_encoding))))
 
+      let version_1_encoding =
+        let operations_with_error_encoding kind =
+          req
+            kind
+            (conv
+               (fun map -> Operation_hash.Map.bindings map)
+               (fun list -> list |> List.to_seq |> Operation_hash.Map.of_seq)
+               (list
+                  (merge_objs
+                     (obj1 (req "hash" Operation_hash.encoding))
+                     (merge_objs
+                        next_operation_encoding
+                        (obj1 (req "error" RPC_error.encoding))))))
+        in
+        conv
+          (fun {applied; refused; branch_refused; branch_delayed; unprocessed} ->
+            (applied, refused, branch_refused, branch_delayed, unprocessed))
+          (fun (applied, refused, branch_refused, branch_delayed, unprocessed) ->
+            {applied; refused; branch_refused; branch_delayed; unprocessed})
+          (obj5
+             (req
+                "applied"
+                (list
+                   (conv
+                      (fun (hash, (op : Next_proto.operation)) ->
+                        ((hash, op.shell), op.protocol_data))
+                      (fun ((hash, shell), protocol_data) ->
+                        (hash, {shell; protocol_data}))
+                      (merge_objs
+                         (merge_objs
+                            (obj1 (req "hash" Operation_hash.encoding))
+                            Operation.shell_header_encoding)
+                         (dynamic_size Next_proto.operation_data_encoding)))))
+             (operations_with_error_encoding "refused")
+             (operations_with_error_encoding "branch_refused")
+             (operations_with_error_encoding "branch_delayed")
+             (req
+                "unprocessed"
+                (conv
+                   (fun map -> Operation_hash.Map.bindings map)
+                   (fun list ->
+                     list |> List.to_seq |> Operation_hash.Map.of_seq)
+                   (list
+                      (merge_objs
+                         (obj1 (req "hash" Operation_hash.encoding))
+                         next_operation_encoding)))))
+
+      (* This encoding should be always the one by default. *)
+      let encoding = version_0_encoding
+
+      (* If you change this value, also change [encoding]. *)
+      let default_pending_operations_version = 0
+
+      let pending_query =
+        let open RPC_query in
+        query (fun version ->
+            object
+              method version = version
+            end)
+        |+ field
+             "version"
+             RPC_arg.int
+             default_pending_operations_version
+             (fun t -> t#version)
+        |> seal
+
+      (* If you update this datatype, please update also [supported_version]. *)
+      type t_with_version = Version_0 of t | Version_1 of t
+
+      (* This value should be consistent with [t_with_version]. *)
+      let supported_version = [0; 1]
+
+      let pending_operations_encoding =
+        union
+          [
+            case
+              ~title:"new_encoding_pending_operations"
+              Json_only
+              version_1_encoding
+              (function
+                | Version_1 pending_operations -> Some pending_operations
+                | Version_0 _ -> None)
+              (fun pending_operations -> Version_1 pending_operations);
+            case
+              ~title:"old_encoding_pending_operations"
+              Json_only
+              version_0_encoding
+              (function
+                | Version_0 pending_operations -> Some pending_operations
+                | Version_1 _ -> None)
+              (fun pending_operations -> Version_0 pending_operations);
+          ]
+
+      let pending_operations_version_dispatcher ~version pending_operations =
+        if version = 0 then RPC_answer.return (Version_0 pending_operations)
+        else if version = 1 then
+          RPC_answer.return (Version_1 pending_operations)
+        else
+          RPC_answer.fail
+            (RPC_error.bad_version ~given:version ~supported:supported_version)
+
       let pending_operations path =
-        (* TODO: branch_delayed/... *)
         RPC_service.get_service
           ~description:"List the prevalidated operations."
-          ~query:RPC_query.empty
-          ~output:encoding
+          ~query:pending_query
+          ~output:pending_operations_encoding
           RPC_path.(path / "pending_operations")
+
+      let ban_operation path =
+        RPC_service.post_service
+          ~description:
+            "Remove an operation from the mempool if present, reverting its \
+             effect if it was applied. Add it to the set of banned operations \
+             to prevent it from being fetched/processed/injected in the \
+             future. Note: If the baker has already received the operation, \
+             then it's necessary to restart it to flush the operation from it."
+          ~query:RPC_query.empty
+          ~input:Operation_hash.encoding
+          ~output:unit
+          RPC_path.(path / "ban_operation")
+
+      let unban_operation path =
+        RPC_service.post_service
+          ~description:
+            "Remove an operation from the set of banned operations (nothing \
+             happens if it was not banned)."
+          ~query:RPC_query.empty
+          ~input:Operation_hash.encoding
+          ~output:unit
+          RPC_path.(path / "unban_operation")
+
+      let unban_all_operations path =
+        RPC_service.post_service
+          ~description:"Clear the set of banned operations."
+          ~query:RPC_query.empty
+          ~input:Data_encoding.empty
+          ~output:unit
+          RPC_path.(path / "unban_all_operations")
 
       let mempool_query =
         let open RPC_query in
@@ -975,11 +1161,20 @@ module Make (Proto : PROTO) (Next_proto : PROTO) = struct
              (fun t -> t#branch_delayed)
         |> seal
 
+      (* We extend the object so that the fields of 'next_operation'
+         stay toplevel, for backward compatibility. *)
+      let processed_operation_encoding =
+        merge_objs
+          (merge_objs
+             (obj1 (req "hash" Operation_hash.encoding))
+             next_operation_encoding)
+          (obj1 (dft "error" RPC_error.encoding []))
+
       let monitor_operations path =
         RPC_service.get_service
           ~description:"Monitor the mempool operations."
           ~query:mempool_query
-          ~output:(list next_operation_encoding)
+          ~output:(list processed_operation_encoding)
           RPC_path.(path / "monitor_operations")
 
       let get_filter path =
@@ -1209,8 +1404,37 @@ module Make (Proto : PROTO) (Next_proto : PROTO) = struct
       unprocessed : Next_proto.operation Operation_hash.Map.t;
     }
 
-    let pending_operations ctxt ?(chain = `Main) () =
-      let s = S.Mempool.pending_operations (mempool_path chain_path) in
+    type t_with_version = S.Mempool.t_with_version =
+      | Version_0 of t
+      | Version_1 of t
+
+    let pending_operations_version_dispatcher =
+      S.Mempool.pending_operations_version_dispatcher
+
+    let pending_operations ctxt ?(chain = `Main)
+        ?(version = S.Mempool.default_pending_operations_version) () =
+      RPC_context.make_call1
+        (S.Mempool.pending_operations (mempool_path chain_path))
+        ctxt
+        chain
+        (object
+           method version = version
+        end)
+        ()
+      >>=? function
+      | Version_1 pending_operations | Version_0 pending_operations ->
+          return pending_operations
+
+    let ban_operation ctxt ?(chain = `Main) op_hash =
+      let s = S.Mempool.ban_operation (mempool_path chain_path) in
+      RPC_context.make_call1 s ctxt chain () op_hash
+
+    let unban_operation ctxt ?(chain = `Main) op_hash =
+      let s = S.Mempool.unban_operation (mempool_path chain_path) in
+      RPC_context.make_call1 s ctxt chain () op_hash
+
+    let unban_all_operations ctxt ?(chain = `Main) () =
+      let s = S.Mempool.unban_all_operations (mempool_path chain_path) in
       RPC_context.make_call1 s ctxt chain () ()
 
     let monitor_operations ctxt ?(chain = `Main) ?(applied = true)

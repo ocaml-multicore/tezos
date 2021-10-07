@@ -27,24 +27,21 @@
 
 open Validation_errors
 
+type 'operation_data operation = {
+  hash : Operation_hash.t;
+  raw : Operation.t;
+  protocol_data : 'operation_data;
+}
+
 module type T = sig
   module Proto : Tezos_protocol_environment.PROTOCOL
 
   type t
 
-  type operation = private {
-    hash : Operation_hash.t;
-    raw : Operation.t;
-    protocol_data : Proto.operation_data;
-  }
+  val parse : Operation.t -> Proto.operation_data operation tzresult
 
-  val compare : operation -> operation -> int
+  val parse_unsafe : bytes -> Proto.operation_data tzresult
 
-  val parse : Operation.t -> operation tzresult
-
-  (** Creates a new prevalidation context w.r.t. the protocol associate to the
-      predecessor block . When ?protocol_data is passed to this function, it will
-      be used to create the new block *)
   val create :
     Store.chain_store ->
     ?protocol_data:Bytes.t ->
@@ -62,34 +59,27 @@ module type T = sig
     | Refused of error list
     | Outdated
 
-  val apply_operation : t -> operation -> result Lwt.t
-
-  type status = {
-    applied_operations : (operation * Proto.operation_receipt) list;
-    block_result : Tezos_protocol_environment.validation_result;
-    block_metadata : Proto.block_header_metadata;
-  }
-
-  val status : t -> status tzresult Lwt.t
+  val apply_operation : t -> Proto.operation_data operation -> result Lwt.t
 
   val validation_state : t -> Proto.validation_state
 
   val pp_result : Format.formatter -> result -> unit
 end
 
+(** Doesn't depend on heavy [Registered_protocol.T] for testability. *)
+let safe_binary_of_bytes (encoding : 'a Data_encoding.t) (bytes : bytes) :
+    'a tzresult =
+  match Data_encoding.Binary.of_bytes_opt encoding bytes with
+  | None -> error Parse_error
+  | Some protocol_data -> ok protocol_data
+
 module Make (Proto : Tezos_protocol_environment.PROTOCOL) :
   T with module Proto = Proto = struct
   module Proto = Proto
 
-  type operation = {
-    hash : Operation_hash.t;
-    raw : Operation.t;
-    protocol_data : Proto.operation_data;
-  }
-
   type t = {
     state : Proto.validation_state;
-    applied : (operation * Proto.operation_receipt) list;
+    applied : (Proto.operation_data operation * Proto.operation_receipt) list;
     live_blocks : Block_hash.Set.t;
     live_operations : Operation_hash.Set.t;
   }
@@ -101,26 +91,16 @@ module Make (Proto : Tezos_protocol_environment.PROTOCOL) :
     | Refused of error list
     | Outdated
 
+  let parse_unsafe (proto : bytes) : Proto.operation_data tzresult =
+    safe_binary_of_bytes Proto.operation_data_encoding proto
+
   let parse (raw : Operation.t) =
     let hash = Operation.hash raw in
     let size = Data_encoding.Binary.length Operation.encoding raw in
     if size > Proto.max_operation_data_length then
       error (Oversized_operation {size; max = Proto.max_operation_data_length})
     else
-      try
-        match
-          Data_encoding.Binary.of_bytes_opt
-            Proto.operation_data_encoding
-            raw.Operation.proto
-        with
-        | None -> error Parse_error
-        | Some protocol_data -> ok {hash; raw; protocol_data}
-      with _ -> error Parse_error
-
-  let compare op1 op2 =
-    Proto.compare_operations
-      {shell = op1.raw.shell; protocol_data = op1.protocol_data}
-      {shell = op2.raw.shell; protocol_data = op2.protocol_data}
+      parse_unsafe raw.proto >|? fun protocol_data -> {hash; raw; protocol_data}
 
   let create chain_store ?protocol_data ~predecessor ~live_blocks
       ~live_operations ~timestamp () =
@@ -169,10 +149,9 @@ module Make (Proto : Tezos_protocol_environment.PROTOCOL) :
       ~predecessor:predecessor_hash
       ~timestamp
       ?protocol_data
+      ~cache:`Lazy
       ()
-    >>=? fun state ->
-    (* FIXME arbitrary value, to be customisable *)
-    return {state; applied = []; live_blocks; live_operations}
+    >>=? fun state -> return {state; applied = []; live_blocks; live_operations}
 
   let apply_operation pv op =
     if Operation_hash.Set.mem op.hash pv.live_operations then
@@ -193,32 +172,22 @@ module Make (Proto : Tezos_protocol_environment.PROTOCOL) :
                 Operation_hash.Set.add op.hash pv.live_operations;
             }
           in
-          try
-            let receipt =
-              Data_encoding.Binary.(
-                of_bytes_exn
-                  Proto.operation_receipt_encoding
-                  (to_bytes_exn Proto.operation_receipt_encoding receipt))
-            in
-            Applied (pv, receipt)
-          with exn ->
-            Refused
-              [Validation_errors.Cannot_serialize_operation_metadata; Exn exn])
-      | Error errors -> (
-          match classify_errors errors with
-          | `Branch -> Branch_refused errors
-          | `Permanent -> Refused errors
-          | `Temporary -> Branch_delayed errors)
-
-  type status = {
-    applied_operations : (operation * Proto.operation_receipt) list;
-    block_result : Tezos_protocol_environment.validation_result;
-    block_metadata : Proto.block_header_metadata;
-  }
-
-  let status pv =
-    Proto.finalize_block pv.state >>=? fun (block_result, block_metadata) ->
-    return {block_metadata; block_result; applied_operations = pv.applied}
+          match
+            Data_encoding.Binary.(
+              of_bytes_exn
+                Proto.operation_receipt_encoding
+                (to_bytes_exn Proto.operation_receipt_encoding receipt))
+          with
+          | receipt -> Applied (pv, receipt)
+          | exception exn ->
+              Refused
+                [Validation_errors.Cannot_serialize_operation_metadata; Exn exn]
+          )
+      | Error trace -> (
+          match classify_trace trace with
+          | `Branch -> Branch_refused trace
+          | `Permanent -> Refused trace
+          | `Temporary -> Branch_delayed trace)
 
   let validation_state {state; _} = state
 
@@ -226,9 +195,9 @@ module Make (Proto : Tezos_protocol_environment.PROTOCOL) :
     let open Format in
     function
     | Applied _ -> pp_print_string ppf "applied"
-    | Branch_delayed err -> fprintf ppf "branch delayed (%a)" pp_print_error err
-    | Branch_refused err -> fprintf ppf "branch refused (%a)" pp_print_error err
-    | Refused err -> fprintf ppf "refused (%a)" pp_print_error err
+    | Branch_delayed err -> fprintf ppf "branch delayed (%a)" pp_print_trace err
+    | Branch_refused err -> fprintf ppf "branch refused (%a)" pp_print_trace err
+    | Refused err -> fprintf ppf "refused (%a)" pp_print_trace err
     | Outdated -> pp_print_string ppf "outdated"
 end
 
@@ -239,7 +208,7 @@ let preapply chain_store ~user_activated_upgrades
   Context.get_protocol predecessor_context >>= fun protocol ->
   (match Registered_protocol.get protocol with
   | None ->
-      (* FIXME. *)
+      (* FIXME: https://gitlab.com/tezos/tezos/-/issues/1718 *)
       (* This should not happen: it should be handled in the validator. *)
       failwith
         "Prevalidation: missing protocol '%a' for the current block."
@@ -289,7 +258,7 @@ let preapply chain_store ~user_activated_upgrades
         (fun (acc_validation_result, acc_validation_state) op ->
           match Prevalidation.parse op with
           | Error _ ->
-              (* FIXME *)
+              (* FIXME: https://gitlab.com/tezos/tezos/-/issues/1721  *)
               Lwt.return (acc_validation_result, acc_validation_state)
           | Ok op ->
               apply_operation_with_preapply_result
@@ -322,9 +291,25 @@ let preapply chain_store ~user_activated_upgrades
            Operation_list_hash.compute (List.map fst r.Preapply_result.applied))
          validation_result_list_rev)
   in
-  Prevalidation.status validation_state >>=? fun {block_result; _} ->
   let pred_shell_header = Store.Block.shell_header predecessor in
   let level = Int32.succ pred_shell_header.level in
+  let pred_block_hash = Store.Block.hash predecessor in
+  let shell_header : Block_header.shell_header =
+    {
+      level;
+      proto_level = pred_shell_header.proto_level;
+      predecessor = pred_block_hash;
+      timestamp;
+      validation_passes;
+      operations_hash;
+      context = Context_hash.zero (* place holder *);
+      fitness = [];
+    }
+  in
+  Proto.finalize_block
+    (Prevalidation.validation_state validation_state)
+    (Some shell_header)
+  >>=? fun (block_result, _) ->
   Block_validation.may_patch_protocol
     ~user_activated_upgrades
     ~user_activated_protocol_overrides
@@ -332,26 +317,17 @@ let preapply chain_store ~user_activated_upgrades
     block_result
   >>= fun {fitness; context; message; _} ->
   Store.Block.protocol_hash chain_store predecessor >>=? fun pred_protocol ->
-  let context = Shell_context.unwrap_disk_context context in
-  Context.get_protocol context >>= fun protocol ->
+  Context.get_protocol (Shell_context.unwrap_disk_context context)
+  >>= fun protocol ->
   let proto_level =
     if Protocol_hash.equal protocol pred_protocol then
       pred_shell_header.proto_level
     else (pred_shell_header.proto_level + 1) mod 256
   in
-  let pred_block_hash = Store.Block.hash predecessor in
   let shell_header : Block_header.shell_header =
-    {
-      level;
-      proto_level;
-      predecessor = pred_block_hash;
-      timestamp;
-      validation_passes;
-      operations_hash;
-      fitness;
-      context = Context_hash.zero (* place holder *);
-    }
+    {shell_header with proto_level; fitness}
   in
+  let context = Shell_context.unwrap_disk_context context in
   (if Protocol_hash.equal protocol pred_protocol then return (context, message)
   else
     match Registered_protocol.get protocol with
@@ -361,6 +337,13 @@ let preapply chain_store ~user_activated_upgrades
              {block = pred_block_hash; protocol})
     | Some (module NewProto) ->
         let context = Shell_context.wrap_disk_context context in
+        Block_validation.check_proto_environment_version_increasing
+          Block_hash.zero
+          Proto.environment_version
+          NewProto.environment_version
+        >>?= fun () ->
+        NewProto.set_log_message_consumer
+          (Protocol_logging.make_log_message_consumer ()) ;
         NewProto.init context shell_header >>=? fun {context; message; _} ->
         let context = Shell_context.unwrap_disk_context context in
         return (context, message))
@@ -373,7 +356,7 @@ let preapply chain_store ~user_activated_upgrades
    | Some (module Proto) -> return Proto.environment_version)
    >>=? function
    | Protocol.V0 -> return context
-   | Protocol.V1 | Protocol.V2 | Protocol.V3 -> (
+   | Protocol.V1 | Protocol.V2 | Protocol.V3 | Protocol.V4 -> (
        (* Block and operation metadata hashes may not be set on
           the testchain genesis block and activation block, even
           when they are using environment V1, they contain no
@@ -400,3 +383,7 @@ let preapply chain_store ~user_activated_upgrades
   >>=? fun context ->
   let context = Context.hash ?message ~time:timestamp context in
   return ({shell_header with context}, validation_result_list)
+
+module Internal_for_tests = struct
+  let safe_binary_of_bytes = safe_binary_of_bytes
+end

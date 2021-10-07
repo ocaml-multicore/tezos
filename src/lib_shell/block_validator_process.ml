@@ -48,8 +48,6 @@ module type S = sig
 
   val close : t -> unit Lwt.t
 
-  val restore_context_integrity : t -> int option tzresult Lwt.t
-
   val apply_block :
     t ->
     Store.chain_store ->
@@ -117,6 +115,14 @@ module Internal_validator_process = struct
     chain_store : Store.chain_store;
     user_activated_upgrades : User_activated.upgrades;
     user_activated_protocol_overrides : User_activated.protocol_overrides;
+    (*
+       The cache must be updated by the component that owns the
+       context, i.e., the component that has the writing permissions
+       on the context. In the shell, this component is the block
+       validator process. For this reason, we maintain the collection
+       of caches passed from one block to the next one here.
+    *)
+    mutable cache : Environment_context.Context.block_cache option;
   }
 
   let init
@@ -124,7 +130,12 @@ module Internal_validator_process = struct
         validator_environment) chain_store =
     Events.(emit init ()) >>= fun () ->
     return
-      {chain_store; user_activated_upgrades; user_activated_protocol_overrides}
+      {
+        chain_store;
+        user_activated_upgrades;
+        user_activated_protocol_overrides;
+        cache = None;
+      }
 
   let close _ = Events.(emit close ())
 
@@ -168,11 +179,18 @@ module Internal_validator_process = struct
     let now = Systime_os.now () in
     let block_hash = Block_header.hash block_header in
     Events.(emit validation_request (block_hash, env.chain_id)) >>= fun () ->
-    Block_validation.apply env block_header operations >>=? fun result ->
+    let cache =
+      match validator.cache with
+      | None -> `Load
+      | Some block_cache -> `Inherited (block_cache, block_hash)
+    in
+    Block_validation.apply env block_header operations ~cache
+    >>=? fun (result, cache) ->
     let timespan =
       let then_ = Systime_os.now () in
       Ptime.diff then_ now
     in
+    validator.cache <- Some {block_hash; cache} ;
     Events.(emit validation_success (block_hash, timespan)) >>= fun () ->
     return result
 
@@ -189,10 +207,6 @@ module Internal_validator_process = struct
     let forked_header = Store.Block.header forking_block in
     Store.Block.context validator.chain_store forking_block >>=? fun context ->
     Block_validation.init_test_chain context forked_header
-
-  let restore_context_integrity validator =
-    let context_index = get_context_index validator.chain_store in
-    Lwt.return (Context.restore_integrity context_index)
 end
 
 (** Block validation using an external process *)
@@ -518,15 +532,14 @@ module External_validator_process = struct
             vp.validator_process <- Uninitialized ;
             Events.(emit process_exited_abnormally status) >>= fun () ->
             return res)
-      (function
-        | errors ->
-            (match process#state with
-            | Running -> Lwt.return_unit
-            | Exited status ->
-                Events.(emit process_exited_abnormally status) >>= fun () ->
-                vp.validator_process <- Uninitialized ;
-                Lwt.return_unit)
-            >>= fun () -> Lwt.return (error_exn errors))
+      (fun exn ->
+        (match process#state with
+        | Running -> Lwt.return_unit
+        | Exited status ->
+            Events.(emit process_exited_abnormally status) >>= fun () ->
+            vp.validator_process <- Uninitialized ;
+            Lwt.return_unit)
+        >>= fun () -> fail_with_exn exn)
 
   let init
       ({user_activated_upgrades; user_activated_protocol_overrides} :
@@ -585,10 +598,6 @@ module External_validator_process = struct
       External_validation.Fork_test_chain {context_hash; forked_header}
     in
     send_request validator request Block_header.encoding
-
-  let restore_context_integrity validator =
-    let request = External_validation.Restore_context_integrity in
-    send_request validator request Data_encoding.(option int31)
 
   let close vp =
     Events.(emit close ()) >>= fun () ->
@@ -666,9 +675,6 @@ let init validator_environment validator_kind =
       return (E {validator_process; validator})
 
 let close (E {validator_process = (module VP); validator}) = VP.close validator
-
-let restore_context_integrity (E {validator_process = (module VP); validator}) =
-  VP.restore_context_integrity validator
 
 let apply_block (E {validator_process = (module VP); validator}) chain_store
     ~predecessor header operations =

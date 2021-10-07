@@ -185,7 +185,7 @@ let minimal_time_fastpath_case minimal_block_delay pred_timestamp =
 (* The function implements the slow-path case in [minimal_time]. (See
    [minimal_valid_time] for the definition of the slow-path.) *)
 let minimal_time_slowpath_case time_between_blocks priority pred_timestamp =
-  let rec cumsum_time_between_blocks acc durations p =
+  let[@coq_struct "durations"] rec cumsum_time_between_blocks acc durations p =
     if Compare.Int32.( <= ) p 0l then ok acc
     else
       match durations with
@@ -312,45 +312,44 @@ let baking_priorities c level =
   f 0
 
 let endorsement_rights ctxt level =
-  fold_right_s
-    (fun slot acc ->
+  List.fold_left_es
+    (fun acc slot ->
       Roll.endorsement_rights_owner ctxt level ~slot >|=? fun pk ->
       let pkh = Signature.Public_key.hash pk in
       let right =
-        match Signature.Public_key_hash.Map.find_opt pkh acc with
+        match Signature.Public_key_hash.Map.find pkh acc with
         | None -> (pk, [slot], false)
         | Some (pk, slots, used) -> (pk, slot :: slots, used)
       in
       Signature.Public_key_hash.Map.add pkh right acc)
-    (0 --> (Constants.endorsers_per_block ctxt - 1))
     Signature.Public_key_hash.Map.empty
+    (0 <-- Constants.endorsers_per_block ctxt - 1)
 
-let[@coq_axiom_with_reason "gadt"] check_endorsement_rights ctxt chain_id ~slot
+let[@coq_axiom_with_reason "gadt"] check_endorsement_right ctxt chain_id ~slot
     (op : Kind.endorsement Operation.t) =
   if
     Compare.Int.(slot < 0 (* should not happen because of binary format *))
     || Compare.Int.(slot >= Constants.endorsers_per_block ctxt)
   then fail (Invalid_endorsement_slot slot)
   else
-    let current_level = Level.current ctxt in
     let (Single (Endorsement {level; _})) = op.protocol_data.contents in
     Roll.endorsement_rights_owner ctxt (Level.from_raw ctxt level) ~slot
     >>=? fun pk ->
     let pkh = Signature.Public_key.hash pk in
     match Operation.check_signature pk chain_id op with
     | Error _ -> fail Unexpected_endorsement
-    | Ok () -> (
-        (if Raw_level.(succ level = current_level.level) then
-         return (Alpha_context.allowed_endorsements ctxt)
-        else endorsement_rights ctxt (Level.from_raw ctxt level))
-        >>=? fun endorsements ->
-        match Signature.Public_key_hash.Map.find_opt pkh endorsements with
-        | None -> fail Unexpected_endorsement (* unexpected *)
-        | Some (_pk, slots, v) ->
-            error_unless
-              Compare.Int.(slot = List.hd slots)
-              (Unexpected_endorsement_slot slot)
-            >>?= fun () -> return (pkh, slots, v))
+    | Ok () -> return pkh
+
+let check_endorsement_slots_at_current_level ctxt ~slot pkh =
+  let endorsements = Alpha_context.allowed_endorsements ctxt in
+  match Signature.Public_key_hash.Map.find pkh endorsements with
+  | None -> fail Unexpected_endorsement (* unexpected *)
+  | Some (_pk, (top_slot :: _ as slots), v) ->
+      error_unless
+        Compare.Int.(slot = top_slot)
+        (Unexpected_endorsement_slot slot)
+      >>?= fun () -> return (slots, v)
+  | Some (_pk, [], _) -> fail (Unexpected_endorsement_slot slot)
 
 let select_delegate delegate delegate_list max_priority =
   let rec loop acc l n =

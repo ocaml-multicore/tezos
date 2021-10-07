@@ -21,7 +21,7 @@
  (action
   (write-file %{targets}
               "module Name = struct let name = \"demo-noops\" end
-include Tezos_protocol_environment.MakeV1(Name)()
+include Tezos_protocol_environment.MakeV4(Name)()
 module CamlinternalFormatBasics = struct include CamlinternalFormatBasics end
 ")))
 
@@ -58,6 +58,7 @@ include Tezos_raw_protocol_demo_noops.Main
 
 (library
  (name tezos_protocol_environment_demo_noops)
+ (instrumentation (backend bisect_ppx))
  (public_name tezos-protocol-demo-noops.environment)
  (library_flags (:standard -linkall))
  (libraries tezos-protocol-environment)
@@ -65,6 +66,7 @@ include Tezos_raw_protocol_demo_noops.Main
 
 (library
  (name tezos_raw_protocol_demo_noops)
+ (instrumentation (backend bisect_ppx))
  (public_name tezos-protocol-demo-noops.raw)
  (libraries tezos_protocol_environment_demo_noops)
  (library_flags (:standard -linkall))
@@ -84,6 +86,7 @@ include Tezos_raw_protocol_demo_noops.Main
 
 (library
  (name tezos_protocol_demo_noops)
+ (instrumentation (backend bisect_ppx))
  (public_name tezos-protocol-demo-noops)
  (libraries
       tezos-protocol-environment
@@ -96,6 +99,7 @@ include Tezos_raw_protocol_demo_noops.Main
 
 (library
  (name tezos_protocol_demo_noops_functor)
+ (instrumentation (backend bisect_ppx))
  (public_name tezos-protocol-functor-demo-noops)
  (libraries
       tezos-protocol-environment
@@ -108,6 +112,7 @@ include Tezos_raw_protocol_demo_noops.Main
 
 (library
  (name tezos_embedded_protocol_demo_noops)
+ (instrumentation (backend bisect_ppx))
  (public_name tezos-embedded-protocol-demo-noops)
  (library_flags (:standard -linkall))
  (libraries tezos-protocol-demo-noops

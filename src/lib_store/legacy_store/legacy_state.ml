@@ -262,15 +262,13 @@ let predecessor_n_raw store block_hash distance =
     loop block_hash distance
 
 let predecessor_n block_store block_hash distance =
-  Lwt.catch
-    (fun () ->
+  Option.catch_os (fun () ->
       predecessor_n_raw block_store block_hash distance >>= function
       | None -> Lwt.return_none
       | Some predecessor -> (
           Header.known (block_store, predecessor) >>= function
           | false -> Lwt.return_none
           | true -> Lwt.return_some predecessor))
-    (fun _exn -> Lwt.return_none)
 
 type t = global_state
 
@@ -1032,14 +1030,15 @@ module Block = struct
     let hash = Block_header.hash_raw bytes in
     fail_unless
       (block_header.shell.validation_passes = List.length operations)
-      (failure "State.Block.store: invalid operations length")
+      (error_of_fmt "State.Block.store: invalid operations length")
     >>=? fun () ->
     fail_unless
       (block_header.shell.validation_passes = List.length operations_metadata)
-      (failure "State.Block.store: invalid operations_data length")
+      (error_of_fmt "State.Block.store: invalid operations_data length")
     >>=? fun () ->
     let inconsistent_failure =
-      failure "State.Block.store: inconsistent operations and operations_data"
+      error_of_fmt
+        "State.Block.store: inconsistent operations and operations_data"
     in
     (List.for_all2
        ~when_different_lengths:inconsistent_failure
@@ -1055,7 +1054,7 @@ module Block = struct
     Shared.use chain_state.block_store (fun store ->
         Legacy_store.Block.Invalid_block.known store hash
         >>= fun known_invalid ->
-        fail_when known_invalid (failure "Known invalid") >>=? fun () ->
+        fail_when known_invalid (error_of_fmt "Known invalid") >>=? fun () ->
         Legacy_store.Block.Contents.known (store, hash) >>= fun known ->
         if known then return_none
         else
@@ -1118,7 +1117,8 @@ module Block = struct
               >|= ok
           | None -> (
               match env with
-              | V1 | V2 | V3 -> fail @@ Missing_block_metadata_hash predecessor
+              | V1 | V2 | V3 | V4 ->
+                  fail @@ Missing_block_metadata_hash predecessor
               | V0 -> return_unit))
           >>=? fun () ->
           (match ops_metadata_hashes with
@@ -1191,7 +1191,7 @@ module Block = struct
     let hash = Block_header.hash_raw bytes in
     Shared.use chain_state.block_store (fun store ->
         Header.known (store, hash) >>= fun known_valid ->
-        fail_when known_valid (failure "Known valid") >>=? fun () ->
+        fail_when known_valid (error_of_fmt "Known valid") >>=? fun () ->
         Legacy_store.Block.Invalid_block.known store hash
         >>= fun known_invalid ->
         if known_invalid then return_false

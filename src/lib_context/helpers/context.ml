@@ -140,7 +140,16 @@ module Make_tree (Store : DB) = struct
 
   type repo = Store.repo
 
-  let make_repo = Store.Repo.v (Irmin_mem.config ())
+  let make_repo =
+    let prng_state = lazy (Random.State.make_self_init ()) in
+    (* [irmin-pack] stores implicitly share instances according to a string
+       argument (for persistent stores, this is the store's file path). To avoid
+       having hidden global state, we generate a unique string each time. *)
+    let random_store_name () =
+      let prng_state = Lazy.force prng_state in
+      String.init 64 (fun _ -> Char.chr (Random.State.int prng_state 256))
+    in
+    fun () -> Store.Repo.v @@ Irmin_pack.config @@ random_store_name ()
 
   let shallow repo kinded_hash =
     Store.Tree.shallow
@@ -149,3 +158,23 @@ module Make_tree (Store : DB) = struct
       | `Node hash -> `Node (Hash.of_context_hash hash)
       | `Contents hash -> `Contents (Hash.of_context_hash hash, ()))
 end
+
+type error += Unsupported_context_hash_version of Context_hash.Version.t
+
+let () =
+  register_error_kind
+    `Permanent
+    ~id:"context_hash.unsupported_version"
+    ~title:"Unsupported context hash version"
+    ~description:"Unsupported context hash version."
+    ~pp:(fun ppf version ->
+      Format.fprintf
+        ppf
+        "@[Context hash version %a is not supported.@,\
+         You might need to update the shell.@]"
+        Context_hash.Version.pp
+        version)
+    Data_encoding.(obj1 (req "version" Context_hash.Version.encoding))
+    (function
+      | Unsupported_context_hash_version version -> Some version | _ -> None)
+    (fun version -> Unsupported_context_hash_version version)

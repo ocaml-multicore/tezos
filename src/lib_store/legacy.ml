@@ -40,6 +40,7 @@ module Hardcoded = struct
         ("TEZOS_MAINNET", 4096);
         ("TEZOS_EDO2NET_2021-02-11T14:00:00Z", 2048);
         ("TEZOS_FLORENCENOBANET_2021-03-04T20:00:00Z", 2048);
+        ("TEZOS_GRANADANET_2021-05-21T15:00:00Z", 8192);
         ("TEZOS", 8);
       ]
 
@@ -213,6 +214,7 @@ let may_update_protocol_table legacy_chain_store chain_store ~prev_block ~block
     assert (Int32.equal transition_level block_level) ;
     Store.Chain.may_update_protocol_level
       chain_store
+      ~pred:(Store.Unsafe.block_of_repr prev_block)
       ~protocol_level:proto_level
       (Store.Unsafe.block_of_repr block, proto_hash))
   else return_unit
@@ -222,23 +224,10 @@ let may_update_protocol_table legacy_chain_store chain_store ~prev_block ~block
 let read_i legacy_chain_state block_hash i =
   Legacy_state.Block.read legacy_chain_state block_hash >>=? fun block ->
   let pred = Int32.(to_int (sub block.header.shell.level i)) in
-  Lwt.catch
-    (fun () ->
-      Legacy_state.Block.read_predecessor legacy_chain_state ~pred block_hash
-      >>= function
-      | Some {header; _} -> return header
-      | None -> failwith "Failed to find block at level %ld" i)
-    (function
-      | Not_found -> (
-          (* The block is below the savepoint *)
-          Legacy_state.Block.read_predecessor
-            legacy_chain_state
-            ~pred
-            block_hash
-          >>= function
-          | Some {header; _} -> return header
-          | None -> failwith "Failed to find block at level %ld" i)
-      | _ -> failwith "Failed to find block at level %ld" i)
+  Legacy_state.Block.read_predecessor legacy_chain_state ~pred block_hash
+  >>= function
+  | Some {header; _} -> return header
+  | None -> failwith "Failed to find block at level %ld" i
 
 (* Reads, from the legacy lmdb store, the blocks from [block_hash] to
    [limit] and store them in the floating store. The ~with_metadata
@@ -276,7 +265,7 @@ let import_floating legacy_chain_state legacy_chain_store chain_store
       let rec aux ~pred_block block =
         Block_store.store_block block_store block >>=? fun () ->
         let level = Block_repr.level block in
-        if level >= end_limit then return_unit
+        if level >= end_limit then notify () >>= fun () -> return_unit
         else
           (* At protocol change, update the protocol_table *)
           (match pred_block with
@@ -582,23 +571,24 @@ let import_blocks legacy_chain_state chain_id chain_store cycle_length
   >>=? fun (new_checkpoint, new_savepoint, new_caboose) ->
   return (new_checkpoint, new_savepoint, new_caboose)
 
+let store_known_protocols legacy_store store =
+  Legacy_store.Protocol.Contents.bindings legacy_store >>= fun proto_list ->
+  List.iter_es
+    (fun (h, p) ->
+      Store.Protocol.store store h p >>= function
+      | Some expected_hash ->
+          fail_unless
+            (Protocol_hash.equal expected_hash h)
+            (Failed_to_convert_protocol h)
+      | None -> fail (Failed_to_convert_protocol h) >>=? fun () -> return_unit)
+    proto_list
+
 let import_protocols history_mode legacy_store legacy_chain_state store
     _chain_store chain_id =
   let legacy_chain_store = Legacy_store.Chain.get legacy_store chain_id in
   let legacy_chain_data = Legacy_store.Chain_data.get legacy_chain_store in
   match (history_mode : History_mode.t) with
-  | Archive | Full _ ->
-      Legacy_store.Protocol.Contents.bindings legacy_store >>= fun proto_list ->
-      List.iter_es
-        (fun (h, p) ->
-          Store.Protocol.store store h p >>= function
-          | Some expected_hash ->
-              fail_unless
-                (Protocol_hash.equal expected_hash h)
-                (Failed_to_convert_protocol h)
-          | None ->
-              fail (Failed_to_convert_protocol h) >>=? fun () -> return_unit)
-        proto_list
+  | Archive | Full _ -> store_known_protocols legacy_store store
   | Rolling _ ->
       Legacy_store.Chain_data.Current_head.read legacy_chain_data
       >>=? fun current_head_hash ->
@@ -632,7 +622,7 @@ let import_protocols history_mode legacy_store legacy_chain_state store
           legacy_chain_state
           transition_hash)
       >>=? fun transition_block ->
-      Store.Chain.may_update_protocol_level
+      Store.Unsafe.set_protocol_level
         chain_store
         ~protocol_level
         (Store.Unsafe.block_of_repr transition_block, protocol_hash)
@@ -681,24 +671,31 @@ let update_stored_data legacy_chain_store legacy_store new_store ~new_checkpoint
   Store.Unsafe.set_cementing_highwatermark chain_store cementing_highwatermark
   >>=? fun () -> Store.Unsafe.set_caboose chain_store new_caboose
 
+(* Returns the infered checkpoint of the chain or None if the current
+   head is set to genesis. *)
 let infer_checkpoint legacy_chain_state chain_id =
   (* When upgrading from a full or rolling node, the checkpoint may
      not be set on a "protocol defined checkpoint". We substitute it
-     by using, as a checkpoint, the last allowed fork level of the
-     current head. *)
+     by using, as a checkpoint, the highest block between the
+     savepoint and the last allowed fork level of the current
+     head. *)
   Legacy_state.Chain.store legacy_chain_state >>= fun legacy_store ->
   let legacy_chain_store = Legacy_store.Chain.get legacy_store chain_id in
   let legacy_chain_data = Legacy_store.Chain_data.get legacy_chain_store in
   Legacy_store.Chain_data.Current_head.read legacy_chain_data
   >>=? fun head_hash ->
   Legacy_state.Block.read legacy_chain_state head_hash >>=? fun head_contents ->
-  fail_when
-    (head_contents.header.shell.level = 0l)
-    (Failed_to_upgrade "Nothing to do")
-  >>=? fun () ->
-  Legacy_state.Block.last_allowed_fork_level head_contents >>=? fun lafl ->
-  read_i legacy_chain_state head_hash lafl >>=? fun lafl_header ->
-  return (lafl_header, lafl)
+  if head_contents.header.shell.level = 0l then return_none
+  else
+    Legacy_state.Block.last_allowed_fork_level head_contents >>=? fun lafl ->
+    Legacy_store.Chain_data.Save_point.read legacy_chain_data
+    >>=? fun (savepoint_level, savepoint_hash) ->
+    Legacy_state.Block.read legacy_chain_state savepoint_hash
+    >>=? fun savepoint ->
+    if Compare.Int32.(lafl > savepoint_level) then
+      read_i legacy_chain_state head_hash lafl >>=? fun lafl_header ->
+      return_some (lafl_header, lafl)
+    else return_some (Legacy_state.Block.header savepoint, savepoint_level)
 
 let upgrade_cleaner data_dir ~upgraded_store =
   Event.(emit restoring_after_failure) data_dir >>= fun () ->
@@ -710,7 +707,13 @@ let raw_upgrade chain_name ~new_store ~legacy_state history_mode genesis =
   Legacy_state.Chain.store legacy_chain_state >>= fun legacy_store ->
   let legacy_chain_store = Legacy_store.Chain.get legacy_store chain_id in
   let cycle_length = Hardcoded.cycle_length ~chain_name in
-  infer_checkpoint legacy_chain_state chain_id >>=? fun checkpoint ->
+  (infer_checkpoint legacy_chain_state chain_id >>=? function
+   | None ->
+       Legacy_state.Block.read legacy_chain_state genesis.block
+       >>=? fun genesis_block ->
+       return (genesis_block.header, genesis_block.header.shell.level)
+   | Some checkpoint -> return checkpoint)
+  >>=? fun checkpoint ->
   let new_chain_store = Store.main_chain_store new_store in
   import_protocols
     history_mode
@@ -794,4 +797,86 @@ let upgrade_0_0_4 ~data_dir ?patch_context
           Lwt.return (Error errors))
     (fun exn ->
       upgrade_cleaner data_dir ~upgraded_store:new_store_tmp >>= fun () ->
-      Lwt.return (error_exn exn))
+      fail_with_exn exn)
+
+let upgrade_0_0_5 ~data_dir genesis =
+  let floating_stores_to_upgrade = Floating_block_store.[RO; RW; RW_TMP] in
+  let store_dir =
+    Naming.store_dir ~dir_path:Filename.Infix.(data_dir // "store")
+  in
+  let chain_id = Chain_id.of_block_hash genesis.Genesis.block in
+  let chain_dir = Naming.chain_dir store_dir chain_id in
+  (* Remove the potential RO_TMP floating stores *)
+  (let path = Naming.dir_path (Naming.floating_blocks_dir chain_dir RO_TMP) in
+   Lwt_unix.file_exists path >>= fun exists ->
+   if exists then Lwt_utils_unix.remove_dir path else Lwt.return_unit)
+  >>= fun () ->
+  (* Move the floating stores to upgrade in "_broken" suffixed
+     directory *)
+  let broken_floating_blocks_dir floating_blocks_dir =
+    Naming.dir_path floating_blocks_dir ^ "_broken"
+  in
+  List.iter_s
+    (fun kind ->
+      let floating_blocks_dir = Naming.floating_blocks_dir chain_dir kind in
+      let path = Naming.dir_path floating_blocks_dir in
+      Lwt_unix.file_exists path >>= function
+      | false ->
+          (* Nothing to do: should only happen with RW_TMP *)
+          Lwt.return_unit
+      | true ->
+          Lwt_unix.rename
+            (Naming.dir_path floating_blocks_dir)
+            (broken_floating_blocks_dir floating_blocks_dir))
+    floating_stores_to_upgrade
+  >>= fun () ->
+  Stored_data.load (Naming.genesis_block_file chain_dir)
+  >>=? fun genesis_block_data ->
+  Stored_data.get genesis_block_data >>= fun genesis_block ->
+  Block_store.load chain_dir ~genesis_block ~readonly:false
+  >>=? fun block_store ->
+  (* Set the merge status as Idle: we are overriding the merge *)
+  Block_store.write_status block_store Idle >>=? fun () ->
+  (* Iter through the blocks and add then into the new floating stores *)
+  List.iter_es
+    (fun kind ->
+      let kind_str =
+        (function
+          | Floating_block_store.RO -> "RO"
+          | RW -> "RW"
+          | RW_TMP -> "RW_TMP"
+          | _ -> assert false)
+          kind
+      in
+      let floating_blocks_dir = Naming.floating_blocks_dir chain_dir kind in
+      Lwt_unix.file_exists (Naming.dir_path floating_blocks_dir) >>= function
+      | false ->
+          (* Nothing to do: should only happen with RW_TMP *)
+          return_unit
+      | true ->
+          Animation.display_progress
+            ~pp_print_step:(fun fmt i ->
+              Format.fprintf fmt "upgrading %s floating store %d" kind_str i)
+            (fun notify ->
+              Lwt_unix.openfile
+                Filename.Infix.(
+                  broken_floating_blocks_dir floating_blocks_dir // "blocks")
+                [Unix.O_CREAT; O_CLOEXEC; Unix.O_RDONLY]
+                0o444
+              >>= fun fd ->
+              Floating_block_store.iter_s_raw_fd
+                (fun block ->
+                  notify () >>= fun () ->
+                  Block_store.store_block block_store block)
+                fd
+              >>=? fun () ->
+              Lwt_unix.close fd >>= fun () -> return_unit))
+    floating_stores_to_upgrade
+  >>=? fun () ->
+  (* Remove the former broken floating stores *)
+  List.iter_s
+    (fun kind ->
+      let floating_blocks_dir = Naming.floating_blocks_dir chain_dir kind in
+      Lwt_utils_unix.remove_dir (broken_floating_blocks_dir floating_blocks_dir))
+    floating_stores_to_upgrade
+  >>= fun () -> return_unit

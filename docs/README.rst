@@ -10,15 +10,14 @@ Building instructions
 
 To build the documentation, you need to install the Python package
 manager `Poetry <https://python-poetry.org/>`_. For instructions on
-how to obtain Python and Poetry, see :ref:`the installation
+how to obtain Python and Poetry, see :doc:`the installation
 instructions for the python testing
-framework<python_testing_framework>`.  Once this is done, you can
-install the needed dependencies locally:
+framework<developer/python_testing_framework>`.  Once this is done, you can
+do:
 
 .. code-block:: bash
 
     # in the "docs" directory
-    poetry install
     make
 
 The output is generated and available in ``docs/_build``. It is built by
@@ -70,14 +69,15 @@ Some ad-hoc reference kinds are supported.
   exists
 - ``:src:`/path/to/file/or/dir``` or
   ``:src:`text</path/to/file/or/dir>``` points to the gitlab source
-  tree viewer. It is possible to refer to a particular line in a file by adding
-  a line number suffix of the form ``#Lnnn``.
+  tree viewer. It is not possible to refer to a particular line in a file using
+  a line number suffix of the form ``#Lnnn``, because such links are usually
+  too fragile to be used in documentation.
 - ``:opam:`package``` or ``:opam:`text<package>``` points to the
   package page on ``opam.ocaml.org``, version number is supported
   (``package.version``)
 - ``:gl:`[special gitlab reference]``` or ``:gl:`text <[special gitlab
   reference]>``` expands and links `GitLab special references
-  <https://docs.gitlab.com/ce/user/markdown.html#special-gitlab-references>`_,
+  <https://docs.gitlab.com/ee/user/markdown.html#gitlab-specific-references>`_,
   like for
   merge requests :gl:`tezos/tezos!123` (``:gl:`tezos/tezos!123```),
   issues :gl:`tezos/tezos#999` (``:gl:`tezos/tezos#999```)

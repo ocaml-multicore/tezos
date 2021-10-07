@@ -51,6 +51,8 @@ type block_error =
     }
   | Cannot_parse_block_header
   | Economic_protocol_error of error list
+  | Invalid_protocol_environment_transition of
+      Protocol.env_version * Protocol.env_version
 
 let block_error_encoding error_encoding =
   let open Data_encoding in
@@ -210,6 +212,19 @@ let block_error_encoding error_encoding =
         (function
           | Economic_protocol_error trace -> Some ((), trace) | _ -> None)
         (fun ((), trace) -> Economic_protocol_error trace);
+      case
+        (Tag 15)
+        ~title:"Invalid_protocol_environment_transition"
+        (obj3
+           (req "error" (constant "invalid_protocol_environment_transition"))
+           (req "before" Protocol.env_version_encoding)
+           (req "after" Protocol.env_version_encoding))
+        (function
+          | Invalid_protocol_environment_transition (before, after) ->
+              Some ((), before, after)
+          | _ -> None)
+        (fun ((), before, after) ->
+          Invalid_protocol_environment_transition (before, after));
     ]
 
 let pp_block_error ppf = function
@@ -299,8 +314,14 @@ let pp_block_error ppf = function
       Format.fprintf
         ppf
         "Failed to validate the economic-protocol content of the block: %a."
-        Error_monad.pp_print_error
+        Error_monad.pp_print_trace
         err
+  | Invalid_protocol_environment_transition (before, after) ->
+      Format.fprintf
+        ppf
+        "Transition from protocol environment version %s to %s is not allowed."
+        (Protocol.module_name_of_env_version before)
+        (Protocol.module_name_of_env_version after)
 
 type validation_process_error =
   | Missing_handshake

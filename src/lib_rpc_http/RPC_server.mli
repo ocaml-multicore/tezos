@@ -53,11 +53,18 @@ module Acl : sig
       to deny/access access policies. *)
   type policy
 
-  (** Default ACL policy in case none is defined in configuration. For the sake
-      of backwards compatibility it allows access to all resources. This will
-      probably change in the future so that access to sensitive resources is
-      restricted. *)
-  val default : t
+  (** Default ACL policy in case none is defined in configuration. It only
+      exposes such endpoints that are necessary for the node to allow clients to
+      make use of their Tez. It applies to all listening addresses except for
+      [localhost] (see {!allow_all} for this address). *)
+  val secure : t
+
+  (** An allow-all policy, which is the default for the [localhost] listening address. *)
+  val allow_all : t
+
+  (** Selects default ACL based on listening address. Selects [allow_all] for
+      loopback addresses and [secure] for everything else. *)
+  val default : P2p_addr.t -> t
 
   (** Add an ACL for given address into the policy. Overrides previously existing
       policy for that address if any. *)
@@ -69,10 +76,6 @@ module Acl : sig
       for testing. *)
   val empty_policy : policy
 
-  (** This is the default policy. Currently equivalent to [empty] above, but that
-      will likely change at some point in the future. *)
-  val default_policy : policy
-
   val policy_encoding : policy Data_encoding.t
 
   (** Returns the JSON representation of the policy. *)
@@ -81,15 +84,36 @@ module Acl : sig
   (** [find_policy policy address] looks for the [address] within the [policy]
       and returns corresponding access control list.
 
-      An ACL is considered matching if its corresponding host-name part matches
-      the host-name part of the [address] and either:
+      An ACL is considered matching if its corresponding IP part matches the IP
+      part of the [address] and either:
       - its corresponding port also matches [address]'s port OR
       - its corresponding address does not mention any port at all.
 
       The first ACL whose corresponding address matches these criteria is
       returned. *)
-  val find_policy : policy -> string -> t option
+  val find_policy : policy -> string * int option -> t option
 
   (** Returns string representation of a given matcher. Useful for testing. *)
   val matcher_to_string : matcher -> string
+
+  (** Returns the ACL type, either `Whitelist or `Blacklist. *)
+  val acl_type : t -> [`Whitelist | `Blacklist]
+
+  (** Replace domain-name addresses in the policy with the IP addresses
+      they resolve to.
+
+      [resolve_domain_names p] returns a policy equivalent to [p] but with all
+      domain-name addresses resolved to IPs. This is useful to make it easier
+      to match them with listening addresses given to the server. *)
+
+  val resolve_domain_names : policy -> policy Lwt.t
+
+  module Internal_for_test : sig
+    type endpoint = P2p_point.Id.addr_port_id
+
+    val resolve_domain_names :
+      (endpoint -> (Ipaddr.V6.t * int option) list Lwt.t) ->
+      policy ->
+      policy Lwt.t
+  end
 end

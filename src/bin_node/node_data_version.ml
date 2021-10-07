@@ -49,8 +49,9 @@ let version_file_name = "version.json"
  *  - 0.0.2 : never released
  *  - 0.0.3 : store upgrade (introducing history mode)
  *  - 0.0.4 : context upgrade (switching from LMDB to IRMIN v2)
- *  - 0.0.5 : store upgrade (switching from LMDB) *)
-let data_version = "0.0.5"
+ *  - 0.0.5 : never released (but used in 10.0~rc1 and 10.0~rc2)
+ *  - 0.0.6 : store upgrade (switching from LMDB) *)
+let data_version = "0.0.6"
 
 (* List of upgrade functions from each still supported previous
    version to the current [data_version] above. If this list grows too
@@ -60,9 +61,14 @@ let data_version = "0.0.5"
 let upgradable_data_version =
   [
     ( "0.0.4",
-      fun ~data_dir genesis ~chain_name ->
-        let patch_context = Patch_context.patch_context genesis None in
+      fun ~data_dir genesis ~chain_name ~sandbox_parameters ->
+        let patch_context =
+          Patch_context.patch_context genesis sandbox_parameters
+        in
         Legacy.upgrade_0_0_4 ~data_dir ~patch_context ~chain_name genesis );
+    ( "0.0.5",
+      fun ~data_dir genesis ~chain_name:_ ~sandbox_parameters:_ ->
+        Legacy.upgrade_0_0_5 ~data_dir genesis );
   ]
 
 let version_encoding = Data_encoding.(obj1 (req "version" string))
@@ -199,7 +205,7 @@ module Events = struct
       ~level:Notice
       ~name:"aborting_upgrade"
       ~msg:"failed to upgrade storage: {error}"
-      ~pp1:Error_monad.pp_print_error
+      ~pp1:Error_monad.pp_print_trace
       ("error", Error_monad.trace_encoding)
 
   let upgrade_status =
@@ -314,18 +320,19 @@ let check_data_dir_legacy_artifact data_dir =
   | true -> Events.(emit legacy_store_is_present) lmdb_store_artifact_path
   | false -> Lwt.return_unit
 
-let upgrade_data_dir ~data_dir genesis ~chain_name =
+let upgrade_data_dir ~data_dir genesis ~chain_name ~sandbox_parameters =
   ensure_data_dir false data_dir >>=? function
   | None ->
       Events.(emit dir_is_up_to_date ()) >>= fun () ->
       check_data_dir_legacy_artifact data_dir >>= fun () -> return_unit
   | Some (version, upgrade) -> (
       Events.(emit upgrading_node (version, data_version)) >>= fun () ->
-      upgrade ~data_dir genesis ~chain_name >>= function
+      upgrade ~data_dir genesis ~chain_name ~sandbox_parameters >>= function
       | Ok _success_message ->
           write_version_file data_dir >>=? fun () ->
           Events.(emit update_success ()) >>= fun () -> return_unit
-      | Error e -> Events.(emit aborting_upgrade e) >>= fun () -> return_unit)
+      | Error e ->
+          Events.(emit aborting_upgrade e) >>= fun () -> Lwt.return (Error e))
 
 let ensure_data_dir ?(bare = false) data_dir =
   ensure_data_dir bare data_dir >>=? function

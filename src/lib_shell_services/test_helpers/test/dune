@@ -1,0 +1,12 @@
+(test
+ (name test_block_services)
+ (package tezos-shell-services-test-helpers)
+ (libraries
+  tezos-base
+  tezos-base.unix
+  tezos-test-helpers
+  tezos-shell-services
+  tezos-shell-services-test-helpers
+  qcheck-alcotest
+  alcotest-lwt)
+ (flags (:standard -open Tezos_base__TzPervasives)))
