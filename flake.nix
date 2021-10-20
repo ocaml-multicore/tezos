@@ -29,6 +29,7 @@
             jq
             zlib
             opam
+            bc
           ];
         };
       });
