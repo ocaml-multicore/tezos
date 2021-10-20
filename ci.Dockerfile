@@ -41,11 +41,11 @@ RUN find . -type d -exec sudo chmod 777 {} \;
 RUN make build-deps
 RUN opam exec -- make
 
-# Run tezos unit tests
-RUN mkdir -p test_results
-USER root
-RUN chown -R ubuntu:ubuntu test_results
-USER ubuntu
-RUN chmod 777 test_results/*
-RUN chmod 777 test_results
+# Run tezos unit tests (Enable these when running locally, TODO: investigate why?)
+# RUN mkdir -p test_results
+# USER root
+# RUN chown -R ubuntu:ubuntu test_results
+# USER ubuntu
+# RUN chmod 777 test_results/*
+# RUN chmod 777 test_results
 RUN opam exec -- make test-unit
