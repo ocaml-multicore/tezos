@@ -19,7 +19,7 @@ USER ubuntu
 WORKDIR /home/ubuntu
 
 # Install opam
-RUN sudo apt install -y rsync git m4 build-essential patch unzip wget pkg-config libgmp-dev libev-dev libhidapi-dev libffi-dev opam jq zlib1g-dev curl autoconf bc
+RUN sudo apt install -y rsync git m4 build-essential patch unzip wget pkg-config libgmp-dev libev-dev libhidapi-dev libffi-dev jq zlib1g-dev curl autoconf bc
 RUN curl -sL https://raw.githubusercontent.com/ocaml/opam/master/shell/install.sh > /tmp/install.sh
 RUN ["/bin/bash", "-c", "sudo /bin/bash /tmp/install.sh --version 2.1.0 <<< /usr/local/bin"]
 RUN opam init -y --disable-sandboxing --bare
