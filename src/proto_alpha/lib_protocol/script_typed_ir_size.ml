@@ -214,7 +214,7 @@ let chain_id_size = h1w +? Chain_id.size
 
 (* [contents] is handle by the recursion scheme in [value_size] *)
 let ticket_size {ticketer; contents = _; amount} =
-  h3w +! address_size ticketer +! script_nat_size amount
+  h3w +! Contract.in_memory_size ticketer +! script_nat_size amount
 
 let chest_size chest =
   (*
@@ -293,9 +293,8 @@ let rec value_size :
         ret_succ_adding accu (boxing_space +! (h4w *? M.size))
     | Map_t (_, _, _) ->
         let module M = (val x) in
-        let size = snd M.boxed in
         let boxing_space = !!300 in
-        ret_succ_adding accu (boxing_space +! (h5w *? size))
+        ret_succ_adding accu (boxing_space +! (h5w *? M.size))
     | Big_map_t (cty, ty', _) ->
         (big_map_size [@ocaml.tailcall])
           ~count_lambda_nodes

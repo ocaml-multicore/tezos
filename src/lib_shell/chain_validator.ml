@@ -62,10 +62,7 @@ end
 
 type synchronisation_limits = {latency : int; threshold : int}
 
-type limits = {
-  synchronisation : synchronisation_limits;
-  worker_limits : Worker_types.limits;
-}
+type limits = {synchronisation : synchronisation_limits}
 
 module Types = struct
   type parameters = {
@@ -681,7 +678,6 @@ let rec create ~start_testchain ~active_chains ?parent ~block_validator_process
   in
   Worker.launch
     table
-    prevalidator_limits.worker_limits
     (Store.Chain.chain_id chain_store)
     parameters
     (module Handlers)
@@ -776,6 +772,11 @@ let bootstrapped w =
 
 let is_bootstrapped w = Types.is_bootstrapped (Worker.state w)
 
+let reconfigure_event_logging w config =
+  Block_validator_process.reconfigure_event_logging
+    (Worker.state w).parameters.block_validator_process
+    config
+
 let force_bootstrapped w b =
   let state = Worker.state w in
   Synchronisation_heuristic.Bootstrapping.force_bootstrapped
@@ -801,8 +802,6 @@ let pending_requests t = Worker.Queue.pending_requests t
 let pending_requests_length t = Worker.Queue.pending_requests_length t
 
 let current_request t = Worker.current_request t
-
-let last_events = Worker.last_events
 
 let ddb_information t =
   let state = Worker.state t in

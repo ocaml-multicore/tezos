@@ -68,15 +68,6 @@ type t = private {
     *)
 val create : parameters -> t
 
-(** [flush classes ~handle_branch_refused] partially resets [classes]:
-    - fields [applied_rev] and [branch_delayed] are emptied;
-    - field [branch_refused] is emptied iff [handle_branch_refused] is [true];
-    - field [refused] is left unchanged, to avoid revalidating operations that
-      will never be valid.
-    Also updates field [in_mempool] to maintain the corresponding invariant
-    of {!t}. *)
-val flush : t -> handle_branch_refused:bool -> unit
-
 (** [is_in_mempool oph classes] indicates whether [oph] is present
     in field [in_mempool] of [classes]. *)
 val is_in_mempool : Operation_hash.t -> t -> bool
@@ -147,7 +138,15 @@ type 'block chain_tools = {
 }
 
 (** [recycle_operations] returns the new pending operations when
-    a reorganisation or a head update occurs.
+    a reorganisation or a head update occurs. Returned operations come from:
+
+    1. operations in [from_branch] that are NOT in [to_branch],
+    2. operations in the relevant classes of [classification]
+    3. operations the [pending] map
+
+    This function guarantees that the branch of all returned operations
+    is in [live_blocks] ([live_blocks] acts as a filter).
+
     See also {!Internal_for_tests.handle_live_operations}. *)
 val recycle_operations :
   from_branch:'block ->
@@ -190,6 +189,15 @@ module Internal_for_tests : sig
     refused:bool ->
     t ->
     Operation.t Operation_hash.Map.t
+
+  (** [flush classes ~handle_branch_refused] partially resets [classes]:
+      - fields [applied_rev] and [branch_delayed] are emptied;
+      - field [branch_refused] is emptied iff [handle_branch_refused] is [true];
+      - field [refused] is left unchanged, to avoid revalidating operations that
+        will never be valid.
+      Also updates field [in_mempool] to maintain the corresponding invariant
+      of {!t}. *)
+  val flush : t -> handle_branch_refused:bool -> unit
 
   (** [handle_live_operations chain_db from_branch to_branch is_branch_alive old_mempool]
       returns the operations from:

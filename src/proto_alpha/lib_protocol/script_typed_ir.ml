@@ -45,7 +45,7 @@ type ('a, 'b) union = L of 'a | R of 'b
 
 type operation = packed_internal_operation * Lazy_storage.diffs option
 
-type 'a ticket = {ticketer : address; contents : 'a; amount : n num}
+type 'a ticket = {ticketer : Contract.t; contents : 'a; amount : n num}
 
 module type TYPE_SIZE = sig
   (* A type size represents the size of its type parameter.
@@ -68,6 +68,8 @@ module type TYPE_SIZE = sig
 
   val merge : 'a t -> 'b t -> 'a t tzresult
 
+  val to_int : 'a t -> Saturation_repr.mul_safe Saturation_repr.t
+
   (* Unsafe constructors, to be used only safely and inside this module *)
 
   val one : _ t
@@ -85,6 +87,15 @@ end
 
 module Type_size : TYPE_SIZE = struct
   type 'a t = int
+
+  let () =
+    (* static-like check that all [t] values fit in a [mul_safe] *)
+    let (_ : Saturation_repr.mul_safe Saturation_repr.t) =
+      Saturation_repr.mul_safe_of_int_exn Constants.michelson_maximum_type_size
+    in
+    ()
+
+  let to_int = Saturation_repr.mul_safe_of_int_exn
 
   let one = 1
 
@@ -257,21 +268,21 @@ type 'elt set = (module Boxed_set with type elt = 'elt)
 
 *)
 module type Boxed_map_OPS = sig
+  type t
+
   type key
 
   type value
 
-  type 'a t
+  val empty : t
 
-  val empty : value t
+  val add : key -> value -> t -> t
 
-  val add : key -> value -> value t -> value t
+  val remove : key -> t -> t
 
-  val remove : key -> value t -> value t
+  val find : key -> t -> value option
 
-  val find : key -> value t -> value option
-
-  val fold : (key -> value -> 'a -> 'a) -> value t -> 'a -> 'a
+  val fold : (key -> value -> 'a -> 'a) -> t -> 'a -> 'a
 end
 
 module type Boxed_map = sig
@@ -283,7 +294,9 @@ module type Boxed_map = sig
 
   module OPS : Boxed_map_OPS with type key = key and type value = value
 
-  val boxed : value OPS.t * int
+  val boxed : OPS.t
+
+  val size : int
 end
 
 type ('key, 'value) map =
@@ -2113,9 +2126,7 @@ let value_traverse (type t) (ty : (t ty, t comparable_ty) union) (x : t) init f
     | List_t (ty', _) -> on_list ty' accu x.elements
     | Map_t (kty, ty', _) ->
         let module M = (val x) in
-        let bindings =
-          M.OPS.fold (fun k v bs -> (k, v) :: bs) (fst M.boxed) []
-        in
+        let bindings = M.OPS.fold (fun k v bs -> (k, v) :: bs) M.boxed [] in
         on_bindings accu kty ty' continue bindings
     | Set_t (ty', _) ->
         let module M = (val x) in

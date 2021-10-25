@@ -174,17 +174,14 @@
    cleaned up in the [Distributed_db.Operation] requester.
 
    There is an [advertisement_delay] to postpone the next mempool
-   advertisement if we advertised our mempool not long ago. To ensure
-   that [consensus operations] (aka [endorsements]) are always
-   propagated, Consensus operations for which their branch is unknown
-   are handled by the plugin. Early consensus operations will be
-   propagated once the block is validated. Every time an operation is
-   [classified], it is recorded into the [operation_stream] (note that
-   this does not include [outdated] operations). Such stream can be
-   used by an external service to get the classification of an
-   operation (via the [monitor_operations] RPC). This also means an
-   operation can be notified several times if it is classified again
-   after a [flush]. *)
+   advertisement if we advertised our mempool not long ago. Early
+   consensus operations will be propagated once the block is validated.
+   Every time an operation is [classified], it is recorded into the
+   [operation_stream] (note that this does not include [outdated]
+   operations). Such stream can be used by an external service to get
+   the classification of an operation (via the [monitor_operations] RPC).
+   This also means an operation can be notified several times if it is
+   classified again after a [flush]. *)
 
 (* FIXME: https://gitlab.com/tezos/tezos/-/issues/1491
    This module should not use [Prevalidation.parse_unsafe] *)
@@ -195,12 +192,10 @@ module Event = Prevalidator_event
 type limits = {
   max_refused_operations : int;
   operation_timeout : Time.System.Span.t;
-  worker_limits : Worker_types.limits;
   operations_batch_size : int;
 }
 
-(* Minimal delay between two mempool advertisements except for
-   endorsements for which the branch is unknown. *)
+(* Minimal delay between two mempool advertisements *)
 let advertisement_delay = 0.1
 
 module Name = struct
@@ -258,7 +253,6 @@ type types_state_shell = {
   mutable pending : Operation.t Operation_hash.Map.t;
   mutable mempool : Mempool.t;
   mutable advertisement : [`Pending of Mempool.t | `None];
-  mutable filter_config : Data_encoding.json Protocol_hash.Map.t;
   mutable banned_operations : Operation_hash.Set.t;
 }
 
@@ -311,6 +305,7 @@ module type T = sig
       * Proto.operation_data)
       Lwt_watcher.input;
     mutable rpc_directory : types_state RPC_directory.t lazy_t;
+    mutable filter_config : Filter.Mempool.config;
   }
 
   module Types : Worker_intf.TYPES with type state = types_state
@@ -379,6 +374,7 @@ module Make
       * Proto.operation_data)
       Lwt_watcher.input;
     mutable rpc_directory : types_state RPC_directory.t lazy_t;
+    mutable filter_config : Filter.Mempool.config;
   }
 
   module Types = struct
@@ -432,22 +428,6 @@ module Make
           (fun exc ->
             Format.eprintf "Uncaught exception: %s\n%!" (Printexc.to_string exc))
 
-  let is_endorsement (op : Proto.operation_data operation) =
-    Proto.acceptable_passes
-      {shell = op.raw.shell; protocol_data = op.protocol_data}
-    = [0]
-
-  let filter_config pv =
-    try
-      match Protocol_hash.Map.find Proto.hash pv.filter_config with
-      | Some config ->
-          Lwt.return
-            (Data_encoding.Json.destruct Filter.Mempool.config_encoding config)
-      | None -> Lwt.return Filter.Mempool.default_config
-    with _ ->
-      Event.(emit invalid_mempool_filter_configuration) () >|= fun () ->
-      Filter.Mempool.default_config
-
   (* Each classified operation should be notified exactly ONCE for a
      given stream. Operations which cannot be parsed are not notified. *)
   let handle
@@ -488,7 +468,6 @@ module Make
             protocol_data = parsed_op.protocol_data;
           }
         in
-        filter_config pv.shell >|= fun config ->
         let validation_state_before =
           Option.map
             Prevalidation.validation_state
@@ -497,7 +476,7 @@ module Make
         match
           Filter.Mempool.pre_filter
             ?validation_state_before
-            config
+            pv.filter_config
             op.Filter.Proto.protocol_data
         with
         | (`Branch_delayed _ | `Branch_refused _ | `Refused _) as errs ->
@@ -506,14 +485,13 @@ module Make
               pv.shell
               (`Parsed parsed_op)
               errs ;
-            false
-        | `Undecided -> true)
+            Lwt.return_false
+        | `Undecided -> Lwt.return_true)
 
   let post_filter pv ~validation_state_before ~validation_state_after op receipt
       =
-    filter_config pv >>= fun config ->
     Filter.Mempool.post_filter
-      config
+      pv.filter_config
       ~validation_state_before
       ~validation_state_after
       (op, receipt)
@@ -526,16 +504,16 @@ module Make
       ~head:(Store.Block.hash shell.predecessor)
       shell.mempool
 
-  let classify_operation ~notifier shell validation_state mempool op oph =
+  let classify_operation ~notifier pv validation_state mempool op oph =
     match Prevalidation.parse op with
     | Error errors ->
-        handle ~notifier shell (`Unparsed (oph, op)) (`Refused errors) ;
+        handle ~notifier pv.shell (`Unparsed (oph, op)) (`Refused errors) ;
         Lwt.return (validation_state, mempool)
     | Ok op -> (
         Prevalidation.apply_operation validation_state op >>= function
         | Applied (new_validation_state, receipt) ->
             post_filter
-              shell
+              pv
               ~validation_state_before:
                 (Prevalidation.validation_state validation_state)
               ~validation_state_after:
@@ -544,7 +522,7 @@ module Make
               receipt
             >>= fun accept ->
             if accept then (
-              handle ~notifier shell (`Parsed op) `Applied ;
+              handle ~notifier pv.shell (`Parsed op) `Applied ;
               let new_mempool =
                 Mempool.
                   {mempool with known_valid = op.hash :: mempool.known_valid}
@@ -552,21 +530,21 @@ module Make
               Lwt.return (new_validation_state, new_mempool))
             else (
               Distributed_db.Operation.clear_or_cancel
-                shell.parameters.chain_db
+                pv.shell.parameters.chain_db
                 oph ;
               Lwt.return (validation_state, mempool))
         | Branch_delayed errors ->
-            handle ~notifier shell (`Parsed op) (`Branch_delayed errors) ;
+            handle ~notifier pv.shell (`Parsed op) (`Branch_delayed errors) ;
             Lwt.return (validation_state, mempool)
         | Branch_refused errors ->
-            handle ~notifier shell (`Parsed op) (`Branch_refused errors) ;
+            handle ~notifier pv.shell (`Parsed op) (`Branch_refused errors) ;
             Lwt.return (validation_state, mempool)
         | Refused errors ->
-            handle ~notifier shell (`Parsed op) (`Refused errors) ;
+            handle ~notifier pv.shell (`Parsed op) (`Refused errors) ;
             Lwt.return (validation_state, mempool)
         | Outdated ->
             Distributed_db.Operation.clear_or_cancel
-              shell.parameters.chain_db
+              pv.shell.parameters.chain_db
               oph ;
             Lwt.return (validation_state, mempool))
 
@@ -590,26 +568,25 @@ module Make
      requests our mempool, we advertise all our classified operations and
      all our pending operations. *)
 
-  let classify_pending_operations ~notifier w (shell : types_state_shell) state
-      =
+  let classify_pending_operations ~notifier w pv state =
     Operation_hash.Map.fold_es
       (fun oph op (acc_validation_state, acc_mempool, limit) ->
         if limit <= 0 then
           (* Using Error as an early-return mechanism *)
           Lwt.return_error (acc_validation_state, acc_mempool)
         else (
-          shell.pending <- Operation_hash.Map.remove oph shell.pending ;
+          pv.shell.pending <- Operation_hash.Map.remove oph pv.shell.pending ;
           classify_operation
             ~notifier
-            shell
+            pv
             acc_validation_state
             acc_mempool
             op
             oph
           >|= fun (new_validation_state, new_mempool) ->
           ok (new_validation_state, new_mempool, limit - 1)))
-      shell.pending
-      (state, Mempool.empty, shell.parameters.limits.operations_batch_size)
+      pv.shell.pending
+      (state, Mempool.empty, pv.shell.parameters.limits.operations_batch_size)
     >>= function
     | Error (state, advertised_mempool) ->
         (* Early return after iteration limit was reached *)
@@ -638,7 +615,7 @@ module Make
         | 0 -> Lwt.return_unit
         | n ->
             Event.(emit processing_n_operations) n >>= fun () ->
-            classify_pending_operations ~notifier w pv.shell state
+            classify_pending_operations ~notifier w pv state
             >>= fun (state, advertised_mempool) ->
             let remaining_pendings =
               Operation_hash.Map.fold
@@ -666,6 +643,27 @@ module Make
             in
             set_mempool pv.shell our_mempool >>= fun _res -> Lwt_main.yield ())
 
+  (** Mimics [Data_encoding.Json.construct] but accepts argument
+      [?include_default_fields] to pass on to [Json_encoding.construct]. *)
+  let data_encoding_json_construct ?include_default_fields e v =
+    Json_encoding.construct
+      ?include_default_fields
+      (Data_encoding.Json.convert e)
+      v
+  (* FIXME: https://gitlab.com/tezos/tezos/-/issues/1876
+     Remove this function upon the next release of [data-encoding]. *)
+
+  (** Returns a json describing the prevalidator's [filter_config].
+      The boolean [include_default] ([true] by default) indicates
+      whether the json should include the fields which have a value
+      equal to their default value. *)
+  let get_filter_config_json ?(include_default = true) pv =
+    let include_default_fields = if include_default then `Always else `Never in
+    data_encoding_json_construct
+      ~include_default_fields
+      Filter.Mempool.config_encoding
+      pv.filter_config
+
   let build_rpc_directory w =
     lazy
       (let dir : state RPC_directory.t ref = ref RPC_directory.empty in
@@ -674,27 +672,24 @@ module Make
          RPC_directory.register
            !dir
            (Proto_services.S.Mempool.get_filter RPC_path.open_root)
-           (fun pv () () ->
-             match Protocol_hash.Map.find Proto.hash pv.shell.filter_config with
-             | Some obj -> return obj
-             | None -> (
-                 match Prevalidator_filters.find Proto.hash with
-                 | None -> return (`O [])
-                 | Some (module Filter) ->
-                     let default =
-                       Data_encoding.Json.construct
-                         Filter.Mempool.config_encoding
-                         Filter.Mempool.default_config
-                     in
-                     return default)) ;
+           (fun pv params () ->
+             return
+               (get_filter_config_json
+                  ~include_default:params#include_default
+                  pv)) ;
        dir :=
          RPC_directory.register
            !dir
            (Proto_services.S.Mempool.set_filter RPC_path.open_root)
            (fun pv () obj ->
-             pv.shell.filter_config <-
-               Protocol_hash.Map.add Proto.hash obj pv.shell.filter_config ;
-             return ()) ;
+             (try
+                let config =
+                  Data_encoding.Json.destruct Filter.Mempool.config_encoding obj
+                in
+                pv.filter_config <- config ;
+                Lwt.return_unit
+              with _ -> Event.(emit invalid_mempool_filter_configuration) ())
+             >>= fun () -> return (get_filter_config_json pv)) ;
        (* Ban an operation (from its given hash): remove it from the
           mempool if present. Add it to the set pv.banned_operations
           to prevent it from being fetched/processed/injected in the
@@ -897,27 +892,7 @@ module Make
   module Handlers = struct
     type self = worker
 
-    (* This piece of code is encompassed by the plugin and could be removed. *)
-    (* For every consensus operation which arrived before the block
-       they are branched on, we try to propagate them if the protocol
-       manages to apply the operation on the current validation state
-       or if the operation can be applied later on ([branch_delayed]
-       classification). *)
-    let may_propagate_unknown_branch_operation validation_state op =
-      ( Prevalidation.parse op >>?= fun op ->
-        let is_alternative_endorsement () =
-          Lwt.return validation_state >>=? fun validation_state ->
-          Prevalidation.apply_operation validation_state op >>= function
-          | Applied _ | Branch_delayed _ -> return_some op
-          | _ -> return_none
-        in
-        if is_endorsement op then is_alternative_endorsement () else return_none
-      )
-      >|= function
-      | Ok b -> b
-      | Error _ -> None
-
-    let on_arrived w (pv : state) oph op =
+    let on_arrived (pv : state) oph op =
       already_handled ~origin:"arrived" pv.shell oph >>= fun already_handled ->
       if already_handled then return_unit
       else
@@ -929,20 +904,10 @@ module Make
                    op.Operation.shell.branch
                    pv.shell.live_blocks)
             then (
-              may_propagate_unknown_branch_operation pv.validation_state op
-              >>= function
-              | Some op ->
-                  let error = [Exn (Failure "Unknown branch operation")] in
-                  let notifier = mk_notifier pv.operation_stream in
-                  handle ~notifier pv.shell (`Parsed op) (`Branch_refused error) ;
-                  let pending = Operation_hash.Set.singleton oph in
-                  advertise w pv.shell {Mempool.empty with pending} ;
-                  return_unit
-              | None ->
-                  Distributed_db.Operation.clear_or_cancel
-                    pv.shell.parameters.chain_db
-                    oph ;
-                  return_unit)
+              Distributed_db.Operation.clear_or_cancel
+                pv.shell.parameters.chain_db
+                oph ;
+              return_unit)
             else (
               (* TODO: https://gitlab.com/tezos/tezos/-/issues/1723
                  Should this have an influence on the peer's score ? *)
@@ -962,6 +927,15 @@ module Make
         >>= fun (_ : bool) ->
         pv.shell.pending <- Operation_hash.Map.add oph op pv.shell.pending ;
         return_unit)
+      else if
+        not (Block_hash.Set.mem op.Operation.shell.branch pv.shell.live_blocks)
+      then
+        failwith
+          "Operation %a is branched on a block %a which is too old"
+          Operation_hash.pp
+          oph
+          Block_hash.pp
+          op.Operation.shell.branch
       else
         pv.validation_state >>?= fun validation_state ->
         Prevalidation.parse op >>?= fun parsed_op ->
@@ -1160,7 +1134,7 @@ module Make
           (* unprocessed ops are handled just below *)
           return_unit
       | Request.Inject {op; force} -> on_inject pv ~force op
-      | Request.Arrived (oph, op) -> on_arrived w pv oph op
+      | Request.Arrived (oph, op) -> on_arrived pv oph op
       | Request.Advertise ->
           on_advertise pv.shell ;
           return_unit
@@ -1218,10 +1192,6 @@ module Make
           fetching;
           pending = Operation_hash.Map.empty;
           advertisement = `None;
-          filter_config =
-            (* TODO: https://gitlab.com/tezos/tezos/-/issues/1725
-               initialize from config file *)
-            Protocol_hash.Map.empty;
           banned_operations = Operation_hash.Set.empty;
         }
       in
@@ -1231,6 +1201,10 @@ module Make
           validation_state;
           operation_stream = Lwt_watcher.create_input ();
           rpc_directory = build_rpc_directory w;
+          filter_config =
+            (* TODO: https://gitlab.com/tezos/tezos/-/issues/1725
+               initialize from config file *)
+            Filter.Mempool.default_config;
         }
       in
       Seq.iter_s
@@ -1261,12 +1235,7 @@ module Make
    * Whilst this is somewhat abusing the intended purpose of worker, it is part
    * of a transition plan to a one-worker-per-peer architecture. *)
   let worker_promise =
-    Worker.launch
-      table
-      Arg.limits.worker_limits
-      name
-      (Arg.limits, Arg.chain_db)
-      (module Handlers)
+    Worker.launch table name (Arg.limits, Arg.chain_db) (module Handlers)
 
   (* FIXME: https://gitlab.com/tezos/tezos/-/issues/1266
 
@@ -1367,19 +1336,6 @@ let current_request (t : t) =
   let module Prevalidator : T = (val t) in
   let w = Lazy.force Prevalidator.worker in
   Prevalidator.Worker.current_request w
-
-(* FIXME: https://gitlab.com/tezos/tezos/-/issues/1266
-   This function is legacy and should be removed.  *)
-let last_events (_t : t) = []
-
-let protocol_hash (t : t) =
-  let module Prevalidator : T = (val t) in
-  Prevalidator.Proto.hash
-
-let parameters (t : t) =
-  let module Prevalidator : T = (val t) in
-  let w = Lazy.force Prevalidator.worker in
-  (Prevalidator.Worker.state w).shell.parameters
 
 let information (t : t) =
   let module Prevalidator : T = (val t) in

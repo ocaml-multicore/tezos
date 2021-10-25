@@ -88,6 +88,7 @@ module CamlinternalFormatBasics = struct include CamlinternalFormatBasics end
    vote_storage.mli vote_storage.ml
    commitment_storage.mli commitment_storage.ml
    fees_storage.mli fees_storage.ml
+   ticket_storage.mli ticket_storage.ml
    liquidity_baking_repr.mli liquidity_baking_repr.ml
    liquidity_baking_cpmm.ml
    liquidity_baking_lqt.ml
@@ -98,6 +99,7 @@ module CamlinternalFormatBasics = struct include CamlinternalFormatBasics end
    global_constants_storage.mli global_constants_storage.ml
    cache_costs.mli cache_costs.ml
    alpha_context.mli alpha_context.ml
+   local_gas_counter.ml
    script_tc_errors.ml
    script_typed_ir.mli script_typed_ir.ml
    script_typed_ir_size.mli script_typed_ir_size.ml
@@ -193,6 +195,7 @@ module CamlinternalFormatBasics = struct include CamlinternalFormatBasics end
    vote_storage.mli vote_storage.ml
    commitment_storage.mli commitment_storage.ml
    fees_storage.mli fees_storage.ml
+   ticket_storage.mli ticket_storage.ml
    liquidity_baking_repr.mli liquidity_baking_repr.ml
    liquidity_baking_cpmm.ml
    liquidity_baking_lqt.ml
@@ -203,6 +206,7 @@ module CamlinternalFormatBasics = struct include CamlinternalFormatBasics end
    global_constants_storage.mli global_constants_storage.ml
    cache_costs.mli cache_costs.ml
    alpha_context.mli alpha_context.ml
+   local_gas_counter.ml
    script_tc_errors.ml
    script_typed_ir.mli script_typed_ir.ml
    script_typed_ir_size.mli script_typed_ir_size.ml
@@ -298,6 +302,7 @@ module CamlinternalFormatBasics = struct include CamlinternalFormatBasics end
    vote_storage.mli vote_storage.ml
    commitment_storage.mli commitment_storage.ml
    fees_storage.mli fees_storage.ml
+   ticket_storage.mli ticket_storage.ml
    liquidity_baking_repr.mli liquidity_baking_repr.ml
    liquidity_baking_cpmm.ml
    liquidity_baking_lqt.ml
@@ -308,6 +313,7 @@ module CamlinternalFormatBasics = struct include CamlinternalFormatBasics end
    global_constants_storage.mli global_constants_storage.ml
    cache_costs.mli cache_costs.ml
    alpha_context.mli alpha_context.ml
+   local_gas_counter.ml
    script_tc_errors.ml
    script_typed_ir.mli script_typed_ir.ml
    script_typed_ir_size.mli script_typed_ir_size.ml
@@ -425,6 +431,7 @@ include Tezos_raw_protocol_alpha.Main
    Vote_storage
    Commitment_storage
    Fees_storage
+   Ticket_storage
    Liquidity_baking_repr
    Liquidity_baking_cpmm
    Liquidity_baking_lqt
@@ -435,6 +442,7 @@ include Tezos_raw_protocol_alpha.Main
    Global_constants_storage
    Cache_costs
    Alpha_context
+   Local_gas_counter
    Script_tc_errors
    Script_typed_ir
    Script_typed_ir_size
@@ -569,6 +577,7 @@ include Tezos_raw_protocol_alpha.Main
    vote_storage.mli vote_storage.ml
    commitment_storage.mli commitment_storage.ml
    fees_storage.mli fees_storage.ml
+   ticket_storage.mli ticket_storage.ml
    liquidity_baking_repr.mli liquidity_baking_repr.ml
    liquidity_baking_cpmm.ml
    liquidity_baking_lqt.ml
@@ -579,6 +588,7 @@ include Tezos_raw_protocol_alpha.Main
    global_constants_storage.mli global_constants_storage.ml
    cache_costs.mli cache_costs.ml
    alpha_context.mli alpha_context.ml
+   local_gas_counter.ml
    script_tc_errors.ml
    script_typed_ir.mli script_typed_ir.ml
    script_typed_ir_size.mli script_typed_ir_size.ml

@@ -23,9 +23,85 @@ be documented here either.
 Node
 ----
 
+- The following RPCs output format changed:
+  1. ``/workers/block_validator``,
+  2. ``/workers/chain_validators``,
+  3. ``/workers/chain_validators/<chain_id>``,
+  4. ``/workers/chain_validator/<chain_id>/peer_validators``,
+  5. ``/workers/chain_validator/<chain_id>/peer_validators/<peer_id>``,
+  6. ``/workers/prevalidators``.
+  The field ``backlog`` is removed. Those logs can be obtained via the
+  node itself. Logging can be redirected to a file via the option
+  ``--log-file``. External tools such as ``logrotate`` can be used to
+  remove entries that are too old.
+
+- The node configuration format is changed. The
+  following paths are removed:
+  1. ``shell.chain_validator.limits.worker_backlog_size``
+  2. ``shell.chain_validator.limits.worker_backlog_level``
+  3. ``shell.peer_validator.limits.worker_backlog_size``
+  4. ``shell.peer_validator.limits.worker_backlog_level``
+  5. ``shell.prevalidator.limits.worker_backlog_size``
+  6. ``shell.prevalidator.limits.worker_backlog_level``
+  7. ``shell.block_validator.limits.worker_backlog_size``
+  8. ``shell.block_validator.limits.worker_backlog_level``
+
+  If those fields are present in your configuration file, they can
+  simply be removed.
+
 - Added version ``1`` to RPC ``GET chains/main/mempool/pending_operations``.
   It can be used by calling the RPC with the parameter ``?version=1``
   (default version is still ``0``).
+
+- Added an RPC ``/config/logging`` to reconfigure the logging framework
+  without having to restart the node. See also the new documentation pages
+  related to logging.
+
+-  Better handling of mempool cache in the `distributed_db` which
+   should make the `distributed_db` RAM consumption strongly
+   correlated to the one of the mempool.
+
+-  Improved the snapshot export mechanism by reducing both the export
+   time and the memory footprint.
+
+-  Added new RPCs to inspect the storage status:
+
+   -  GET ``chains/main/levels/checkpoint``: checkpoint block hash and
+      level.
+   -  GET ``chains/main/levels/savepoint``: savepoint block hash and
+      level.
+   -  GET ``chains/main/levels/caboose``: caboose block hash and
+      level.
+   -  GET ``config/history_mode``: history mode of the node.
+
+-  Deprecated the ``chains/main/checkpoint`` RPC.
+
+-  The ``tezos-admin-client show current checkpoint`` command now only
+   outputs the current checkpoint. It no longer outputs the savepoint,
+   caboose and history mode.
+
+-  Fixed RPC GET ``/chains/<chain_id>/mempool/filter``, that did not
+   show fields of the filter configuration that were equal to their
+   default value: e.g. if the configuration was the default one, it
+   just returned ``{}``. Now displays all the fields by default. The
+   old behavior may be brought back by setting the new optional
+   parameter ``include_default`` to ``false``.
+
+-  Changed the behavior of RPC POST ``/chains/<chain_id>/mempool/filter``
+   when provided an input json that does not describe a valid filter
+   configuration. It used to revert the filter back to the default
+   configuration in that case, but now it leaves it unchanged. (Note:
+   if the input json is valid but does not provide all the fields of
+   the filter configuration, then any missing field is set back to its
+   default value, rather than left unchanged. This is the same
+   behavior as the previous version of the RPC.) As this behavior may
+   be confusing, the RPC now returns the new filter configuration of
+   the mempool.
+
+-  When encoded in binary, errors now have a single size field. This only
+   affects the binary representation of errors or values that include errors
+   inside. It may break the compatibility for tools that request binary-only
+   answers from the node and parse the errors by hand.
 
 Client
 ------
@@ -47,6 +123,14 @@ Docker Images
 
 Miscellaneous
 -------------
+
+-  Made the ``file-descriptor-{path,stdout,stderr}://`` event-logging
+   sink more configurable (e.g. filtering per level and per section). The
+   environment variable ``TEZOS_NODE_HOSTNAME`` used for the output of events
+   was renamed to the more appropriate ``TEZOS_EVENT_HOSTNAME``.
+
+-  Added specific documentation pages about logging for users and
+   developers.
 
 Version 11.0~rc1
 ================
@@ -116,29 +200,6 @@ Node
 
 -  Added a built-in network alias for Hangzhounet.
 
--  Improved the snapshot export mechanism by reducing both the export
-   time and the memory footprint.
-
--  Added new RPCs to inspect the storage status:
-
-   -  GET ``chains/main/levels/checkpoint``: checkpoint block hash and
-      level.
-   -  GET ``chains/main/levels/savepoint``: savepoint block hash and
-      level.
-   -  GET ``chains/main/levels/caboose``: caboose block hash and
-      level.
-   -  GET ``config/history_mode``: history mode of the node.
-
--  Deprecated the ``chains/main/checkpoint`` RPC.
-
--  The ``tezos-admin-client show current checkpoint`` command now
-   only outputs the current checkpoint. It no longer outputs the savepoint,
-   caboose and history mode.
-
--  Fixed an issue in the store were the table in charge of maintaining
-   the associations between a protocol and its activation block was
-   not well updated.
-
 Client
 ------
 
@@ -197,6 +258,37 @@ Docker Images
    other Octez containers.
    In summary, you can now call all RPCs if you use Docker images, without
    compromising security as long as you do not explicitely expose the RPC port.
+
+Version 10.3
+============
+
+Node
+----
+
+-  Fixed wrong behaviour when updating the additional cycles of the
+   node's history mode.
+
+-  Removed redundant event while setting a new head.
+
+-  Fixed wrong behaviour when merging the store after a rolling
+   snapshot import.
+
+-  Fixed an issue when reconstructing a storage with missing block or
+   operations metadata hashes.
+
+-  Fixed an issue in the store were the table in charge of maintaining
+   the associations between a protocol and its activation block was not
+   well updated.
+
+-  Prevented some store files from being written only partially,
+   which could result in store corruptions.
+
+Docker Images
+-------------
+
+-  The ``--force-history-mode-switch`` option is now available for
+   ``tezos-node`` entrypoint. It allows the user to switch the history
+   mode of the node's storage.
 
 Version 10.2
 ============

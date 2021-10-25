@@ -126,6 +126,7 @@ in the :ref:`introduction <howtoget>`.
    user/multisig
    user/fa12
    user/various
+   user/logging
 
 .. toctree::
    :maxdepth: 2
@@ -184,6 +185,7 @@ in the :ref:`introduction <howtoget>`.
    alpha/rpc
    alpha/liquidity_baking
    alpha/timelock
+   alpha/global_constants
 
 .. toctree::
    :maxdepth: 2
@@ -196,8 +198,10 @@ in the :ref:`introduction <howtoget>`.
    developer/error_monad
    developer/michelson_anti_patterns
    developer/entering_alpha
+   developer/howto-freeze-protocols
    developer/protocol_environment
    developer/protocol_environment_upgrade
+   developer/event_logging_framework
    developer/testing_index
    developer/profiling
    developer/snoop

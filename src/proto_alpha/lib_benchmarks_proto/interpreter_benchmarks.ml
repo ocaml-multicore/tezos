@@ -287,11 +287,12 @@ let make_simple_benchmark :
     ?amplification:int ->
     ?intercept:bool ->
     ?more_tags:string list ->
+    ?salt:string ->
     name:Interpreter_workload.instruction_name ->
     kinstr:(bef_top, bef, res_top, res) Script_typed_ir.kinstr ->
     unit ->
     Benchmark.t =
- fun ?amplification ?intercept ?more_tags ~name ~kinstr () ->
+ fun ?amplification ?intercept ?more_tags ?salt ~name ~kinstr () ->
   let kinfo = Script_typed_ir.kinfo_of_kinstr kinstr in
   let stack_ty = kinfo.kstack_ty in
   let kinstr_and_stack_sampler config rng_state =
@@ -306,25 +307,27 @@ let make_simple_benchmark :
     ?amplification
     ?intercept
     ?more_tags
+    ?salt
     ~name
     ~kinstr_and_stack_sampler
     ()
 
-let benchmark ?amplification ?intercept ?more_tags ~name
+let benchmark ?amplification ?intercept ?more_tags ?salt ~name
     ~kinstr_and_stack_sampler () =
   let bench =
     make_benchmark
       ?amplification
       ?intercept
       ?more_tags
+      ?salt
       ~name
       ~kinstr_and_stack_sampler
       ()
   in
   Registration_helpers.register bench
 
-let benchmark_with_stack_sampler ?amplification ?intercept ?more_tags ~name
-    ~kinstr ~stack_sampler () =
+let benchmark_with_stack_sampler ?amplification ?intercept ?more_tags ?salt
+    ~name ~kinstr ~stack_sampler () =
   let kinstr_and_stack_sampler config rng_state =
     let stack_sampler = stack_sampler config rng_state in
     fun () -> Ex_stack_and_kinstr {stack = stack_sampler (); kinstr}
@@ -334,28 +337,31 @@ let benchmark_with_stack_sampler ?amplification ?intercept ?more_tags ~name
       ?amplification
       ?intercept
       ?more_tags
+      ?salt
       ~name
       ~kinstr_and_stack_sampler
       ()
   in
   Registration_helpers.register bench
 
-let benchmark_with_fixed_stack ?amplification ?intercept ?more_tags ~name ~stack
-    ~kinstr () =
+let benchmark_with_fixed_stack ?amplification ?intercept ?more_tags ?salt ~name
+    ~stack ~kinstr () =
   benchmark_with_stack_sampler
     ?amplification
     ?intercept
     ?more_tags
+    ?salt
     ~name
     ~kinstr
     ~stack_sampler:(fun _cfg _rng_state () -> stack)
     ()
 
-let simple_benchmark_with_stack_sampler ?amplification ?intercept_stack
+let simple_benchmark_with_stack_sampler ?amplification ?intercept_stack ?salt
     ?more_tags ~name ~kinstr ~stack_sampler () =
   benchmark_with_stack_sampler
     ?amplification
     ~intercept:false
+    ?salt
     ?more_tags
     ~name
     ~kinstr
@@ -367,19 +373,21 @@ let simple_benchmark_with_stack_sampler ?amplification ?intercept_stack
         ?amplification
         ~intercept:true
         ?more_tags
+        ?salt
         ~name
         ~stack
         ~kinstr
         ())
     intercept_stack
 
-let simple_benchmark ?amplification ?intercept_stack ?more_tags ~name ~kinstr ()
-    =
+let simple_benchmark ?amplification ?intercept_stack ?more_tags ?salt ~name
+    ~kinstr () =
   let bench =
     make_simple_benchmark
       ?amplification
       ~intercept:false
       ?more_tags
+      ?salt
       ~name
       ~kinstr
       ()
@@ -391,6 +399,7 @@ let simple_benchmark ?amplification ?intercept_stack ?more_tags ~name ~kinstr ()
         ?amplification
         ~intercept:true
         ?more_tags
+        ?salt
         ~name
         ~stack
         ~kinstr
@@ -1200,10 +1209,7 @@ module Registration_section = struct
       in
       let (module M) = map in
       let key =
-        M.OPS.fold
-          (fun k _ -> function None -> Some k | x -> x)
-          (fst M.boxed)
-          None
+        M.OPS.fold (fun k _ -> function None -> Some k | x -> x) M.boxed None
         |> WithExceptions.Option.get ~loc:__LOC__
       in
       (key, map)
@@ -1378,10 +1384,7 @@ module Registration_section = struct
       in
       let (module M) = map in
       let key =
-        M.OPS.fold
-          (fun k _ -> function None -> Some k | x -> x)
-          (fst M.boxed)
-          None
+        M.OPS.fold (fun k _ -> function None -> Some k | x -> x) M.boxed None
         |> WithExceptions.Option.get ~loc:__LOC__
       in
       let big_map =
@@ -2704,9 +2707,8 @@ module Registration_section = struct
       let ticket =
         {
           ticketer =
-            ( Alpha_context.Contract.implicit_contract
-                Environment.Signature.Public_key_hash.zero,
-              "" );
+            Alpha_context.Contract.implicit_contract
+              Environment.Signature.Public_key_hash.zero;
           contents = ();
           amount = zero;
         }

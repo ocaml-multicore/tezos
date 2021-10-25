@@ -944,7 +944,7 @@ module Cost_of = struct
     (* model UNPARSE_TYPE
        This is the cost of one iteration of unparse_ty, extracted by hand from the
        parameter fit for the UNPARSE_TYPE benchmark. *)
-    let cost_UNPARSE_TYPE = S.safe_int 20
+    let cost_UNPARSE_TYPE type_size = S.mul (S.safe_int 20) type_size
 
     (* TODO: benchmark *)
     let cost_COMPARABLE_TY_OF_TY = S.safe_int 120
@@ -1011,10 +1011,10 @@ module Cost_of = struct
     let empty_map = atomic_step_cost cost_N_IEmpty_map
 
     let map_map (type k v) ((module Box) : (k, v) Script_typed_ir.map) =
-      atomic_step_cost (cost_N_IMap_map (snd Box.boxed))
+      atomic_step_cost (cost_N_IMap_map Box.size)
 
     let map_iter (type k v) ((module Box) : (k, v) Script_typed_ir.map) =
-      atomic_step_cost (cost_N_IMap_iter (snd Box.boxed))
+      atomic_step_cost (cost_N_IMap_iter Box.size)
 
     let map_size = atomic_step_cost cost_N_IMap_size
 
@@ -1479,7 +1479,7 @@ module Cost_of = struct
         =
       let open S_syntax in
       let per_elt_cost = compare Box.key_ty elt elt in
-      let size = S.safe_int (snd Box.boxed) in
+      let size = S.safe_int Box.size in
       let intercept = atomic_step_cost (S.safe_int 80) in
       Gas.(intercept +@ (log2 size *@ per_elt_cost))
 
@@ -1489,7 +1489,7 @@ module Cost_of = struct
         ((module Box) : (k, v) Script_typed_ir.map) =
       let open S_syntax in
       let per_elt_cost = compare Box.key_ty elt elt in
-      let size = S.safe_int (snd Box.boxed) in
+      let size = S.safe_int Box.size in
       let intercept = atomic_step_cost (S.safe_int 80) in
       (* The 2 factor reflects the update vs mem overhead as benchmarked
          on non-structured data *)
@@ -1499,7 +1499,7 @@ module Cost_of = struct
         ((module Box) : (k, v) Script_typed_ir.map) =
       let open S_syntax in
       let per_elt_cost = compare Box.key_ty elt elt in
-      let size = S.safe_int (snd Box.boxed) in
+      let size = S.safe_int Box.size in
       let intercept = atomic_step_cost (S.safe_int 80) in
       (* The 3 factor reflects the update vs mem overhead as benchmarked
          on non-structured data *)
@@ -1586,7 +1586,7 @@ module Cost_of = struct
     let unpack_failed bytes =
       (* We cannot instrument failed deserialization,
          so we take worst case fees: a set of size 1 bytes values. *)
-      let blen = Bytes.length bytes in
+      let blen = String.length bytes in
       let len = S.safe_int blen in
       let d = Z.numbits (Z.of_int blen) in
       (len *@ alloc_mbytes_cost 1)
@@ -1788,7 +1788,9 @@ module Cost_of = struct
 
     let bls12_381_fr = atomic_step_cost cost_ENCODING_BLS_FR
 
-    let unparse_type_cycle = atomic_step_cost cost_UNPARSE_TYPE
+    let unparse_type ty =
+      atomic_step_cost
+      @@ cost_UNPARSE_TYPE Script_typed_ir.(ty_size ty |> Type_size.to_int)
 
     let unparse_instr_cycle = atomic_step_cost cost_UNPARSING_CODE
 

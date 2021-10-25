@@ -45,7 +45,7 @@ type ('a, 'b) union = L of 'a | R of 'b
 
 type operation = packed_internal_operation * Lazy_storage.diffs option
 
-type 'a ticket = {ticketer : address; contents : 'a; amount : n num}
+type 'a ticket = {ticketer : Contract.t; contents : 'a; amount : n num}
 
 type empty_cell = EmptyCell
 
@@ -55,6 +55,8 @@ module Type_size : sig
   type 'a t
 
   val merge : 'a t -> 'b t -> 'a t tzresult
+
+  val to_int : 'a t -> Saturation_repr.mul_safe Saturation_repr.t
 end
 
 type 'a ty_metadata = {annot : type_annot option; size : 'a Type_size.t}
@@ -176,21 +178,21 @@ end
 type 'elt set = (module Boxed_set with type elt = 'elt)
 
 module type Boxed_map_OPS = sig
+  type t
+
   type key
 
   type value
 
-  type 'a t
+  val empty : t
 
-  val empty : value t
+  val add : key -> value -> t -> t
 
-  val add : key -> value -> value t -> value t
+  val remove : key -> t -> t
 
-  val remove : key -> value t -> value t
+  val find : key -> t -> value option
 
-  val find : key -> value t -> value option
-
-  val fold : (key -> value -> 'a -> 'a) -> value t -> 'a -> 'a
+  val fold : (key -> value -> 'a -> 'a) -> t -> 'a -> 'a
 end
 
 module type Boxed_map = sig
@@ -202,7 +204,9 @@ module type Boxed_map = sig
 
   module OPS : Boxed_map_OPS with type key = key and type value = value
 
-  val boxed : value OPS.t * int
+  val boxed : OPS.t
+
+  val size : int
 end
 
 type ('key, 'value) map =
@@ -1390,6 +1394,8 @@ type kinstr_rewritek = {
 
 val kinstr_rewritek :
   ('a, 's, 'r, 'f) kinstr -> kinstr_rewritek -> ('a, 's, 'r, 'f) kinstr
+
+val ty_size : 'a ty -> 'a Type_size.t
 
 val unit_t : annot:type_annot option -> unit ty
 
