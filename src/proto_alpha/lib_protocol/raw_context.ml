@@ -342,7 +342,7 @@ let check_gas_limit_is_valid ctxt (remaining : 'a Gas_limit_repr.Arith.t) =
       remaining > (constants ctxt).hard_gas_limit_per_operation
       || remaining < zero)
   then error Gas_limit_too_high
-  else ok_unit
+  else Result.return_unit
 
 let consume_gas_limit_in_block ctxt (limit : 'a Gas_limit_repr.Arith.t) =
   let open Gas_limit_repr in
@@ -363,8 +363,6 @@ let set_gas_limit ctxt (remaining : 'a Gas_limit_repr.Arith.t) =
 
 let set_gas_unlimited ctxt = update_unlimited_operation_gas ctxt true
 
-let gas_exhausted_error _ctxt = error Operation_quota_exceeded
-
 let consume_gas ctxt cost =
   match Gas_limit_repr.raw_consume (remaining_operation_gas ctxt) cost with
   | Some gas_counter -> Ok (update_remaining_operation_gas ctxt gas_counter)
@@ -372,7 +370,8 @@ let consume_gas ctxt cost =
       if unlimited_operation_gas ctxt then ok ctxt
       else error Operation_quota_exceeded
 
-let check_enough_gas ctxt cost = consume_gas ctxt cost >>? fun _ -> ok_unit
+let check_enough_gas ctxt cost =
+  consume_gas ctxt cost >>? fun _ -> Result.return_unit
 
 let gas_consumed ~since ~until =
   match (gas_level since, gas_level until) with
@@ -622,7 +621,7 @@ let check_inited ctxt =
   | None -> failwith "Internal error: un-initialized context."
   | Some bytes ->
       let s = Bytes.to_string bytes in
-      if Compare.String.(s = version_value) then ok_unit
+      if Compare.String.(s = version_value) then Result.return_unit
       else storage_error (Incompatible_protocol_version s)
 
 let check_cycle_eras (cycle_eras : Level_repr.cycle_eras)

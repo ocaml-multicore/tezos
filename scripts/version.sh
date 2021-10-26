@@ -9,6 +9,9 @@
 
 ## `ocaml-version` should be in sync with `README.rst` and
 ## `lib.protocol-compiler/tezos-protocol-compiler.opam`
+##
+## This script is also sourced in the Makefile, as such it should be compatible
+## with both the make and sh syntax
 
 ocaml_version=4.12.0+domains
 opam_version=2.1
@@ -16,7 +19,7 @@ recommended_rust_version=1.52.1
 
 ## full_opam_repository is a commit hash of the public OPAM repository, i.e.
 ## https://github.com/ocaml/opam-repository
-full_opam_repository_tag=e5c714fcd4a7f6f1262c4b06702c073b2a6751d5
+export full_opam_repository_tag=754c005bee4b198787ffc01f82e6c1f9c6356c2c
 
 ## opam_repository is an additional, tezos-specific opam repository.
 ## This value MUST be the same as `build_deps_image_version` in `.gitlab-ci.yml
@@ -29,4 +32,4 @@ opam_repository=$opam_repository_git
 raw_opam_repository_url=https://raw.githubusercontent.com/ocaml-multicore/tezos-opam-repository/4.12.0%2Bdomains
 
 ## Other variables, used both in Makefile and scripts
-COVERAGE_OUTPUT=_coverage_output
+export COVERAGE_OUTPUT=_coverage_output

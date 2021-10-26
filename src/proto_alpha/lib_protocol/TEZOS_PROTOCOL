@@ -65,6 +65,7 @@
         "Vote_storage",
         "Commitment_storage",
         "Fees_storage",
+        "Ticket_storage",
         "Liquidity_baking_repr",
         "Liquidity_baking_cpmm",
         "Liquidity_baking_lqt",
@@ -79,6 +80,7 @@
 
         "Alpha_context",
 
+        "Local_gas_counter",
         "Script_tc_errors",
         "Script_typed_ir",
         "Script_typed_ir_size",

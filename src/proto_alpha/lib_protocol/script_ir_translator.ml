@@ -162,7 +162,7 @@ let unexpected expr exp_kinds exp_ns exp_prims =
 
 let check_kind kinds expr =
   let kind = kind expr in
-  if List.exists (kind_equal kind) kinds then ok_unit
+  if List.exists (kind_equal kind) kinds then Result.return_unit
   else
     let loc = location expr in
     error (Invalid_kind (loc, kinds, kind))
@@ -243,105 +243,95 @@ let unparse_memo_size memo_size =
   let z = Sapling.Memo_size.unparse_to_z memo_size in
   Int (-1, z)
 
-let rec unparse_ty : type a. context -> a ty -> (Script.node * context) tzresult
-    =
- fun ctxt ty ->
-  Gas.consume ctxt Unparse_costs.unparse_type_cycle >>? fun ctxt ->
-  let return ctxt (name, args, annot) =
-    let result = Prim (-1, name, args, annot) in
-    ok (result, ctxt)
-  in
+let rec unparse_ty_uncarbonated : type a. a ty -> Script.node =
+ fun ty ->
+  let prim (name, args, annot) = Prim (-1, name, args, annot) in
   match ty with
-  | Unit_t meta -> return ctxt (T_unit, [], unparse_type_annot meta.annot)
-  | Int_t meta -> return ctxt (T_int, [], unparse_type_annot meta.annot)
-  | Nat_t meta -> return ctxt (T_nat, [], unparse_type_annot meta.annot)
-  | Signature_t meta ->
-      return ctxt (T_signature, [], unparse_type_annot meta.annot)
-  | String_t meta -> return ctxt (T_string, [], unparse_type_annot meta.annot)
-  | Bytes_t meta -> return ctxt (T_bytes, [], unparse_type_annot meta.annot)
-  | Mutez_t meta -> return ctxt (T_mutez, [], unparse_type_annot meta.annot)
-  | Bool_t meta -> return ctxt (T_bool, [], unparse_type_annot meta.annot)
-  | Key_hash_t meta ->
-      return ctxt (T_key_hash, [], unparse_type_annot meta.annot)
-  | Key_t meta -> return ctxt (T_key, [], unparse_type_annot meta.annot)
-  | Timestamp_t meta ->
-      return ctxt (T_timestamp, [], unparse_type_annot meta.annot)
-  | Address_t meta -> return ctxt (T_address, [], unparse_type_annot meta.annot)
-  | Operation_t meta ->
-      return ctxt (T_operation, [], unparse_type_annot meta.annot)
-  | Chain_id_t meta ->
-      return ctxt (T_chain_id, [], unparse_type_annot meta.annot)
-  | Never_t meta -> return ctxt (T_never, [], unparse_type_annot meta.annot)
+  | Unit_t meta -> prim (T_unit, [], unparse_type_annot meta.annot)
+  | Int_t meta -> prim (T_int, [], unparse_type_annot meta.annot)
+  | Nat_t meta -> prim (T_nat, [], unparse_type_annot meta.annot)
+  | Signature_t meta -> prim (T_signature, [], unparse_type_annot meta.annot)
+  | String_t meta -> prim (T_string, [], unparse_type_annot meta.annot)
+  | Bytes_t meta -> prim (T_bytes, [], unparse_type_annot meta.annot)
+  | Mutez_t meta -> prim (T_mutez, [], unparse_type_annot meta.annot)
+  | Bool_t meta -> prim (T_bool, [], unparse_type_annot meta.annot)
+  | Key_hash_t meta -> prim (T_key_hash, [], unparse_type_annot meta.annot)
+  | Key_t meta -> prim (T_key, [], unparse_type_annot meta.annot)
+  | Timestamp_t meta -> prim (T_timestamp, [], unparse_type_annot meta.annot)
+  | Address_t meta -> prim (T_address, [], unparse_type_annot meta.annot)
+  | Operation_t meta -> prim (T_operation, [], unparse_type_annot meta.annot)
+  | Chain_id_t meta -> prim (T_chain_id, [], unparse_type_annot meta.annot)
+  | Never_t meta -> prim (T_never, [], unparse_type_annot meta.annot)
   | Bls12_381_g1_t meta ->
-      return ctxt (T_bls12_381_g1, [], unparse_type_annot meta.annot)
+      prim (T_bls12_381_g1, [], unparse_type_annot meta.annot)
   | Bls12_381_g2_t meta ->
-      return ctxt (T_bls12_381_g2, [], unparse_type_annot meta.annot)
+      prim (T_bls12_381_g2, [], unparse_type_annot meta.annot)
   | Bls12_381_fr_t meta ->
-      return ctxt (T_bls12_381_fr, [], unparse_type_annot meta.annot)
+      prim (T_bls12_381_fr, [], unparse_type_annot meta.annot)
   | Contract_t (ut, meta) ->
-      unparse_ty ctxt ut >>? fun (t, ctxt) ->
-      return ctxt (T_contract, [t], unparse_type_annot meta.annot)
+      let t = unparse_ty_uncarbonated ut in
+      prim (T_contract, [t], unparse_type_annot meta.annot)
   | Pair_t ((utl, l_field, l_var), (utr, r_field, r_var), meta) ->
       let annot = unparse_type_annot meta.annot in
-      unparse_ty ctxt utl >>? fun (utl, ctxt) ->
+      let utl = unparse_ty_uncarbonated utl in
       let tl = add_field_annot l_field l_var utl in
-      unparse_ty ctxt utr >>? fun (utr, ctxt) ->
+      let utr = unparse_ty_uncarbonated utr in
       let tr = add_field_annot r_field r_var utr in
       (* Fold [pair a1 (pair ... (pair an-1 an))] into [pair a1 ... an] *)
       (* Note that the folding does not happen if the pair on the right has an
          annotation because this annotation would be lost *)
-      return
-        ctxt
+      prim
         (match tr with
         | Prim (_, T_pair, ts, []) -> (T_pair, tl :: ts, annot)
         | _ -> (T_pair, [tl; tr], annot))
   | Union_t ((utl, l_field), (utr, r_field), meta) ->
       let annot = unparse_type_annot meta.annot in
-      unparse_ty ctxt utl >>? fun (utl, ctxt) ->
+      let utl = unparse_ty_uncarbonated utl in
       let tl = add_field_annot l_field None utl in
-      unparse_ty ctxt utr >>? fun (utr, ctxt) ->
+      let utr = unparse_ty_uncarbonated utr in
       let tr = add_field_annot r_field None utr in
-      return ctxt (T_or, [tl; tr], annot)
+      prim (T_or, [tl; tr], annot)
   | Lambda_t (uta, utr, meta) ->
-      unparse_ty ctxt uta >>? fun (ta, ctxt) ->
-      unparse_ty ctxt utr >>? fun (tr, ctxt) ->
-      return ctxt (T_lambda, [ta; tr], unparse_type_annot meta.annot)
+      let ta = unparse_ty_uncarbonated uta in
+      let tr = unparse_ty_uncarbonated utr in
+      prim (T_lambda, [ta; tr], unparse_type_annot meta.annot)
   | Option_t (ut, meta) ->
       let annot = unparse_type_annot meta.annot in
-      unparse_ty ctxt ut >>? fun (ut, ctxt) ->
-      return ctxt (T_option, [ut], annot)
+      let ut = unparse_ty_uncarbonated ut in
+      prim (T_option, [ut], annot)
   | List_t (ut, meta) ->
-      unparse_ty ctxt ut >>? fun (t, ctxt) ->
-      return ctxt (T_list, [t], unparse_type_annot meta.annot)
+      let t = unparse_ty_uncarbonated ut in
+      prim (T_list, [t], unparse_type_annot meta.annot)
   | Ticket_t (ut, meta) ->
       let t = unparse_comparable_ty ut in
-      return ctxt (T_ticket, [t], unparse_type_annot meta.annot)
+      prim (T_ticket, [t], unparse_type_annot meta.annot)
   | Set_t (ut, meta) ->
       let t = unparse_comparable_ty ut in
-      return ctxt (T_set, [t], unparse_type_annot meta.annot)
+      prim (T_set, [t], unparse_type_annot meta.annot)
   | Map_t (uta, utr, meta) ->
       let ta = unparse_comparable_ty uta in
-      unparse_ty ctxt utr >>? fun (tr, ctxt) ->
-      return ctxt (T_map, [ta; tr], unparse_type_annot meta.annot)
+      let tr = unparse_ty_uncarbonated utr in
+      prim (T_map, [ta; tr], unparse_type_annot meta.annot)
   | Big_map_t (uta, utr, meta) ->
       let ta = unparse_comparable_ty uta in
-      unparse_ty ctxt utr >>? fun (tr, ctxt) ->
-      return ctxt (T_big_map, [ta; tr], unparse_type_annot meta.annot)
+      let tr = unparse_ty_uncarbonated utr in
+      prim (T_big_map, [ta; tr], unparse_type_annot meta.annot)
   | Sapling_transaction_t (memo_size, meta) ->
-      return
-        ctxt
+      prim
         ( T_sapling_transaction,
           [unparse_memo_size memo_size],
           unparse_type_annot meta.annot )
   | Sapling_state_t (memo_size, meta) ->
-      return
-        ctxt
+      prim
         ( T_sapling_state,
           [unparse_memo_size memo_size],
           unparse_type_annot meta.annot )
-  | Chest_key_t meta ->
-      return ctxt (T_chest_key, [], unparse_type_annot meta.annot)
-  | Chest_t meta -> return ctxt (T_chest, [], unparse_type_annot meta.annot)
+  | Chest_key_t meta -> prim (T_chest_key, [], unparse_type_annot meta.annot)
+  | Chest_t meta -> prim (T_chest, [], unparse_type_annot meta.annot)
+
+let unparse_ty ctxt ty =
+  Gas.consume ctxt (Unparse_costs.unparse_type ty) >|? fun ctxt ->
+  (unparse_ty_uncarbonated ty, ctxt)
 
 let[@coq_struct "function_parameter"] rec strip_var_annots = function
   | (Int _ | String _ | Bytes _) as atom -> atom
@@ -686,9 +676,9 @@ let pack_node unparsed ctxt =
       expr_encoding
       (Micheline.strip_locations unparsed)
   in
-  Gas.consume ctxt (Script.serialized_cost bytes) >>? fun ctxt ->
+  Gas.consume ctxt (Script.serialized_cost bytes) >|? fun ctxt ->
   let bytes = Bytes.cat (Bytes.of_string "\005") bytes in
-  Gas.consume ctxt (Script.serialized_cost bytes) >|? fun ctxt -> (bytes, ctxt)
+  (bytes, ctxt)
 
 let pack_comparable_data ctxt typ data ~mode =
   unparse_comparable_data ctxt mode typ data >>=? fun (unparsed, ctxt) ->
@@ -1867,37 +1857,37 @@ let check_packable ~legacy loc root =
     | Big_map_t _ -> error (Unexpected_lazy_storage loc)
     | Sapling_state_t _ -> error (Unexpected_lazy_storage loc)
     | Operation_t _ -> error (Unexpected_operation loc)
-    | Unit_t _ -> ok_unit
-    | Int_t _ -> ok_unit
-    | Nat_t _ -> ok_unit
-    | Signature_t _ -> ok_unit
-    | String_t _ -> ok_unit
-    | Bytes_t _ -> ok_unit
-    | Mutez_t _ -> ok_unit
-    | Key_hash_t _ -> ok_unit
-    | Key_t _ -> ok_unit
-    | Timestamp_t _ -> ok_unit
-    | Address_t _ -> ok_unit
-    | Bool_t _ -> ok_unit
-    | Chain_id_t _ -> ok_unit
-    | Never_t _ -> ok_unit
-    | Set_t (_, _) -> ok_unit
+    | Unit_t _ -> Result.return_unit
+    | Int_t _ -> Result.return_unit
+    | Nat_t _ -> Result.return_unit
+    | Signature_t _ -> Result.return_unit
+    | String_t _ -> Result.return_unit
+    | Bytes_t _ -> Result.return_unit
+    | Mutez_t _ -> Result.return_unit
+    | Key_hash_t _ -> Result.return_unit
+    | Key_t _ -> Result.return_unit
+    | Timestamp_t _ -> Result.return_unit
+    | Address_t _ -> Result.return_unit
+    | Bool_t _ -> Result.return_unit
+    | Chain_id_t _ -> Result.return_unit
+    | Never_t _ -> Result.return_unit
+    | Set_t (_, _) -> Result.return_unit
     | Ticket_t _ -> error (Unexpected_ticket loc)
-    | Lambda_t (_, _, _) -> ok_unit
-    | Bls12_381_g1_t _ -> ok_unit
-    | Bls12_381_g2_t _ -> ok_unit
-    | Bls12_381_fr_t _ -> ok_unit
+    | Lambda_t (_, _, _) -> Result.return_unit
+    | Bls12_381_g1_t _ -> Result.return_unit
+    | Bls12_381_g2_t _ -> Result.return_unit
+    | Bls12_381_fr_t _ -> Result.return_unit
     | Pair_t ((l_ty, _, _), (r_ty, _, _), _) ->
         check l_ty >>? fun () -> check r_ty
     | Union_t ((l_ty, _), (r_ty, _), _) -> check l_ty >>? fun () -> check r_ty
     | Option_t (v_ty, _) -> check v_ty
     | List_t (elt_ty, _) -> check elt_ty
     | Map_t (_, elt_ty, _) -> check elt_ty
-    | Contract_t (_, _) when legacy -> ok_unit
+    | Contract_t (_, _) when legacy -> Result.return_unit
     | Contract_t (_, _) -> error (Unexpected_contract loc)
     | Sapling_transaction_t _ -> ok ()
-    | Chest_key_t _ -> ok_unit
-    | Chest_t _ -> ok_unit
+    | Chest_key_t _ -> Result.return_unit
+    | Chest_t _ -> Result.return_unit
   in
   check root
 
@@ -2098,10 +2088,10 @@ let[@coq_axiom_with_reason "use of exceptions"] well_formed_entrypoints
       | Some (Field_annot name) -> (Entrypoints.singleton name, true)
     in
     let (first_unreachable, all) = check full [] reachable (None, init) in
-    if not (Entrypoints.mem "default" all) then ok_unit
+    if not (Entrypoints.mem "default" all) then Result.return_unit
     else
       match first_unreachable with
-      | None -> ok_unit
+      | None -> Result.return_unit
       | Some path -> error (Unreachable_entrypoint path)
   with
   | Duplicate name -> error (Duplicate_entrypoint name)
@@ -2141,7 +2131,7 @@ let opened_ticket_type loc ty =
 
 let parse_unit ctxt ~legacy = function
   | Prim (loc, D_Unit, [], annot) ->
-      (if legacy then ok_unit else error_unexpected_annot loc annot)
+      (if legacy then Result.return_unit else error_unexpected_annot loc annot)
       >>? fun () ->
       Gas.consume ctxt Typecheck_costs.unit >|? fun ctxt -> ((), ctxt)
   | Prim (loc, D_Unit, l, _) ->
@@ -2150,11 +2140,11 @@ let parse_unit ctxt ~legacy = function
 
 let parse_bool ctxt ~legacy = function
   | Prim (loc, D_True, [], annot) ->
-      (if legacy then ok_unit else error_unexpected_annot loc annot)
+      (if legacy then Result.return_unit else error_unexpected_annot loc annot)
       >>? fun () ->
       Gas.consume ctxt Typecheck_costs.bool >|? fun ctxt -> (true, ctxt)
   | Prim (loc, D_False, [], annot) ->
-      (if legacy then ok_unit else error_unexpected_annot loc annot)
+      (if legacy then Result.return_unit else error_unexpected_annot loc annot)
       >>? fun () ->
       Gas.consume ctxt Typecheck_costs.bool >|? fun ctxt -> (false, ctxt)
   | Prim (loc, ((D_True | D_False) as c), l, _) ->
@@ -2375,7 +2365,7 @@ let parse_pair (type r) parse_l parse_r ctxt ~legacy
   in
   match expr with
   | Prim (loc, D_Pair, l :: rs, annot) ->
-      (if legacy then ok_unit else error_unexpected_annot loc annot)
+      (if legacy then Result.return_unit else error_unexpected_annot loc annot)
       >>?= fun () -> parse_comb loc l rs
   | Prim (loc, D_Pair, l, _) ->
       fail @@ Invalid_arity (loc, D_Pair, 2, List.length l)
@@ -2386,13 +2376,13 @@ let parse_pair (type r) parse_l parse_r ctxt ~legacy
 
 let parse_union parse_l parse_r ctxt ~legacy = function
   | Prim (loc, D_Left, [v], annot) ->
-      (if legacy then ok_unit else error_unexpected_annot loc annot)
+      (if legacy then Result.return_unit else error_unexpected_annot loc annot)
       >>?= fun () ->
       parse_l ctxt v >|=? fun (v, ctxt) -> (L v, ctxt)
   | Prim (loc, D_Left, l, _) ->
       fail @@ Invalid_arity (loc, D_Left, 1, List.length l)
   | Prim (loc, D_Right, [v], annot) ->
-      (if legacy then ok_unit else error_unexpected_annot loc annot)
+      (if legacy then Result.return_unit else error_unexpected_annot loc annot)
       >>?= fun () ->
       parse_r ctxt v >|=? fun (v, ctxt) -> (R v, ctxt)
   | Prim (loc, D_Right, l, _) ->
@@ -2401,14 +2391,15 @@ let parse_union parse_l parse_r ctxt ~legacy = function
 
 let parse_option parse_v ctxt ~legacy = function
   | Prim (loc, D_Some, [v], annot) ->
-      (if legacy then ok_unit else error_unexpected_annot loc annot)
+      (if legacy then Result.return_unit else error_unexpected_annot loc annot)
       >>?= fun () ->
       parse_v ctxt v >|=? fun (v, ctxt) -> (Some v, ctxt)
   | Prim (loc, D_Some, l, _) ->
       fail @@ Invalid_arity (loc, D_Some, 1, List.length l)
   | Prim (loc, D_None, [], annot) ->
       Lwt.return
-        ( (if legacy then ok_unit else error_unexpected_annot loc annot)
+        ( (if legacy then Result.return_unit
+          else error_unexpected_annot loc annot)
         >|? fun () -> (None, ctxt) )
   | Prim (loc, D_None, l, _) ->
       fail @@ Invalid_arity (loc, D_None, 0, List.length l)
@@ -2543,7 +2534,8 @@ let[@coq_axiom_with_reason "gadt"] rec parse_data :
       (fun (last_value, map, ctxt) item ->
         match item with
         | Prim (loc, D_Elt, [k; v], annot) ->
-            (if legacy then ok_unit else error_unexpected_annot loc annot)
+            (if legacy then Result.return_unit
+            else error_unexpected_annot loc annot)
             >>?= fun () ->
             parse_comparable_data ?type_logger ctxt key_type k
             >>=? fun (k, ctxt) ->
@@ -2592,7 +2584,8 @@ let[@coq_axiom_with_reason "gadt"] rec parse_data :
       (fun (last_key, {map; size}, ctxt) item ->
         match item with
         | Prim (loc, D_Elt, [k; v], annot) ->
-            (if legacy then ok_unit else error_unexpected_annot loc annot)
+            (if legacy then Result.return_unit
+            else error_unexpected_annot loc annot)
             >>?= fun () ->
             parse_comparable_data ?type_logger ctxt key_type k
             >>=? fun (k, ctxt) ->
@@ -2740,7 +2733,7 @@ let[@coq_axiom_with_reason "gadt"] rec parse_data :
       if allow_forged then
         opened_ticket_type (location expr) t >>?= fun ty ->
         parse_comparable_data ?type_logger ctxt ty expr
-        >|=? fun ((ticketer, (contents, amount)), ctxt) ->
+        >|=? fun (((ticketer, _entrypoint), (contents, amount)), ctxt) ->
         ({ticketer; contents; amount}, ctxt)
       else traced_fail (Unexpected_forged_value (location expr))
   (* Sets *)
@@ -3070,7 +3063,7 @@ and[@coq_axiom_with_reason "gadt"] parse_instr :
   let log_stack ctxt loc stack_ty aft =
     match (type_logger, script_instr) with
     | (None, _) | (Some _, (Seq (-1, _) | Int _ | String _ | Bytes _)) ->
-        ok_unit
+        Result.return_unit
     | (Some log, (Prim _ | Seq _)) ->
         (* Unparsing for logging done in an unlimited context as this
               is used only by the client and not the protocol *)
@@ -4316,7 +4309,8 @@ and[@coq_axiom_with_reason "gadt"] parse_instr :
   | (Prim (loc, I_FAILWITH, [], annot), Item_t (v, _rest, _)) ->
       Lwt.return
         ( error_unexpected_annot loc annot >>? fun () ->
-          (if legacy then ok_unit else check_packable ~legacy:false loc v)
+          (if legacy then Result.return_unit
+          else check_packable ~legacy:false loc v)
           >>? fun () ->
           let instr = {apply = (fun kinfo _k -> IFailwith (kinfo, loc, v))} in
           let descr aft = {loc; instr; bef = stack_ty; aft} in
@@ -4842,7 +4836,7 @@ and[@coq_axiom_with_reason "gadt"] parse_instr :
           Item_t (Mutez_t _, Item_t (ginit, rest, _), _),
           _ ) ) ->
       parse_two_var_annot loc annot >>?= fun (op_annot, addr_annot) ->
-      let canonical_code = fst @@ Micheline.extract_locations code in
+      let canonical_code = Micheline.strip_locations code in
       parse_toplevel ctxt ~legacy canonical_code
       >>?= fun ({arg_type; storage_type; code_field; views; root_name}, ctxt) ->
       record_trace
@@ -4853,7 +4847,8 @@ and[@coq_axiom_with_reason "gadt"] parse_instr :
            ~legacy
            arg_type)
       >>?= fun (Ex_ty arg_type, ctxt) ->
-      (if legacy then ok_unit else well_formed_entrypoints ~root_name arg_type)
+      (if legacy then Result.return_unit
+      else well_formed_entrypoints ~root_name arg_type)
       >>?= fun () ->
       record_trace
         (Ill_formed_type (Some "storage", canonical_code, location storage_type))
@@ -5700,7 +5695,8 @@ let parse_code :
     (Ill_formed_type (Some "parameter", code, arg_type_loc))
     (parse_parameter_ty ctxt ~stack_depth:0 ~legacy arg_type)
   >>?= fun (Ex_ty arg_type, ctxt) ->
-  (if legacy then ok_unit else well_formed_entrypoints ~root_name arg_type)
+  (if legacy then Result.return_unit
+  else well_formed_entrypoints ~root_name arg_type)
   >>?= fun () ->
   let storage_type_loc = location storage_type in
   record_trace
@@ -5830,7 +5826,8 @@ let typecheck_code :
     (Ill_formed_type (Some "parameter", code, arg_type_loc))
     (parse_parameter_ty ctxt ~stack_depth:0 ~legacy arg_type)
   >>?= fun (Ex_ty arg_type, ctxt) ->
-  (if legacy then ok_unit else well_formed_entrypoints ~root_name arg_type)
+  (if legacy then Result.return_unit
+  else well_formed_entrypoints ~root_name arg_type)
   >>?= fun () ->
   let storage_type_loc = location storage_type in
   record_trace
@@ -6027,7 +6024,7 @@ let[@coq_axiom_with_reason "gadt"] rec unparse_data :
         ~stack_depth
         mode
         t
-        (ticketer, (contents, amount))
+        ((ticketer, "default"), (contents, amount))
   | (Set_t (t, _), set) ->
       List.fold_left_es
         (fun (l, ctxt) item ->
@@ -6557,7 +6554,7 @@ let[@coq_axiom_with_reason "gadt"] extract_lazy_storage_updates ctxt mode
             >|=? fun (ctxt, x, ids_to_copy, acc) ->
             (ctxt, M.OPS.add k x m, ids_to_copy, acc))
           (ctxt, M.OPS.empty, ids_to_copy, acc)
-          (bindings (fst M.boxed))
+          (bindings M.boxed)
         >|=? fun (ctxt, m, ids_to_copy, acc) ->
         let module M = struct
           module OPS = M.OPS
@@ -6568,7 +6565,9 @@ let[@coq_axiom_with_reason "gadt"] extract_lazy_storage_updates ctxt mode
 
           let key_ty = M.key_ty
 
-          let boxed = (m, snd M.boxed)
+          let boxed = m
+
+          let size = M.size
         end in
         ( ctxt,
           (module M : Boxed_map with type key = M.key and type value = M.value),

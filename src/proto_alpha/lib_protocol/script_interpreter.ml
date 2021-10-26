@@ -86,6 +86,7 @@ open Alpha_context
 open Script
 open Script_typed_ir
 open Script_ir_translator
+open Local_gas_counter
 open Script_interpreter_defs
 module S = Saturation_repr
 
@@ -320,7 +321,7 @@ and next :
     (r * f * outdated_context * local_gas_counter) tzresult Lwt.t =
  fun ((ctxt, _) as g) gas ks0 accu stack ->
   match consume_control gas ks0 with
-  | None -> Lwt.return (Gas.gas_exhausted_error (update_context gas ctxt))
+  | None -> fail Gas.Operation_quota_exceeded
   | Some gas -> (
       match ks0 with
       | KLog (ks, logger) ->
@@ -466,8 +467,8 @@ and iexec : type a b c d e f g. (a, b, c, d, e, f, g) iexec_type =
 
 and step : type a s b t r f. (a, s, b, t, r, f) step_type =
  fun ((ctxt, sc) as g) gas i ks accu stack ->
-  match consume gas i accu stack with
-  | None -> Lwt.return (Gas.gas_exhausted_error (update_context gas ctxt))
+  match consume_instr gas i accu stack with
+  | None -> fail Gas.Operation_quota_exceeded
   | Some gas -> (
       match i with
       | ILog (_, event, logger, k) ->
@@ -693,8 +694,7 @@ and step : type a s b t r f. (a, s, b, t, r, f) step_type =
               S.zero
               ss.elements
           in
-          consume' ctxt gas (Interp_costs.concat_string total_length)
-          >>?= fun gas ->
+          consume gas (Interp_costs.concat_string total_length) >>?= fun gas ->
           let s = Script_string.concat ss.elements in
           (step [@ocaml.tailcall]) g gas k ks s stack
       | ISlice_string (_, k) ->
@@ -726,8 +726,7 @@ and step : type a s b t r f. (a, s, b, t, r, f) step_type =
               S.zero
               ss.elements
           in
-          consume' ctxt gas (Interp_costs.concat_string total_length)
-          >>?= fun gas ->
+          consume gas (Interp_costs.concat_string total_length) >>?= fun gas ->
           let s = Bytes.concat Bytes.empty ss.elements in
           (step [@ocaml.tailcall]) g gas k ks s stack
       | ISlice_bytes (_, k) ->
@@ -1434,13 +1433,13 @@ and step : type a s b t r f. (a, s, b, t, r, f) step_type =
       (* Tickets *)
       | ITicket (_, k) ->
           let contents = accu and (amount, stack) = stack in
-          let ticketer = (sc.self, "default") in
+          let ticketer = sc.self in
           let accu = {ticketer; contents; amount} in
           (step [@ocaml.tailcall]) g gas k ks accu stack
       | IRead_ticket (_, k) ->
           let {ticketer; contents; amount} = accu in
           let stack = (accu, stack) in
-          let accu = (ticketer, (contents, amount)) in
+          let accu = ((ticketer, "default"), (contents, amount)) in
           (step [@ocaml.tailcall]) g gas k ks accu stack
       | ISplit_ticket (_, k) ->
           let ticket = accu and ((amount_a, amount_b), stack) = stack in
@@ -1460,10 +1459,7 @@ and step : type a s b t r f. (a, s, b, t, r, f) step_type =
           let result =
             if
               Compare.Int.(
-                Script_comparable.compare_address
-                  ticket_a.ticketer
-                  ticket_b.ticketer
-                = 0
+                Contract.compare ticket_a.ticketer ticket_b.ticketer = 0
                 && Script_comparable.compare_comparable
                      contents_ty
                      ticket_a.contents

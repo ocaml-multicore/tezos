@@ -52,11 +52,8 @@ type t
 type limits = {
   max_refused_operations : int;
   operation_timeout : Time.System.Span.t;
-  worker_limits : Worker_types.limits;
   operations_batch_size : int;
 }
-
-type parameters = {limits : limits; chain_db : Distributed_db.chain_db}
 
 (** Creates/tear-down a new prevalidator context. *)
 val create :
@@ -90,15 +87,6 @@ val flush :
 (** Returns the list of prevalidation contexts running and their associated chain *)
 val running_workers : unit -> (Chain_id.t * Protocol_hash.t * t) list
 
-(** Two functions that are useful for managing the prevalidator's transition
- * from one protocol to the next. *)
-
-(** Returns the hash of the protocol the prevalidator was instantiated with *)
-val protocol_hash : t -> Protocol_hash.t
-
-(** Returns the parameters the prevalidator was created with. *)
-val parameters : t -> parameters
-
 (** Worker status and events *)
 
 (* None indicates the there are no workers for the current protocol. *)
@@ -111,13 +99,6 @@ val current_request :
   t ->
   (Time.System.t * Time.System.t * Prevalidator_worker_state.Request.view)
   option
-
-(** [DEPRECATED] This function is legacy and should be removed. Currently, it
-   always answers `[]`.
-
-    See https://gitlab.com/tezos/tezos/-/issues/1714 *)
-val last_events :
-  t -> (Internal_event.level * Prevalidator_worker_state.Event.t list) list
 
 val information : t -> Worker_types.worker_information
 

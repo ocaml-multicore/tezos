@@ -292,6 +292,10 @@ val spawn_show_address : ?show_secret:bool -> alias:string -> t -> Process.t
     [tezos-client show address] to get the generated key. *)
 val gen_and_show_keys : alias:string -> t -> Account.key Lwt.t
 
+(** Same as [gen_and_show_keys] but returns a [Constant.key] instead of an
+    [Account.key]. *)
+val gen_and_show_secret_keys : alias:string -> t -> Constant.key Lwt.t
+
 (** Run [tezos-client endorse for].
 
     Default [key] is {!Constant.bootstrap2.alias}. *)
@@ -460,22 +464,33 @@ val spawn_originate_contract :
   t ->
   Process.t
 
-(** [stresstest ?endpoint ?tps souces transfers], calls
- *  [tezos-client stresstest transfer using <sources> --transfers <transfers> --tps <tps>]. *)
-val stresstest :
-  ?endpoint:endpoint ->
-  ?tps:int ->
-  sources:string ->
-  transfers:int ->
-  t ->
-  unit Lwt.t
+(** Returns the name of a file containing the accounts corresponding
+    to [bootstrap1], ..., [bootstrap5], in JSON format as expected by
+    the [stresstest] command. *)
+val write_bootstrap_stresstest_sources_file : t -> string Lwt.t
 
-(** Same as [stresstest], but do not wait for the process to exit. *)
+(** [stresstest ?endpoint ?transfers ?tps client] calls
+    [tezos-client stresstest transfer using <sources> --transfers <transfers> --tps <tps>],
+    where [sources] is the result of {!write_bootstrap_stresstest_sources_file}.
+
+    Default values:
+    - [endpoint]: cf {!create}
+    - [transfers] and [tps]: do not provide the argument to the command
+*)
+val stresstest :
+  ?endpoint:endpoint -> ?transfers:int -> ?tps:int -> t -> unit Lwt.t
+
+(** Same as {!stresstest}, but does not wait for the process to exit,
+    and takes an additional argument [sources] to pass on to te command.
+
+    Note that the [sources] argument cannot easily be made optional or
+    removed: indeed, we would need [Lwt] to compute the value used in
+    {!stresstest}. *)
 val spawn_stresstest :
   ?endpoint:endpoint ->
+  ?transfers:int ->
   ?tps:int ->
   sources:string ->
-  transfers:int ->
   t ->
   Process.t
 
@@ -625,7 +640,10 @@ val init :
 
     - Create a client with mode [Client], [Light], or [Proxy]
     - Import all secret keys listed in {!Constant.all_secret_keys}
-    - Activate the given protocol
+    - Create [additional_account_count] accounts with
+      [default_accounts_balance]
+    - Activate the given protocol with [additional_account_count]
+      additional bootstrap accounts
     - Bake (unless [~bake:false] is passed)
 
     In addition to the client, returns the first created node
@@ -638,6 +656,8 @@ val init_activate_bake :
   ?color:Log.Color.t ->
   ?base_dir:string ->
   ?nodes_args:Node.argument list ->
+  ?additional_bootstrap_account_count:int ->
+  ?default_accounts_balance:int ->
   ?parameter_file:string ->
   ?bake:bool ->
   [`Client | `Light | `Proxy] ->
