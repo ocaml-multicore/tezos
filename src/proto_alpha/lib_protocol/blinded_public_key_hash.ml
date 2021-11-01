@@ -55,6 +55,5 @@ let activation_code_size = Ed25519.Public_key_hash.size
 let activation_code_encoding = Data_encoding.Fixed.bytes activation_code_size
 
 let activation_code_of_hex h =
-  if Compare.Int.(String.length h <> activation_code_size * 2) then
-    invalid_arg "Blinded_public_key_hash.activation_code_of_hex" ;
-  Hex.to_bytes (`Hex h)
+  if Compare.Int.(String.length h <> activation_code_size * 2) then None
+  else Hex.to_bytes (`Hex h)

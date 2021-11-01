@@ -12,6 +12,7 @@
   lwt.unix
   ipaddr.unix
   re
+  fmt
   ptime
   ptime.clock.os
   mtime
