@@ -103,11 +103,26 @@ Node
    inside. It may break the compatibility for tools that request binary-only
    answers from the node and parse the errors by hand.
 
+- Changed the ``/chains/<chain_id>/blocks/<block>/helpers/preapply``
+  RPC's backend so that the preapplication is done by the validator
+  process in order to cache the result in order to optimize the
+  potential following block application (of the same block).
+
 Client
 ------
 
+- Added an optional parameter ``media-type`` for the "accept" header for RPC requests to the node.
+  The media accept header indicates to the node which format of data serialisation is supported.
+  The value can be  ``json``, ``binary`` or ``any``.
+
+
 Baker / Endorser / Accuser
 --------------------------
+
+- Added an optional parameter ``media-type`` for the "accept" header for RPC requests to the node.
+  The default ``media_type`` is ``binary`` for bakers.
+  The media accept header indicates to the node which format of data serialisation is supported.
+  The value can be ``json``, ``binary`` or ``any``.
 
 Proxy server
 ------------

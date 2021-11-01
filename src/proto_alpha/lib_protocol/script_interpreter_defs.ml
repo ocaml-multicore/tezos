@@ -136,54 +136,33 @@ let cost_of_instr : type a s r f. (a, s, r, f) kinstr -> a -> s -> Gas.cost =
   | IAbs_int _ ->
       let x = accu in
       Interp_costs.abs_int x
-  | INeg_int _ ->
+  | INeg _ ->
       let x = accu in
-      Interp_costs.neg_int x
-  | INeg_nat _ ->
-      let x = accu in
-      Interp_costs.neg_nat x
-  | IAdd_intint _ ->
+      Interp_costs.neg x
+  | IAdd_int _ ->
       let x = accu and (y, _) = stack in
-      Interp_costs.add_intint x y
-  | IAdd_intnat _ ->
+      Interp_costs.add_int x y
+  | IAdd_nat _ ->
       let x = accu and (y, _) = stack in
-      Interp_costs.add_intnat x y
-  | IAdd_natint _ ->
-      let x = accu and (y, _) = stack in
-      Interp_costs.add_natint x y
-  | IAdd_natnat _ ->
-      let x = accu and (y, _) = stack in
-      Interp_costs.add_natnat x y
+      Interp_costs.add_nat x y
   | ISub_int _ ->
       let x = accu and (y, _) = stack in
       Interp_costs.sub_int x y
-  | IMul_intint _ ->
+  | IMul_int _ ->
       let x = accu and (y, _) = stack in
-      Interp_costs.mul_intint x y
-  | IMul_intnat _ ->
+      Interp_costs.mul_int x y
+  | IMul_nat _ ->
       let x = accu and (y, _) = stack in
-      Interp_costs.mul_intnat x y
-  | IMul_natint _ ->
-      let x = accu and (y, _) = stack in
-      Interp_costs.mul_natint x y
-  | IMul_natnat _ ->
-      let x = accu and (y, _) = stack in
-      Interp_costs.mul_natnat x y
+      Interp_costs.mul_nat x y
   | IEdiv_teznat _ ->
       let x = accu and (y, _) = stack in
       Interp_costs.ediv_teznat x y
-  | IEdiv_intint _ ->
+  | IEdiv_int _ ->
       let x = accu and (y, _) = stack in
-      Interp_costs.ediv_intint x y
-  | IEdiv_intnat _ ->
+      Interp_costs.ediv_int x y
+  | IEdiv_nat _ ->
       let x = accu and (y, _) = stack in
-      Interp_costs.ediv_intnat x y
-  | IEdiv_natint _ ->
-      let x = accu and (y, _) = stack in
-      Interp_costs.ediv_natint x y
-  | IEdiv_natnat _ ->
-      let x = accu and (y, _) = stack in
-      Interp_costs.ediv_natnat x y
+      Interp_costs.ediv_nat x y
   | ILsl_nat _ ->
       let x = accu in
       Interp_costs.lsl_nat x
@@ -205,9 +184,6 @@ let cost_of_instr : type a s r f. (a, s, r, f) kinstr -> a -> s -> Gas.cost =
   | INot_int _ ->
       let x = accu in
       Interp_costs.not_int x
-  | INot_nat _ ->
-      let x = accu in
-      Interp_costs.not_nat x
   | ICompare (_, ty, _) ->
       let a = accu and (b, _) = stack in
       Interp_costs.compare ty a b
@@ -372,6 +348,7 @@ let cost_of_control : type a s r f. (a, s, r, f) continuation -> Gas.cost =
   | KMap_enter_body (_, _, _, _) -> Interp_costs.Control.map_enter_body
   | KMap_exit_body (_, _, map, key, _) ->
       Interp_costs.Control.map_exit_body key map
+  | KView_exit (_, _) -> Interp_costs.Control.view_exit
 
 (*
 
@@ -447,20 +424,6 @@ let log_next_kinstr logger i =
 
 (* We pass the identity function when no instrumentation is needed. *)
 let id x = x [@@inline]
-
-(*
-
-    Interpreter parameters
-    ======================
-
-*)
-type step_constants = {
-  source : Contract.t;
-  payer : Contract.t;
-  self : Contract.t;
-  amount : Tez.t;
-  chain_id : Chain_id.t;
-}
 
 (*
 
