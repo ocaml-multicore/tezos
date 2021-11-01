@@ -938,10 +938,8 @@ module RPC = struct
       >>?= fun (Ex_ty exp_ty, ctxt) ->
       trace_eval
         (fun () ->
-          Lwt.return
-            ( Script_ir_translator.serialize_ty_for_error ctxt exp_ty
-            >|? fun (exp_ty, _ctxt) ->
-              Script_tc_errors.Ill_typed_data (None, data, exp_ty) ))
+          let exp_ty = Script_ir_translator.serialize_ty_for_error exp_ty in
+          return @@ Script_tc_errors.Ill_typed_data (None, data, exp_ty))
         (let allow_forged =
            true
            (* Safe since we ignore the value afterwards. *)
@@ -1233,11 +1231,11 @@ module RPC = struct
         let ctxt = Gas.set_unlimited ctxt in
         let legacy = false in
         let open Script_ir_translator in
+        parse_toplevel ctxt ~legacy expr
+        >>=? fun ({arg_type; root_name; _}, ctxt) ->
         Lwt.return
-          ( ( parse_toplevel ctxt ~legacy expr
-            >>? fun ({arg_type; root_name; _}, ctxt) ->
-              parse_parameter_ty ctxt ~legacy arg_type
-              >>? fun (Ex_ty arg_type, _) ->
+          ( ( parse_parameter_ty ctxt ~legacy arg_type
+            >>? fun (Ex_ty arg_type, _) ->
               Script_ir_translator.find_entrypoint
                 ~root_name
                 arg_type
@@ -1571,11 +1569,11 @@ module RPC = struct
           let ctxt = Gas.set_unlimited ctxt in
           let legacy = false in
           let open Script_ir_translator in
+          parse_toplevel ~legacy ctxt expr
+          >>=? fun ({arg_type; root_name; _}, ctxt) ->
           Lwt.return
-            ( parse_toplevel ~legacy ctxt expr
-            >>? fun ({arg_type; root_name; _}, ctxt) ->
-              parse_parameter_ty ctxt ~legacy arg_type
-              >>? fun (Ex_ty arg_type, _) ->
+            ( parse_parameter_ty ctxt ~legacy arg_type
+            >>? fun (Ex_ty arg_type, _) ->
               Script_ir_translator.list_entrypoints ~root_name arg_type ctxt
               >|? fun (unreachable_entrypoint, map) ->
               ( unreachable_entrypoint,

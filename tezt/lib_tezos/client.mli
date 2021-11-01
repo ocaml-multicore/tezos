@@ -30,13 +30,16 @@ type endpoint =
   | Node of Node.t  (** A full-fledged node *)
   | Proxy_server of Proxy_server.t  (** A proxy server *)
 
+(** Values that can be passed to the client's [--media-type] argument *)
+type media_type = Json | Binary | Any
+
 (** [rpc_port endpoint] returns the port on which to reach [endpoint]
     when doing RPC calls. *)
 val rpc_port : endpoint -> int
 
 (** Mode of the client *)
 type mode =
-  | Client of endpoint option
+  | Client of endpoint option * media_type option
   | Mockup
   | Light of float * endpoint list
   | Proxy of endpoint
@@ -85,6 +88,7 @@ val create :
   ?color:Log.Color.t ->
   ?base_dir:string ->
   ?endpoint:endpoint ->
+  ?media_type:media_type ->
   unit ->
   t
 
@@ -633,6 +637,7 @@ val init :
   ?color:Log.Color.t ->
   ?base_dir:string ->
   ?endpoint:endpoint ->
+  ?media_type:media_type ->
   unit ->
   t Lwt.t
 
@@ -644,6 +649,7 @@ val init :
       [default_accounts_balance]
     - Activate the given protocol with [additional_account_count]
       additional bootstrap accounts
+    - Wait for the protocol to be activated (i.e. chain level 1)
     - Bake (unless [~bake:false] is passed)
 
     In addition to the client, returns the first created node

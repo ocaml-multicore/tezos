@@ -1,6 +1,6 @@
 variables:
   ## This value MUST be the same as `opam_repository_tag` in `scripts/version.sh`
-  build_deps_image_version: fac36cdc1d0f64a6702907e777e396172dee1464
+  build_deps_image_version: 81526450d9a35941769e88517757c046ed0aef61
   build_deps_image_name: registry.gitlab.com/tezos/opam-repository
   public_docker_image_name: docker.io/${CI_PROJECT_PATH}-
   GIT_STRATEGY: fetch
@@ -25,6 +25,9 @@ variables:
 
 .image_template__runtime_build_dependencies_template:
   image: ${build_deps_image_name}:runtime-build-dependencies--${build_deps_image_version}
+
+.image_template__runtime_prebuild_dependencies_template:
+  image: ${build_deps_image_name}:runtime-prebuild-dependencies--${build_deps_image_version}
 
 .image_template__latest:
   image: docker:latest
@@ -99,15 +102,14 @@ variables:
       when: never
     - if: '$CI_COMMIT_BRANCH == $TEZOS_DEFAULT_BRANCH && $CI_PROJECT_NAMESPACE == $TEZOS_DEFAULT_NAMESPACE'
       when: never
-    - if: '$CI_COMMIT_BRANCH =~ /doc/ || $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME =~ /doc/'
+    - changes:
+        - docs/introduction/*.sh
       when: always
     # Run when there is label on the merge request.
     - if: '$CI_MERGE_REQUEST_LABELS =~ /(?:^|[,])ci--docs(?:$|[,])/'
       when: always
-    - changes:
-        - /docs
-      when: always
-    - when: never
+    - when: manual
+      allow_failure: true
 
 .rules_template__opam_child_pipeline_tests:
   rules:

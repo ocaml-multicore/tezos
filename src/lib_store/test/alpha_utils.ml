@@ -116,6 +116,7 @@ module Account = struct
   let commitment_secret =
     Blinded_public_key_hash.activation_code_of_hex
       "aaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbb"
+    |> WithExceptions.Option.get ~loc:__LOC__
 
   let new_commitment ?seed () =
     let (pkh, pk, sk) = Signature.generate_key ?seed ~algo:Ed25519 () in
@@ -529,6 +530,7 @@ let apply_and_store chain_store ?(synchronous_merge = true) ?policy
       Tezos_validation.Block_validation.validation_store =
         {
           context_hash;
+          timestamp = block_header.shell.timestamp;
           message = validation.Environment_context.message;
           max_operations_ttl = validation.max_operations_ttl;
           last_allowed_fork_level = validation.last_allowed_fork_level;
