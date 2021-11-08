@@ -2,11 +2,6 @@
 
 set -e
 
-create_opam_switch() {
-    [ -n "$1" ] || { echo "create_opam_switch expects a non-empty argument"; return 1; }
-    opam switch create "$1" --repositories=tezos ocaml-variants.4.12.0+domains
-}
-
 script_dir="$(cd "$(dirname "$0")" && echo "$(pwd -P)/")"
 src_dir="$(dirname "$script_dir")"
 
@@ -22,6 +17,11 @@ if [ "$1" = "--dev" ]; then
 else
     dev=
 fi
+
+create_opam_switch() {
+    [ -n "$1" ] || { echo "create_opam_switch expects a non-empty argument"; return 1; }
+    opam switch create "$1" --repositories=tezos ocaml-variants.$ocaml_version
+}
 
 # $OPAMSWITCH variable makes the following commands fail if the switch referred
 # to by it does not exist. Since we're going to create it later, for now let's
@@ -73,7 +73,7 @@ if [ "$(ocaml -vnum)" != "$ocaml_version" ]; then
     # while they will probably be updated (and at least reinstalled)
     # by the next steps of the script
     opam remove -a --yes
-    opam install --yes --unlock-base "ocaml-variants.4.12.0+domains"
+    opam install --yes --unlock-base "ocaml-variants.$ocaml_version"
 fi
 
 # Must be done before install_build_deps.raw.sh because install_build_deps.raw.sh installs

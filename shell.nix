@@ -23,4 +23,6 @@ pkgs.mkShell {
     opam
     bc
   ];
+
+  dontPatchShebangs = "1";
 }
