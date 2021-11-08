@@ -117,6 +117,21 @@ val apply :
   Operation.t list list ->
   apply_result tzresult Lwt.t
 
+(** [precheck chain_id ~predecessor_block_header
+   ~predecessor_block_hash ~predecessor_context ~cache header ops]
+   gets the protocol [P] of the context of the predecessor block and
+   calls successively: 1. [P.begin_partial_application] 2. [P.apply]
+   3. [P.finalize_block] *)
+val precheck :
+  chain_id:Chain_id.t ->
+  predecessor_block_header:Block_header.t ->
+  predecessor_block_hash:Block_hash.t ->
+  predecessor_context:Context.t ->
+  cache:Environment_context.Context.source_of_cache ->
+  Block_header.t ->
+  Operation.t list list ->
+  unit tzresult Lwt.t
+
 val preapply :
   chain_id:Chain_id.t ->
   cache:Environment_context.Context.source_of_cache ->
@@ -129,6 +144,7 @@ val preapply :
   predecessor_context:Context.t ->
   predecessor_shell_header:Block_header.shell_header ->
   predecessor_hash:Block_hash.t ->
+  predecessor_max_operations_ttl:int ->
   predecessor_block_metadata_hash:Block_metadata_hash.t option ->
   predecessor_ops_metadata_hash:Operation_metadata_list_list_hash.t option ->
   Operation.t list list ->

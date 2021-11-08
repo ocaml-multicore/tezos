@@ -117,14 +117,14 @@ let check_rpc ~group_name ~protocols ~test_mode_tag
         | `Client | `Light | `Proxy -> false
       in
       let* (node, client) =
-        Client.init_activate_bake
+        Client.init_with_protocol
           ?parameter_file
           ?nodes_args:node_parameters
-          ~bake
           ~protocol
           client_mode_tag
           ()
       in
+      let* () = if bake then Client.bake_for client else Lwt.return_unit in
       let* endpoint =
         match test_mode_tag with
         | `Client | `Light | `Proxy -> return Client.(Node node)
@@ -324,12 +324,17 @@ let test_contracts ?endpoint client =
   in
   unit
 
-let test_delegates_on_registered ~contracts ?endpoint client =
+let test_delegates_on_registered_alpha ~contracts ?endpoint client =
   Log.info "Test implicit baker contract" ;
 
   let bootstrap = List.hd contracts in
   let* _ = RPC.Delegates.get ?endpoint ~hooks ~pkh:bootstrap client in
-  let* _ = RPC.Delegates.get_balance ?endpoint ~hooks ~pkh:bootstrap client in
+  let* _ =
+    RPC.Delegates.get_full_balance ?endpoint ~hooks ~pkh:bootstrap client
+  in
+  let* _ =
+    RPC.Delegates.get_frozen_deposits ?endpoint ~hooks ~pkh:bootstrap client
+  in
   let* _ =
     RPC.Delegates.get_deactivated ?endpoint ~hooks ~pkh:bootstrap client
   in
@@ -339,6 +344,24 @@ let test_delegates_on_registered ~contracts ?endpoint client =
   let* _ =
     RPC.Delegates.get_delegated_contracts ?endpoint ~hooks ~pkh:bootstrap client
   in
+  let* _ =
+    RPC.Delegates.get_grace_period ?endpoint ~hooks ~pkh:bootstrap client
+  in
+  let* _ =
+    RPC.Delegates.get_staking_balance ?endpoint ~hooks ~pkh:bootstrap client
+  in
+  let* _ =
+    RPC.Delegates.get_voting_power ?endpoint ~hooks ~pkh:bootstrap client
+  in
+
+  unit
+
+let test_delegates_on_registered_granada ~contracts ?endpoint client =
+  Log.info "Test implicit baker contract" ;
+
+  let bootstrap = List.hd contracts in
+  let* _ = RPC.Delegates.get ?endpoint ~hooks ~pkh:bootstrap client in
+  let* _ = RPC.Delegates.get_balance ?endpoint ~hooks ~pkh:bootstrap client in
   let* _ =
     RPC.Delegates.get_frozen_balance ?endpoint ~hooks ~pkh:bootstrap client
   in
@@ -350,10 +373,19 @@ let test_delegates_on_registered ~contracts ?endpoint client =
       client
   in
   let* _ =
-    RPC.Delegates.get_grace_period ?endpoint ~hooks ~pkh:bootstrap client
+    RPC.Delegates.get_staking_balance ?endpoint ~hooks ~pkh:bootstrap client
   in
   let* _ =
-    RPC.Delegates.get_staking_balance ?endpoint ~hooks ~pkh:bootstrap client
+    RPC.Delegates.get_delegated_contracts ?endpoint ~hooks ~pkh:bootstrap client
+  in
+  let* _ =
+    RPC.Delegates.get_delegated_balance ?endpoint ~hooks ~pkh:bootstrap client
+  in
+  let* _ =
+    RPC.Delegates.get_deactivated ?endpoint ~hooks ~pkh:bootstrap client
+  in
+  let* _ =
+    RPC.Delegates.get_grace_period ?endpoint ~hooks ~pkh:bootstrap client
   in
   let* _ =
     RPC.Delegates.get_voting_power ?endpoint ~hooks ~pkh:bootstrap client
@@ -372,7 +404,15 @@ let test_delegates_on_unregistered_alpha ~contracts ?endpoint client =
     |> Process.check ~expect_failure:true
   in
   let* _ =
-    RPC.Delegates.spawn_get_balance
+    RPC.Delegates.spawn_get_full_balance
+      ?endpoint
+      ~hooks
+      ~pkh:unregistered_baker
+      client
+    |> Process.check ~expect_failure:true
+  in
+  let* _ =
+    RPC.Delegates.spawn_get_frozen_deposits
       ?endpoint
       ~hooks
       ~pkh:unregistered_baker
@@ -397,22 +437,6 @@ let test_delegates_on_unregistered_alpha ~contracts ?endpoint client =
   in
   let* _ =
     RPC.Delegates.spawn_get_delegated_contracts
-      ?endpoint
-      ~hooks
-      ~pkh:unregistered_baker
-      client
-    |> Process.check ~expect_failure:true
-  in
-  let* _ =
-    RPC.Delegates.spawn_get_frozen_balance
-      ?endpoint
-      ~hooks
-      ~pkh:unregistered_baker
-      client
-    |> Process.check ~expect_failure:true
-  in
-  let* _ =
-    RPC.Delegates.spawn_get_frozen_balance_by_cycle
       ?endpoint
       ~hooks
       ~pkh:unregistered_baker
@@ -533,13 +557,17 @@ let get_contracts ?endpoint client =
 (* Test the delegates RPC for the specified protocol. *)
 let test_delegates protocol ?endpoint client =
   let* contracts = get_contracts ?endpoint client in
-  let* () = test_delegates_on_registered ~contracts ?endpoint client in
-
   let* () =
     match protocol with
     | Protocol.Alpha ->
+        let* () =
+          test_delegates_on_registered_alpha ~contracts ?endpoint client
+        in
         test_delegates_on_unregistered_alpha ~contracts ?endpoint client
     | Protocol.Granada ->
+        let* () =
+          test_delegates_on_registered_granada ~contracts ?endpoint client
+        in
         test_delegates_on_unregistered_granada ~contracts ?endpoint client
     | Protocol.Hangzhou ->
         test_delegates_on_unregistered_alpha ~contracts ?endpoint client
@@ -600,6 +628,7 @@ let mempool_hooks =
         ("sig\\w{93}", "[SIGNATURE]");
         ("o\\w{50}", "[OPERATION_HASH]");
         ("B\\w{50}", "[BRANCH_HASH]");
+        ("vh\\w{50}", "[BLOCK_PAYLOAD_HASH]");
       ]
     in
     List.fold_left
@@ -652,8 +681,7 @@ let get_client_port client =
    - POST ban_operation
    - POST unban_operation
    - POST unban_all_operations *)
-let test_mempool ?endpoint client =
-  let open Lwt in
+let test_mempool protocol ?endpoint client =
   let* node = Node.init [Synchronisation_threshold 0; Connections 1] in
   let* () = Client.Admin.trust_address ?endpoint client ~peer:node in
   let* () = Client.Admin.connect_address ?endpoint client ~peer:node in
@@ -662,11 +690,14 @@ let test_mempool ?endpoint client =
   let* node1_identity = Node.wait_for_identity node in
   let* () = Client.Admin.kick_peer ~peer:node1_identity client in
   let* _ = Mempool.bake_empty_mempool client in
+  (* Outdated operation after the second empty baking. *)
+  let* () = Client.endorse_for ~protocol ~force:true client in
+  let* _ = Mempool.bake_empty_mempool client in
   let monitor_path =
     (* To test the monitor_operations rpc we use curl since the client does
        not support streaming RPCs yet. *)
     sf
-      "http://localhost:%d/chains/main/mempool/monitor_operations?applied=true&branch_delayed=true&refused=true&branch_refused=true"
+      "http://localhost:%d/chains/main/mempool/monitor_operations?applied=true&outdated=true&branch_delayed=true&refused=true&branch_refused=true"
       (get_client_port client)
   in
   let proc_monitor =
@@ -675,14 +706,14 @@ let test_mempool ?endpoint client =
     Process.spawn ~hooks:mempool_hooks "curl" ["-s"; monitor_path]
   in
   (* Refused operation after the reclassification following the flush. *)
-  let* branch = RPC.get_branch client >|= JSON.as_string in
+  let* branch = Lwt.Infix.(RPC.get_branch client >|= JSON.as_string) in
   let* _ =
     Mempool.forge_and_inject_operation
       ~branch
       ~fee:10
       ~gas_limit:1040
-      ~source:Constant.bootstrap1.identity
-      ~destination:Constant.bootstrap2.identity
+      ~source:Constant.bootstrap1.public_key_hash
+      ~destination:Constant.bootstrap2.public_key_hash
       ~counter:1
       ~signer:Constant.bootstrap1
       ~client
@@ -710,7 +741,7 @@ let test_mempool ?endpoint client =
       client
   in
   (* Branch_delayed operation after the empty baking. *)
-  let* _ = Client.endorse_for ?endpoint client in
+  let* _ = Client.endorse_for ?endpoint ~protocol ~force:true client in
   (* Reconnect and sync nodes to force branch_refused operation and delay of
      endorsement. *)
   let* () = Client.Admin.connect_address ?endpoint ~peer:node client in
@@ -876,44 +907,80 @@ let test_no_service_at_valid_prefix address () =
   in
   unit
 
-let register_protocol protocol test_mode_tag =
-  check_rpc
-    ~group_name:(Protocol.tag protocol)
-    ~protocols:[protocol]
-    ~test_mode_tag
-    ~rpcs:
-      ([
-         ("contracts", test_contracts, None, None);
-         ("delegates", test_delegates protocol, None, None);
-         ( "votes",
-           test_votes,
-           Some
-             (* reduced periods duration to get to testing vote period faster *)
-             [
-               (["blocks_per_cycle"], Some "4");
-               (["blocks_per_voting_period"], Some "4");
-             ],
-           None );
-         ("others", test_others, None, None);
-       ]
-      @
-      match test_mode_tag with
-      | `Client_with_proxy_server | `Light -> []
-      | _ ->
-          [
-            ( "mempool",
-              test_mempool,
-              None,
-              Some [Node.Synchronisation_threshold 0; Node.Connections 1] );
-          ])
-    ()
-
-let register ~protocols =
+let register () =
+  let alpha_consensus_threshold = [(["consensus_threshold"], Some "0")] in
+  let alpha_overrides = Some alpha_consensus_threshold in
+  let register_alpha test_mode_tag =
+    check_rpc
+      ~group_name:"alpha"
+      ~protocols:[Protocol.Alpha]
+      ~test_mode_tag
+      ~rpcs:
+        ([
+           ("contracts", test_contracts, alpha_overrides, None);
+           ("delegates", test_delegates Protocol.Alpha, alpha_overrides, None);
+           ( "votes",
+             test_votes,
+             Some
+               (* reduced periods duration to get to testing vote period faster *)
+               ([
+                  (["blocks_per_cycle"], Some "4");
+                  (["blocks_per_voting_period"], Some "4");
+                ]
+               @ alpha_consensus_threshold),
+             None );
+           ("others", test_others, alpha_overrides, None);
+         ]
+        @
+        match test_mode_tag with
+        | `Client_with_proxy_server | `Light -> []
+        | _ ->
+            [
+              ( "mempool",
+                test_mempool Protocol.Alpha,
+                None,
+                Some [Node.Synchronisation_threshold 0; Node.Connections 1] );
+            ])
+      ()
+  in
+  let register_current_mainnet test_mode_tag =
+    check_rpc
+      ~group_name:"granada"
+      ~protocols:[Granada]
+      ~test_mode_tag
+      ~rpcs:
+        ([
+           ("contracts", test_contracts, None, None);
+           ("delegates", test_delegates Granada, None, None);
+           ( "votes",
+             test_votes,
+             Some
+               (* reduced periods duration to get to testing vote period faster *)
+               [
+                 (["blocks_per_cycle"], Some "4");
+                 (["blocks_per_voting_period"], Some "4");
+               ],
+             None );
+           ("others", test_others, None, None);
+         ]
+        @
+        match test_mode_tag with
+        | `Client_with_proxy_server | `Light -> []
+        | _ ->
+            [
+              ( "mempool",
+                test_mempool Protocol.Granada,
+                None,
+                Some [Node.Synchronisation_threshold 0; Node.Connections 1] );
+            ])
+      ()
+  in
   let modes = [`Client; `Light; `Proxy; `Client_with_proxy_server] in
 
   List.iter
     (fun mode ->
-      List.iter (fun protocol -> register_protocol protocol mode) protocols)
+      register_alpha mode ;
+      register_current_mainnet mode)
     modes ;
 
   let addresses = ["localhost"; "127.0.0.1"] in

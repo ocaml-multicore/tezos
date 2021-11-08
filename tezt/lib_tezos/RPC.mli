@@ -130,6 +130,15 @@ val inject_block :
   Client.t ->
   JSON.t Lwt.t
 
+(** Run [tezos-client rpc /chains/<chain>/blocks/<block>/header/protocol/raw]. *)
+val raw_protocol_data :
+  ?endpoint:Client.endpoint ->
+  ?hooks:Process.hooks ->
+  ?chain:string ->
+  ?block:string ->
+  Client.t ->
+  string Lwt.t
+
 (** Call RPC /chain/[chain]/blocks/[block]/header/protocol_data *)
 val get_protocol_data :
   ?endpoint:Client.endpoint ->
@@ -165,6 +174,14 @@ val get_mempool_pending_operations :
   ?version:string ->
   Client.t ->
   JSON.t Lwt.t
+
+(** Call RPC /chains/[chain]/mempool/pending_operations *)
+val get_mempool :
+  ?endpoint:Client.endpoint ->
+  ?hooks:Process.hooks ->
+  ?chain:string ->
+  Client.t ->
+  Mempool.t Lwt.t
 
 (** Call RPC /chains/[chain]/mempool/request_operations *)
 val mempool_request_operations :
@@ -626,6 +643,46 @@ module Delegates : sig
 
   (** Same as [get_balance], but do not wait for the process to exit. *)
   val spawn_get_balance :
+    ?endpoint:Client.endpoint ->
+    ?hooks:Process.hooks ->
+    ?chain:string ->
+    ?block:string ->
+    pkh:string ->
+    Client.t ->
+    Process.t
+
+  (** Call RPC /chain/[chain]/blocks/[block]/context/delegates/[pkh]/full_balance *)
+  val get_full_balance :
+    ?endpoint:Client.endpoint ->
+    ?hooks:Process.hooks ->
+    ?chain:string ->
+    ?block:string ->
+    pkh:string ->
+    Client.t ->
+    JSON.t Lwt.t
+
+  (** Same as [get_full_balance], but do not wait for the process to exit. *)
+  val spawn_get_full_balance :
+    ?endpoint:Client.endpoint ->
+    ?hooks:Process.hooks ->
+    ?chain:string ->
+    ?block:string ->
+    pkh:string ->
+    Client.t ->
+    Process.t
+
+  (** Call RPC /chain/[chain]/blocks/[block]/context/delegates/[pkh]/frozen_deposits *)
+  val get_frozen_deposits :
+    ?endpoint:Client.endpoint ->
+    ?hooks:Process.hooks ->
+    ?chain:string ->
+    ?block:string ->
+    pkh:string ->
+    Client.t ->
+    JSON.t Lwt.t
+
+  (** Same as [get_frozen_deposits], but do not wait for the process to exit. *)
+  val spawn_get_frozen_deposits :
     ?endpoint:Client.endpoint ->
     ?hooks:Process.hooks ->
     ?chain:string ->

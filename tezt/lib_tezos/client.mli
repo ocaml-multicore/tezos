@@ -188,6 +188,10 @@ val shell_header :
 val spawn_shell_header :
   ?endpoint:endpoint -> ?chain:string -> ?block:string -> t -> Process.t
 
+(** Run [shell_header] and retrieves the level. *)
+val level :
+  ?endpoint:endpoint -> ?chain:string -> ?block:string -> t -> int Lwt.t
+
 (** {2 Admin Client Commands} *)
 
 module Admin : sig
@@ -225,11 +229,11 @@ val version : t -> unit Lwt.t
 val spawn_version : t -> Process.t
 
 (** Run [tezos-client import secret key]. *)
-val import_secret_key : ?endpoint:endpoint -> t -> Constant.key -> unit Lwt.t
+val import_secret_key : ?endpoint:endpoint -> t -> Account.key -> unit Lwt.t
 
 (** Same as [import_secret_key], but do not wait for the process to exit. *)
 val spawn_import_secret_key :
-  ?endpoint:endpoint -> t -> Constant.key -> Process.t
+  ?endpoint:endpoint -> t -> Account.key -> Process.t
 
 (** Run [tezos-client activate protocol].
 
@@ -260,6 +264,12 @@ val spawn_activate_protocol :
   t ->
   Process.t
 
+(** [empty_mempool_file ?filename ()] creates a file containing the
+   encoding of an empty mempool. This file can be given to [bake_for]
+   command with the [mempool] parameter to ensure that the block baked
+   will contain no operations. *)
+val empty_mempool_file : ?filename:string -> unit -> string Lwt.t
+
 (** Run [tezos-client bake for].
 
     Default [key] is {!Constant.bootstrap1.alias}. *)
@@ -269,6 +279,7 @@ val bake_for :
   ?key:string ->
   ?minimal_timestamp:bool ->
   ?mempool:string ->
+  ?monitor_node_mempool:bool ->
   ?force:bool ->
   ?context_path:string ->
   t ->
@@ -281,16 +292,99 @@ val spawn_bake_for :
   ?key:string ->
   ?minimal_timestamp:bool ->
   ?mempool:string ->
+  ?monitor_node_mempool:bool ->
   ?force:bool ->
   ?context_path:string ->
   t ->
   Process.t
 
+(** Run [tezos-client bake for].
+
+    Default [key] is {!Constant.bootstrap1.alias}. *)
+val tenderbake_for :
+  ?endpoint:endpoint ->
+  ?protocol:Protocol.t ->
+  ?keys:string list ->
+  ?minimal_timestamp:bool ->
+  ?mempool:string ->
+  ?monitor_node_mempool:bool ->
+  ?force:bool ->
+  ?context_path:string ->
+  t ->
+  unit Lwt.t
+
+(** Run [tezos-client endorse for].
+
+    Default [key] is {!Constant.bootstrap1.alias}. *)
+val endorse_for :
+  ?endpoint:endpoint ->
+  ?protocol:Protocol.t ->
+  ?key:string list ->
+  ?force:bool ->
+  t ->
+  unit Lwt.t
+
+(** Same as [endorse_for], but do not wait for the process to exit. *)
+val spawn_endorse_for :
+  ?endpoint:endpoint ->
+  ?protocol:Protocol.t ->
+  ?key:string list ->
+  ?force:bool ->
+  t ->
+  Process.t
+
+(** Run [tezos-client preendorse for].
+
+    Default [key] is {!Constant.bootstrap1.alias}. *)
+val preendorse_for :
+  ?endpoint:endpoint ->
+  ?protocol:Protocol.t ->
+  ?key:string list ->
+  ?force:bool ->
+  t ->
+  unit Lwt.t
+
+(** Same as [preendorse_for], but do not wait for the process to exit. *)
+val spawn_preendorse_for :
+  ?endpoint:endpoint ->
+  ?protocol:Protocol.t ->
+  ?key:string list ->
+  ?force:bool ->
+  t ->
+  Process.t
+
+(** Run [tezos-client propose for].
+
+    Default [key] is {!Constant.bootstrap1.alias}. *)
+val spawn_propose_for :
+  ?endpoint:endpoint ->
+  ?minimal_timestamp:bool ->
+  ?protocol:Protocol.t ->
+  ?key:string list ->
+  ?force:bool ->
+  t ->
+  Process.t
+
+(* TODO refactor this *)
+
+(** [propose_for] *)
+val propose_for :
+  ?endpoint:endpoint ->
+  ?minimal_timestamp:bool ->
+  ?protocol:Protocol.t ->
+  ?key:string list ->
+  ?force:bool ->
+  t ->
+  unit Lwt.t
+
 (** Run [tezos-client show address]. *)
-val show_address : ?show_secret:bool -> alias:string -> t -> Account.key Lwt.t
+val show_address : alias:string -> t -> Account.key Lwt.t
 
 (** Same as [show_address], but do not wait for the process to exit. *)
-val spawn_show_address : ?show_secret:bool -> alias:string -> t -> Process.t
+val spawn_show_address : alias:string -> t -> Process.t
+
+(** Run [tezos-client gen keys]. *)
+val gen_keys : alias:string -> t -> unit Lwt.t
 
 (** A helper to run [tezos-client gen keys] followed by
     [tezos-client show address] to get the generated key. *)
@@ -298,15 +392,7 @@ val gen_and_show_keys : alias:string -> t -> Account.key Lwt.t
 
 (** Same as [gen_and_show_keys] but returns a [Constant.key] instead of an
     [Account.key]. *)
-val gen_and_show_secret_keys : alias:string -> t -> Constant.key Lwt.t
-
-(** Run [tezos-client endorse for].
-
-    Default [key] is {!Constant.bootstrap2.alias}. *)
-val endorse_for : ?endpoint:endpoint -> ?key:string -> t -> unit Lwt.t
-
-(** Same as [endorse_for], but do not wait for the process to exit. *)
-val spawn_endorse_for : ?endpoint:endpoint -> ?key:string -> t -> Process.t
+val gen_and_show_secret_keys : alias:string -> t -> Account.key Lwt.t
 
 (** Run [tezos-client transfer amount from giver to receiver]. *)
 val transfer :
@@ -406,7 +492,7 @@ val spawn_get_balance_for :
 (** Run [tezos-client create mockup]. *)
 val create_mockup :
   ?sync_mode:mockup_sync_mode ->
-  ?constants:Protocol.constants ->
+  ?parameter_file:string ->
   protocol:Protocol.t ->
   t ->
   unit Lwt.t
@@ -414,7 +500,7 @@ val create_mockup :
 (** Same as [create_mockup], but do not wait for the process to exit. *)
 val spawn_create_mockup :
   ?sync_mode:mockup_sync_mode ->
-  ?constants:Protocol.constants ->
+  ?parameter_file:string ->
   protocol:Protocol.t ->
   t ->
   Process.t
@@ -626,6 +712,12 @@ val migrate_mockup : next_protocol:Protocol.t -> t -> unit Lwt.t
 (** Same as [migrate_mockup], but do not wait for the process to exit. *)
 val spawn_migrate_mockup : next_protocol:Protocol.t -> t -> Process.t
 
+(** Run [tezos-client sign block <hexdata> for <delegate>]. *)
+val sign_block : t -> string -> delegate:string -> string Lwt.t
+
+(** Same as [sign_block], but do not wait for the process to exit. *)
+val spawn_sign_block : t -> string -> delegate:string -> Process.t
+
 (** {2 High-Level Functions} *)
 
 (** Create a client with mode [Client] and import all secret keys
@@ -649,23 +741,21 @@ val init :
       [default_accounts_balance]
     - Activate the given protocol with [additional_account_count]
       additional bootstrap accounts
-    - Wait for the protocol to be activated (i.e. chain level 1)
-    - Bake (unless [~bake:false] is passed)
 
     In addition to the client, returns the first created node
     (if [`Light] is passed, a second node has been created, but it is
     not exposed). *)
-val init_activate_bake :
+val init_with_protocol :
   ?path:string ->
   ?admin_path:string ->
   ?name:string ->
   ?color:Log.Color.t ->
   ?base_dir:string ->
+  ?event_level:string ->
   ?nodes_args:Node.argument list ->
   ?additional_bootstrap_account_count:int ->
   ?default_accounts_balance:int ->
   ?parameter_file:string ->
-  ?bake:bool ->
   [`Client | `Light | `Proxy] ->
   protocol:Protocol.t ->
   unit ->
@@ -684,6 +774,7 @@ val init_mockup :
   ?color:Log.Color.t ->
   ?base_dir:string ->
   ?sync_mode:mockup_sync_mode ->
+  ?parameter_file:string ->
   ?constants:Protocol.constants ->
   protocol:Protocol.t ->
   unit ->
@@ -702,6 +793,7 @@ val init_light :
   ?color:Log.Color.t ->
   ?base_dir:string ->
   ?min_agreement:float ->
+  ?event_level:string ->
   ?nodes_args:Node.argument list ->
   unit ->
   (t * Node.t * Node.t) Lwt.t

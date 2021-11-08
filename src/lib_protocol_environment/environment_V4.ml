@@ -1002,12 +1002,16 @@ struct
 
   module Micheline = struct
     include Micheline
+    include Micheline_encoding
 
-    let canonical_encoding_v1 ~variant encoding =
-      canonical_encoding_v1 ~variant:(Param.name ^ "." ^ variant) encoding
-
+    (* The environment exposes a single canonical encoding for Micheline
+       expression. For env-V4, it is encoding-v2 because this is the most
+       recent, most correct-at-time-of-writing encoding. For backwards
+       compatibility reason, you should never upgrade (nor downgrade) this.
+       Future fixes and improvements of the encoding should be made available in
+       future environments only. *)
     let canonical_encoding ~variant encoding =
-      canonical_encoding_v0 ~variant:(Param.name ^ "." ^ variant) encoding
+      canonical_encoding_v2 ~variant:(Param.name ^ "." ^ variant) encoding
   end
 
   module Updater = struct
@@ -1079,26 +1083,6 @@ struct
 
     include P
 
-    let begin_partial_application ~chain_id ~ancestor_context
-        ~predecessor_timestamp ~predecessor_fitness raw_block =
-      (*
-
-        [begin_partial_application] is called in the multipass
-        validation process with a context that can be older than
-        the one of the predecessor block. For this reason, values
-        in the in-memory caches can be outdated. Hence, the caches
-        must be cleared.
-
-      *)
-      let ancestor_context = Context.Cache.clear ancestor_context in
-      begin_partial_application
-        ~chain_id
-        ~ancestor_context
-        ~predecessor_timestamp
-        ~predecessor_fitness
-        raw_block
-      >|= wrap_tzresult
-
     let value_of_key ~chain_id ~predecessor_context ~predecessor_timestamp
         ~predecessor_level ~predecessor_fitness ~predecessor ~timestamp =
       value_of_key
@@ -1129,6 +1113,27 @@ struct
         ~timestamp
       >>=? fun value_of_key ->
       Context.load_cache predecessor_context cache value_of_key
+
+    let begin_partial_application ~chain_id ~ancestor_context
+        ~(predecessor : Block_header.t) ~predecessor_hash ~cache
+        (raw_block : block_header) =
+      load_predecessor_cache
+        ~chain_id
+        ~predecessor_context:ancestor_context
+        ~predecessor_timestamp:predecessor.shell.timestamp
+        ~predecessor_level:predecessor.shell.level
+        ~predecessor_fitness:predecessor.shell.fitness
+        ~predecessor:predecessor_hash
+        ~timestamp:raw_block.shell.timestamp
+        ~cache
+      >>=? fun ancestor_context ->
+      begin_partial_application
+        ~chain_id
+        ~ancestor_context
+        ~predecessor_timestamp:predecessor.shell.timestamp
+        ~predecessor_fitness:predecessor.shell.fitness
+        raw_block
+      >|= wrap_tzresult
 
     let begin_application ~chain_id ~predecessor_context ~predecessor_timestamp
         ~predecessor_fitness ~cache (raw_block : block_header) =

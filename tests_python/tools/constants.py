@@ -4,13 +4,14 @@ import os.path
 from tools import paths
 
 
-def get_parameters(folder: str) -> dict:
-    """Takes a protocol folder ('proto_alpha', 'proto_005_PsBabyM1'...) and
+def get_parameters(folder: str, network='test') -> dict:
+    """Takes a protocol suffix ('alpha', '005_PsBabyM1'...) and
     retrieve json test parameters for that protocol. Assertion failure
     if parameters can't be found."""
 
     params_file = (
-        f'{paths.TEZOS_HOME}src/{folder}/parameters/' 'test-parameters.json'
+        f'{paths.TEZOS_HOME}/src/{folder}/parameters/'
+        f'{network}-parameters.json'
     )
     assert os.path.isfile(params_file), (
         f'{params_file}'
@@ -96,9 +97,9 @@ GRANADA_DAEMON = "010-PtGRANAD"
 GRANADA_FOLDER = "proto_010_PtGRANAD"
 GRANADA_PARAMETERS = get_parameters(GRANADA_FOLDER)
 
-HANGZHOU = "PtHangzHogokSuiMHemCuowEavgYTP8J5qQ9fQS793MHYFpCY3r"
-HANGZHOU_DAEMON = "011-PtHangzH"
-HANGZHOU_FOLDER = "proto_011_PtHangzH"
+HANGZHOU = "PtHangz2aRngywmSRGGvrcTyMbbdpWdpFKuS4uMWxg2RaH9i1qx"
+HANGZHOU_DAEMON = "011-PtHangz2"
+HANGZHOU_FOLDER = "proto_011_PtHangz2"
 HANGZHOU_PARAMETERS = get_parameters(HANGZHOU_FOLDER)
 
 TEZOS_CRT = """
@@ -256,3 +257,13 @@ A high-number of connections helps triggering the maintenance process
  some spurious deadlocks (e.g. a node not broadcasting its head).
 """
 NODE_PARAMS = ['--connections', '100', '--synchronisation-threshold', '0']
+
+TENDERBAKE_BAKER_LOG_LEVELS = {"alpha.baker.*": "debug"}
+
+TENDERBAKE_NODE_LOG_LEVELS = {
+    "node.chain_validator": "debug",
+    "node.validator.block": "debug",
+    "node_prevalidator": "debug",
+    "validator.block": "debug",
+    "validator.chain": "debug",
+}

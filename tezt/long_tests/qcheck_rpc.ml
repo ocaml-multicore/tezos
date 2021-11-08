@@ -323,7 +323,7 @@ module Gen = struct
     let open Tezos_alpha_test_helpers.Test_global_constants in
     let open Tezos_protocol_alpha.Protocol.Michelson_v1_primitives in
     let open Tezos_micheline in
-    let open Micheline in
+    let open Micheline_encoding in
     let open QCheck.Gen in
     let l_gen = return (-1) in
     let annot_gen = return [] in
@@ -451,7 +451,7 @@ module Test = struct
     (* Log description of RPC *)
     let () = Log.info "%s\n\n" rpc_description.description in
     (* Start node and client *)
-    let* (node, client) = Client.init_activate_bake `Client ~protocol () in
+    let* (node, client) = Client.init_with_protocol `Client ~protocol () in
     (* Generate and test instances *)
     let* () =
       rpc_description |> Gen.instance_gen

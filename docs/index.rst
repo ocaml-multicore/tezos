@@ -199,6 +199,7 @@ in the :ref:`introduction <howtoget>`.
    developer/gadt
    developer/error_monad
    developer/michelson_anti_patterns
+   developer/michelson_instructions
    developer/entering_alpha
    developer/howto-freeze-protocols
    developer/protocol_environment
@@ -210,6 +211,7 @@ in the :ref:`introduction <howtoget>`.
    developer/contributing
    developer/merge_team
    developer/guidelines
+   developer/time_measurement_ppx
    README
 
 .. toctree::
