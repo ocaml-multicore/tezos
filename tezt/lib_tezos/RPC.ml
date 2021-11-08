@@ -63,6 +63,13 @@ let get_checkpoint ?endpoint ?hooks ?(chain = "main") client =
   let path = ["chains"; chain; "checkpoint"] in
   Client.rpc ?endpoint ?hooks GET path client
 
+let raw_protocol_data ?endpoint ?hooks ?(chain = "main") ?(block = "head")
+    client =
+  let path =
+    ["chains"; chain; "blocks"; block; "header"; "protocol_data"; "raw"]
+  in
+  Lwt.(Client.rpc ?endpoint ?hooks GET path client >|= JSON.as_string)
+
 let get_protocol_data ?endpoint ?hooks ?(chain = "main") ?(block = "head")
     ?(offset = 0) client =
   let path = ["chains"; chain; "blocks"; block; "header"; "protocol_data"] in
@@ -87,6 +94,24 @@ let get_mempool_pending_operations ?endpoint ?hooks ?(chain = "main") ?version
     GET
     path
     client
+
+let get_mempool ?endpoint ?hooks ?chain client =
+  let* pending_ops =
+    get_mempool_pending_operations ?endpoint ?hooks ?chain ~version:"1" client
+  in
+  let get_hash op = JSON.(op |-> "hash" |> as_string) in
+  let get_hashes classification =
+    List.map get_hash JSON.(pending_ops |-> classification |> as_list)
+  in
+  let applied = get_hashes "applied" in
+  let branch_delayed = get_hashes "branch_delayed" in
+  let branch_refused = get_hashes "branch_refused" in
+  let refused = get_hashes "refused" in
+  let outdated = get_hashes "outdated" in
+  let unprocessed = get_hashes "unprocessed" in
+  return
+    Mempool.
+      {applied; branch_delayed; branch_refused; refused; outdated; unprocessed}
 
 let mempool_request_operations ?endpoint ?(chain = "main") ?peer client =
   let path = ["chains"; chain; "mempool"; "request_operations"] in
@@ -437,6 +462,22 @@ module Delegates = struct
   let get_balance ?endpoint ?hooks ?(chain = "main") ?(block = "head") ~pkh
       client =
     get_sub ?endpoint ?hooks ~chain ~block ~pkh "balance" client
+
+  let spawn_get_full_balance ?endpoint ?hooks ?(chain = "main")
+      ?(block = "head") ~pkh client =
+    spawn_get_sub ?endpoint ?hooks ~chain ~block ~pkh "full_balance" client
+
+  let get_full_balance ?endpoint ?hooks ?(chain = "main") ?(block = "head") ~pkh
+      client =
+    get_sub ?endpoint ?hooks ~chain ~block ~pkh "full_balance" client
+
+  let spawn_get_frozen_deposits ?endpoint ?hooks ?(chain = "main")
+      ?(block = "head") ~pkh client =
+    spawn_get_sub ?endpoint ?hooks ~chain ~block ~pkh "frozen_deposits" client
+
+  let get_frozen_deposits ?endpoint ?hooks ?(chain = "main") ?(block = "head")
+      ~pkh client =
+    get_sub ?endpoint ?hooks ~chain ~block ~pkh "frozen_deposits" client
 
   let spawn_get_deactivated ?endpoint ?hooks ?(chain = "main") ?(block = "head")
       ~pkh client =

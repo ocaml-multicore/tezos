@@ -100,7 +100,6 @@ type tc_context =
       storage_type : 'sto ty;
       param_type : 'param ty;
       root_name : field_annot option;
-      legacy_create_contract_literal : bool;
     }
       -> tc_context
 
@@ -778,48 +777,52 @@ let record_inconsistent_types loc ta tb =
       ok @@ Inconsistent_types (Some loc, ta, tb))
 
 module type GAS_MONAD = sig
-  type 'a t
+  type ('a, 'trace) t
 
-  type 'a gas_monad = 'a t
+  type ('a, 'trace) gas_monad = ('a, 'trace) t
 
-  val return : 'a -> 'a t
+  val return : 'a -> ('a, 'trace) t
 
-  val ( >>$ ) : 'a t -> ('a -> 'b t) -> 'b t
+  val ( >>$ ) : ('a, 'trace) t -> ('a -> ('b, 'trace) t) -> ('b, 'trace) t
 
-  val ( >|$ ) : 'a t -> ('a -> 'b) -> 'b t
+  val ( >|$ ) : ('a, 'trace) t -> ('a -> 'b) -> ('b, 'trace) t
 
-  val ( >?$ ) : 'a t -> ('a -> 'b tzresult) -> 'b t
+  val ( >?$ ) : ('a, 'trace) t -> ('a -> ('b, 'trace) result) -> ('b, 'trace) t
 
-  val ( >??$ ) : 'a t -> ('a tzresult -> 'b t) -> 'b t
+  val ( >??$ ) :
+    ('a, 'trace) t ->
+    (('a, 'trace) result -> ('b, 'trace2) t) ->
+    ('b, 'trace2) t
 
-  val from_tzresult : 'a tzresult -> 'a t
+  val of_result : ('a, 'trace) result -> ('a, 'trace) t
 
-  val gas_consume : Gas.cost -> unit t
+  val gas_consume : Gas.cost -> (unit, 'trace) t
 
-  val run : context -> 'a t -> ('a tzresult * context) tzresult
+  val run :
+    context -> ('a, 'trace) t -> (('a, 'trace) result * context) tzresult
 
-  val record_trace_eval : (unit -> error tzresult) -> 'a t -> 'a t
+  val record_trace_eval :
+    (unit -> 'err) -> ('a, 'err trace) t -> ('a, 'err trace) t
 end
 
 module Gas_monad : GAS_MONAD = struct
   (* The outer tzresult is for gas exhaustion only. The inner one is for all
      other (non-gas) errors. *)
-  type 'a t = context -> ('a tzresult * context) tzresult
+  type ('a, 'trace) t = context -> (('a, 'trace) result * context) tzresult
 
-  type 'a gas_monad = 'a t
+  type ('a, 'trace) gas_monad = ('a, 'trace) t
 
-  let from_tzresult x ctxt = ok (x, ctxt)
+  let of_result x ctxt = ok (x, ctxt)
 
-  let return x = from_tzresult (ok x)
+  let return x = of_result (ok x)
 
   let ( >>$ ) m f ctxt =
     m ctxt >>? fun (x, ctxt) ->
-    match x with Ok y -> f y ctxt | Error _ as err -> from_tzresult err ctxt
+    match x with Ok y -> f y ctxt | Error _ as err -> of_result err ctxt
 
-  let ( >|$ ) m f ctxt =
-    m ctxt >>? fun (x, ctxt) -> from_tzresult (x >|? f) ctxt
+  let ( >|$ ) m f ctxt = m ctxt >>? fun (x, ctxt) -> of_result (x >|? f) ctxt
 
-  let ( >?$ ) m f = m >>$ fun x -> from_tzresult (f x)
+  let ( >?$ ) m f = m >>$ fun x -> of_result (f x)
 
   let ( >??$ ) m f ctxt = m ctxt >>? fun (x, ctxt) -> f x ctxt
 
@@ -827,7 +830,9 @@ module Gas_monad : GAS_MONAD = struct
 
   let run ctxt x = x ctxt
 
-  let record_trace_eval f x ctxt = record_trace_eval f (x ctxt)
+  let record_trace_eval f m ctxt =
+    m ctxt >>? fun (x, ctxt) ->
+    of_result (x |> record_trace_eval @@ fun () -> ok @@ f ()) ctxt
 end
 
 let merge_type_metadata :
@@ -856,18 +861,22 @@ let rec merge_comparable_types :
     legacy:bool ->
     ta comparable_ty ->
     tb comparable_ty ->
-    ((ta comparable_ty, tb comparable_ty) eq * ta comparable_ty) Gas_monad.t =
+    ( (ta comparable_ty, tb comparable_ty) eq * ta comparable_ty,
+      error trace )
+    Gas_monad.t =
   let open Gas_monad in
   fun ~legacy ta tb ->
     gas_consume Typecheck_costs.merge_cycle >>$ fun () ->
     let merge_type_metadata ~legacy meta_a meta_b =
-      from_tzresult @@ merge_type_metadata ~legacy meta_a meta_b
+      of_result @@ merge_type_metadata ~legacy meta_a meta_b
     in
     let merge_field_annot ~legacy annot_a annot_b =
-      from_tzresult @@ merge_field_annot ~legacy annot_a annot_b
+      of_result @@ merge_field_annot ~legacy annot_a annot_b
     in
     let return f eq annot_a annot_b :
-        ((ta comparable_ty, tb comparable_ty) eq * ta comparable_ty) gas_monad =
+        ( (ta comparable_ty, tb comparable_ty) eq * ta comparable_ty,
+          error trace )
+        gas_monad =
       merge_type_metadata ~legacy annot_a annot_b >>$ fun annot ->
       return (eq, f annot)
     in
@@ -931,7 +940,7 @@ let rec merge_comparable_types :
     | (_, _) ->
         let ta = serialize_ty_for_error (ty_of_comparable_ty ta) in
         let tb = serialize_ty_for_error (ty_of_comparable_ty tb) in
-        from_tzresult @@ error (Inconsistent_types (None, ta, tb))
+        of_result @@ error (Inconsistent_types (None, ta, tb))
 
 (* This function does not distinguish gas errors from merge errors. If you need
    to recover from a type mismatch and consume the exact gas for the failed
@@ -972,7 +981,7 @@ let record_inconsistent_carbonated ta tb =
   Gas_monad.record_trace_eval (fun () ->
       let ta = serialize_ty_for_error ta in
       let tb = serialize_ty_for_error tb in
-      ok @@ Inconsistent_types (None, ta, tb))
+      Inconsistent_types (None, ta, tb))
 
 (* Same as merge_comparable_types but for any types *)
 let merge_types :
@@ -982,26 +991,29 @@ let merge_types :
     Script.location ->
     a ty ->
     b ty ->
-    ((a ty, b ty) eq * a ty) Gas_monad.t =
+    ((a ty, b ty) eq * a ty, error trace) Gas_monad.t =
   let open Gas_monad in
   fun ~legacy ~merge_type_error_flag loc ty1 ty2 ->
     let merge_type_metadata tn1 tn2 =
-      from_tzresult
+      of_result
         (merge_type_metadata ~legacy tn1 tn2
         |> record_inconsistent_types loc ty1 ty2)
     in
     let merge_field_annot ~legacy tn1 tn2 =
-      from_tzresult (merge_field_annot ~legacy tn1 tn2)
+      of_result (merge_field_annot ~legacy tn1 tn2)
     in
-    let merge_memo_sizes ms1 ms2 = from_tzresult (merge_memo_sizes ms1 ms2) in
+    let merge_memo_sizes ms1 ms2 = of_result (merge_memo_sizes ms1 ms2) in
     let rec help :
-        type ta tb. ta ty -> tb ty -> ((ta ty, tb ty) eq * ta ty) gas_monad =
+        type ta tb.
+        ta ty -> tb ty -> ((ta ty, tb ty) eq * ta ty, error trace) gas_monad =
      fun ty1 ty2 -> help0 ty1 ty2 |> record_inconsistent_carbonated ty1 ty2
     and help0 :
-        type ta tb. ta ty -> tb ty -> ((ta ty, tb ty) eq * ta ty) gas_monad =
+        type ta tb.
+        ta ty -> tb ty -> ((ta ty, tb ty) eq * ta ty, error trace) gas_monad =
      fun ty1 ty2 ->
       gas_consume Typecheck_costs.merge_cycle >>$ fun () ->
-      let return f eq annot_a annot_b : ((ta ty, tb ty) eq * ta ty) gas_monad =
+      let return f eq annot_a annot_b :
+          ((ta ty, tb ty) eq * ta ty, error trace) gas_monad =
         merge_type_metadata annot_a annot_b >>$ fun annot -> return (eq, f annot)
       in
       match (ty1, ty2) with
@@ -1107,8 +1119,7 @@ let merge_types :
       | (Chest_key_t tn1, Chest_key_t tn2) ->
           return (fun tname -> Chest_key_t tname) Eq tn1 tn2
       | (_, _) ->
-          from_tzresult @@ error
-          @@ merge_type_error ~merge_type_error_flag ty1 ty2
+          of_result @@ error @@ merge_type_error ~merge_type_error_flag ty1 ty2
     in
     help ty1 ty2
   [@@coq_axiom_with_reason "non-top-level mutual recursion"]
@@ -2004,10 +2015,10 @@ let find_entrypoint (type full) (full : full ty) ~root_name entrypoint =
 
 let find_entrypoint_for_type (type full exp) ~legacy ~merge_type_error_flag
     ~(full : full ty) ~(expected : exp ty) ~root_name entrypoint loc :
-    (string * exp ty) Gas_monad.t =
+    (string * exp ty, error trace) Gas_monad.t =
   let open Gas_monad in
   match find_entrypoint full ~root_name entrypoint with
-  | Error _ as err -> from_tzresult err
+  | Error _ as err -> of_result err
   | Ok (_, Ex_ty ty) -> (
       merge_types ~legacy ~merge_type_error_flag loc ty expected
       >??$ fun eq_ty ->
@@ -2018,8 +2029,7 @@ let find_entrypoint_for_type (type full exp) ~legacy ~merge_type_error_flag
           | Error _ ->
               merge_types ~legacy ~merge_type_error_flag loc full expected
               >?$ fun (Eq, full) -> ok ("root", (full : exp ty)))
-      | _ ->
-          from_tzresult (eq_ty >|? fun (Eq, ty) -> (entrypoint, (ty : exp ty))))
+      | _ -> of_result (eq_ty >|? fun (Eq, ty) -> (entrypoint, (ty : exp ty))))
 
 module Entrypoints = Set.Make (String)
 
@@ -3046,8 +3056,7 @@ and[@coq_axiom_with_reason "gadt"] parse_instr :
   in
   let log_stack ctxt loc stack_ty aft =
     match (type_logger, script_instr) with
-    | (None, _) | (Some _, (Seq (-1, _) | Int _ | String _ | Bytes _)) ->
-        Result.return_unit
+    | (None, _) | (Some _, (Int _ | String _ | Bytes _)) -> Result.return_unit
     | (Some log, (Prim _ | Seq _)) ->
         (* Unparsing for logging done in an unlimited context as this
               is used only by the client and not the protocol *)
@@ -4867,13 +4876,7 @@ and[@coq_axiom_with_reason "gadt"] parse_instr :
       trace
         (Ill_typed_contract (canonical_code, []))
         (parse_returning
-           (Toplevel
-              {
-                storage_type;
-                param_type = arg_type;
-                root_name;
-                legacy_create_contract_literal = false;
-              })
+           (Toplevel {storage_type; param_type = arg_type; root_name})
            ctxt
            ~legacy
            ?type_logger
@@ -4973,13 +4976,7 @@ and[@coq_axiom_with_reason "gadt"] parse_instr :
               tc_context -> ((a, s) judgement * context) tzresult = function
             | Lambda -> error (Self_in_lambda loc)
             | Dip (_, prev) -> get_toplevel_type prev
-            | Toplevel
-                {
-                  param_type;
-                  root_name;
-                  legacy_create_contract_literal = false;
-                  _;
-                } ->
+            | Toplevel {param_type; root_name; storage_type = _} ->
                 find_entrypoint param_type ~root_name entrypoint
                 >>? fun (_, Ex_ty param_type) ->
                 contract_t loc param_type ~annot:None >>? fun res_ty ->
@@ -4987,22 +4984,6 @@ and[@coq_axiom_with_reason "gadt"] parse_instr :
                   {
                     apply =
                       (fun kinfo k -> ISelf (kinfo, param_type, entrypoint, k));
-                  }
-                in
-                let stack = Item_t (res_ty, stack, annot) in
-                typed_no_lwt ctxt loc instr stack
-            | Toplevel
-                {
-                  param_type;
-                  root_name = _;
-                  legacy_create_contract_literal = true;
-                  _;
-                } ->
-                contract_t loc param_type ~annot:None >>? fun res_ty ->
-                let instr =
-                  {
-                    apply =
-                      (fun kinfo k -> ISelf (kinfo, param_type, "default", k));
                   }
                 in
                 let stack = Item_t (res_ty, stack, annot) in
@@ -5204,7 +5185,10 @@ and[@coq_axiom_with_reason "gadt"] parse_instr :
           in
           let stack = Item_t (res_ty, rest, annot) in
           typed ctxt loc instr stack
-      | _ -> (* TODO: fix injectivity of types *) assert false)
+      | _ ->
+          (* TODO: https://gitlab.com/tezos/tezos/-/issues/1962
+             fix injectivity of types *)
+          assert false)
   (* Timelocks *)
   | ( Prim (loc, I_OPEN_CHEST, [], _),
       Item_t (Chest_key_t _, Item_t (Chest_t _, Item_t (Nat_t _, rest, _), _), _)
@@ -5713,13 +5697,7 @@ let parse_code :
   trace
     (Ill_typed_contract (code, []))
     (parse_returning
-       (Toplevel
-          {
-            storage_type;
-            param_type = arg_type;
-            root_name;
-            legacy_create_contract_literal = false;
-          })
+       (Toplevel {storage_type; param_type = arg_type; root_name})
        ctxt
        ~legacy
        ~stack_depth:0
@@ -5840,13 +5818,7 @@ let typecheck_code :
   >>?= fun ret_type_full ->
   let result =
     parse_returning
-      (Toplevel
-         {
-           storage_type;
-           param_type = arg_type;
-           root_name;
-           legacy_create_contract_literal = false;
-         })
+      (Toplevel {storage_type; param_type = arg_type; root_name})
       ctxt
       ~legacy
       ~stack_depth:0
@@ -6556,8 +6528,10 @@ let[@coq_axiom_with_reason "gadt"] extract_lazy_storage_updates ctxt mode
           ids_to_copy,
           acc )
     | (_, Option_t (_, _), None) -> return (ctxt, None, ids_to_copy, acc)
-    | _ -> assert false
-   (* TODO: fix injectivity of types *)
+    | _ ->
+        (* TODO: https://gitlab.com/tezos/tezos/-/issues/1962
+           fix injectivity of types *)
+        assert false
   in
   let has_lazy_storage = has_lazy_storage ty in
   aux ctxt mode ~temporary ids_to_copy acc ty x ~has_lazy_storage
@@ -6633,7 +6607,10 @@ let[@coq_axiom_with_reason "gadt"] rec fold_lazy_storage :
           | Fold_lazy_storage.Error -> ok (init, ctxt))
         m
         (ok (Fold_lazy_storage.Ok init, ctxt))
-  | _ -> (* TODO: fix injectivity of types *) assert false
+  | _ ->
+      (* TODO: https://gitlab.com/tezos/tezos/-/issues/1962
+         fix injectivity of types *)
+      assert false
 
 let[@coq_axiom_with_reason "gadt"] collect_lazy_storage ctxt ty x =
   let has_lazy_storage = has_lazy_storage ty in

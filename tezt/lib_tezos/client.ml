@@ -235,6 +235,11 @@ let shell_header ?endpoint ?chain ?block client =
   spawn_shell_header ?endpoint ?chain ?block client
   |> Process.check_and_read_stdout
 
+let level ?endpoint ?chain ?block client =
+  let* shell = shell_header ?endpoint ?chain ?block client in
+  let json = JSON.parse ~origin:"level" shell in
+  JSON.get "level" json |> JSON.as_int |> return
+
 module Admin = struct
   let spawn_command = spawn_command ~admin:true
 
@@ -281,11 +286,11 @@ let spawn_version client = spawn_command client ["--version"]
 
 let version client = spawn_version client |> Process.check
 
-let spawn_import_secret_key ?endpoint client (key : Constant.key) =
+let spawn_import_secret_key ?endpoint client (key : Account.key) =
   spawn_command
     ?endpoint
     client
-    ["import"; "secret"; "key"; key.alias; key.secret]
+    ["import"; "secret"; "key"; key.alias; key.secret_key]
 
 let import_secret_key ?endpoint client key =
   spawn_import_secret_key ?endpoint client key |> Process.check
@@ -340,14 +345,22 @@ let activate_protocol ?endpoint ~protocol ?fitness ?key ?timestamp
     client
   |> Process.check
 
-let spawn_endorse_for ?endpoint ?(key = Constant.bootstrap2.alias) client =
-  spawn_command ?endpoint client ["endorse"; "for"; key]
-
-let endorse_for ?endpoint ?key client =
-  spawn_endorse_for ?endpoint ?key client |> Process.check
+let empty_mempool_file ?(filename = "mempool.json") () =
+  let mempool_str =
+    {|{"applied":[],"refused":[],"outdated":[],"branch_refused":[],"branch_delayed":[],"unprocessed":[]}|}
+  in
+  (* TODO: https://gitlab.com/tezos/tezos/-/issues/1928
+     a write_file function should be added to the tezt base module *)
+  let mempool = Temp.file filename in
+  let* _ =
+    Lwt_io.with_file ~mode:Lwt_io.Output mempool (fun oc ->
+        Lwt_io.write oc mempool_str)
+  in
+  Lwt.return mempool
 
 let spawn_bake_for ?endpoint ?protocol ?(key = Constant.bootstrap1.alias)
-    ?(minimal_timestamp = true) ?mempool ?force ?context_path client =
+    ?(minimal_timestamp = true) ?mempool ?monitor_node_mempool ?force
+    ?context_path client =
   spawn_command
     ?endpoint
     client
@@ -361,73 +374,175 @@ let spawn_bake_for ?endpoint ?protocol ?(key = Constant.bootstrap1.alias)
         ~none:[]
         ~some:(fun mempool_json -> ["--mempool"; mempool_json])
         mempool
+    @ (match monitor_node_mempool with
+      | None | Some true -> []
+      | Some false -> (
+          match protocol with
+          (* Only Alpha/Tenderbake supports this switch *)
+          | Some Alpha -> ["--ignore-node-mempool"]
+          | None | Some _ -> []))
     @ (match force with None | Some false -> [] | Some true -> ["--force"])
     @ Option.fold ~none:[] ~some:(fun path -> ["--context"; path]) context_path
     )
 
-let bake_for ?endpoint ?protocol ?key ?minimal_timestamp ?mempool ?force
-    ?context_path client =
+let bake_for ?endpoint ?protocol ?key ?minimal_timestamp ?mempool
+    ?monitor_node_mempool ?force ?context_path client =
   spawn_bake_for
     ?endpoint
     ?key
     ?minimal_timestamp
     ?mempool
+    ?monitor_node_mempool
     ?force
     ?context_path
     ?protocol
     client
   |> Process.check
 
+let spawn_tenderbake_for ?endpoint ?protocol
+    ?(keys = [Constant.bootstrap1.alias]) ?(minimal_timestamp = true) ?mempool
+    ?monitor_node_mempool ?force ?context_path client =
+  spawn_command
+    ?endpoint
+    client
+    (Option.fold
+       ~none:[]
+       ~some:(fun p -> ["--protocol"; Protocol.hash p])
+       protocol
+    @ ["bake"; "for"] @ keys
+    @ (if minimal_timestamp then ["--minimal-timestamp"] else [])
+    @ Option.fold
+        ~none:[]
+        ~some:(fun mempool_json -> ["--mempool"; mempool_json])
+        mempool
+    @ (match monitor_node_mempool with
+      | None | Some true -> []
+      (* default behavior *)
+      | Some false -> ["--ignore-node-mempool"])
+    @ (match force with None | Some false -> [] | Some true -> ["--force"])
+    @ Option.fold ~none:[] ~some:(fun path -> ["--context"; path]) context_path
+    )
+
+let tenderbake_for ?endpoint ?protocol ?keys ?minimal_timestamp ?mempool
+    ?monitor_node_mempool ?force ?context_path client =
+  spawn_tenderbake_for
+    ?endpoint
+    ?keys
+    ?minimal_timestamp
+    ?mempool
+    ?monitor_node_mempool
+    ?force
+    ?context_path
+    ?protocol
+    client
+  |> Process.check
+
+(* Handle endorsing and preendorsing similarly *)
+type tenderbake_action = Preendorse | Endorse | Propose
+
+let tenderbake_action_to_string = function
+  | Preendorse -> "preendorse"
+  | Endorse -> "endorse"
+  | Propose -> "propose"
+
+let spawn_tenderbake_action_for ~tenderbake_action ?endpoint ?protocol
+    ?(key = [Constant.bootstrap1.alias]) ?(minimal_timestamp = false) ?force
+    client =
+  spawn_command
+    ?endpoint
+    client
+    (Option.fold
+       ~none:[]
+       ~some:(fun p -> ["--protocol"; Protocol.hash p])
+       protocol
+    @ [tenderbake_action_to_string tenderbake_action; "for"]
+    @ key
+    @
+    if minimal_timestamp then ["--minimal-timestamp"]
+    else
+      []
+      @
+      match force with
+      | None | Some false -> []
+      | Some true when protocol = Some Protocol.Alpha -> ["--force"]
+      | Some true -> [] (* --force is not supported prior to Tenderbake *))
+
+let spawn_endorse_for ?endpoint ?protocol ?key ?force client =
+  spawn_tenderbake_action_for
+    ~tenderbake_action:Endorse
+    ~minimal_timestamp:false
+    ?endpoint
+    ?protocol
+    ?key
+    ?force
+    client
+
+let spawn_preendorse_for ?endpoint ?protocol ?key ?force client =
+  spawn_tenderbake_action_for
+    ~tenderbake_action:Preendorse
+    ~minimal_timestamp:false
+    ?endpoint
+    ?protocol
+    ?key
+    ?force
+    client
+
+let spawn_propose_for ?endpoint ?minimal_timestamp ?protocol ?key ?force client
+    =
+  spawn_tenderbake_action_for
+    ~tenderbake_action:Propose
+    ?minimal_timestamp
+    ?endpoint
+    ?protocol
+    ?key
+    ?force
+    client
+
+let endorse_for ?endpoint ?protocol ?key ?force client =
+  spawn_endorse_for ?endpoint ?protocol ?key ?force client |> Process.check
+
+let preendorse_for ?endpoint ?protocol ?key ?force client =
+  spawn_preendorse_for ?endpoint ?protocol ?key ?force client |> Process.check
+
+let propose_for ?endpoint ?(minimal_timestamp = true) ?protocol ?key ?force
+    client =
+  spawn_propose_for ?endpoint ?protocol ?key ?force ~minimal_timestamp client
+  |> Process.check
+
 let spawn_gen_keys ~alias client = spawn_command client ["gen"; "keys"; alias]
 
 let gen_keys ~alias client = spawn_gen_keys ~alias client |> Process.check
 
-let spawn_show_address ?(show_secret = true) ~alias client =
-  spawn_command client
-  @@
-  if show_secret then ["show"; "address"; alias; "--show-secret"]
-  else ["show"; "address"; alias]
+let spawn_show_address ~alias client =
+  spawn_command client ["show"; "address"; alias; "--show-secret"]
 
-let show_address ?show_secret ~alias client =
+let show_address ~alias client =
   let extract_key (client_output : string) : Account.key =
     let public_key_hash =
-      match client_output =~* rex "Hash: ?(\\w*)" with
-      | None ->
-          Test.fail "Cannot extract key from client_output: %s" client_output
-      | Some hash -> hash
+      client_output =~* rex "Hash: ?(\\w*)" |> mandatory "public key hash"
     in
-    let public_key = client_output =~* rex "Public Key: ?(\\w*)" in
+    let public_key =
+      client_output =~* rex "Public Key: ?(\\w*)" |> mandatory "public key"
+    in
     let secret_key =
-      client_output =~* rex "Secret Key: ?(?:unencrypted:)?(\\w*)"
+      client_output
+      =~* rex "Secret Key: ?(?:unencrypted:)?(\\w*)"
+      |> mandatory "secret key"
     in
     {alias; public_key_hash; public_key; secret_key}
   in
   let* output =
-    spawn_show_address ?show_secret ~alias client
-    |> Process.check_and_read_stdout
+    spawn_show_address ~alias client |> Process.check_and_read_stdout
   in
   return @@ extract_key output
 
 let gen_and_show_keys ~alias client =
   let* () = gen_keys ~alias client in
-  show_address ~show_secret:true ~alias client
+  show_address ~alias client
 
 let gen_and_show_secret_keys ~alias client =
   let* () = gen_keys ~alias client in
-  let* key = show_address ~show_secret:true ~alias client in
-  match key.secret_key with
-  | None ->
-      failwith
-        (sf
-           "Client.gen_and_show_keys should have created a secret key for %s"
-           alias)
-  | Some sk ->
-      return
-        {
-          Constant.identity = key.public_key_hash;
-          alias;
-          secret = sf "unencrypted:%s" sk;
-        }
+  show_address ~alias client
 
 let spawn_transfer ?endpoint ?(wait = "none") ?burn_cap ?fee ?gas_limit
     ?storage_limit ?counter ?arg ~amount ~giver ~receiver client =
@@ -557,7 +672,8 @@ let get_balance_for =
     and* output = Lwt_io.read (Process.stdout process) in
     return @@ extract_balance output
 
-let spawn_create_mockup ?(sync_mode = Synchronous) ?constants ~protocol client =
+let spawn_create_mockup ?(sync_mode = Synchronous) ?parameter_file ~protocol
+    client =
   let cmd =
     let common = ["--protocol"; Protocol.hash protocol; "create"; "mockup"] in
     (match sync_mode with
@@ -565,14 +681,14 @@ let spawn_create_mockup ?(sync_mode = Synchronous) ?constants ~protocol client =
     | Asynchronous -> common @ ["--asynchronous"])
     @ Option.fold
         ~none:[]
-        ~some:(fun constants ->
-          ["--protocol-constants"; Protocol.parameter_file ~constants protocol])
-        constants
+        ~some:(fun parameter_file -> ["--protocol-constants"; parameter_file])
+        parameter_file
   in
   spawn_command client cmd
 
-let create_mockup ?sync_mode ?constants ~protocol client =
-  spawn_create_mockup ?sync_mode ?constants ~protocol client |> Process.check
+let create_mockup ?sync_mode ?parameter_file ~protocol client =
+  spawn_create_mockup ?sync_mode ?parameter_file ~protocol client
+  |> Process.check
 
 let spawn_submit_proposals ?(key = Constant.bootstrap1.alias) ?(wait = "none")
     ~proto_hash client =
@@ -646,15 +762,14 @@ let originate_contract ?endpoint ?wait ?init ?burn_cap ~alias ~amount ~src ~prg
   | Some hash -> return hash
 
 let write_bootstrap_stresstest_sources_file client =
-  let keys : Constant.key list =
+  let keys : Account.key list =
     List.filter
-      (fun {Constant.alias; _} -> alias <> "activator")
+      (fun {Account.alias; _} -> alias <> "activator")
       Constant.all_secret_keys
   in
   let* (accounts : Account.key list) =
     Lwt_list.map_s
-      (fun (account : Constant.key) ->
-        show_address ~show_secret:true ~alias:account.alias client)
+      (fun (account : Account.key) -> show_address ~alias:account.alias client)
       keys
   in
   Account.write_stresstest_sources_file accounts
@@ -828,6 +943,12 @@ let spawn_migrate_mockup ~next_protocol client =
 let migrate_mockup ~next_protocol client =
   spawn_migrate_mockup ~next_protocol client |> Process.check
 
+let spawn_sign_block client block_hex ~delegate =
+  spawn_command client ["sign"; "block"; block_hex; "for"; delegate]
+
+let sign_block client block_hex ~delegate =
+  spawn_sign_block client block_hex ~delegate |> Process.check_and_read_stdout
+
 let init ?path ?admin_path ?name ?color ?base_dir ?endpoint ?media_type () =
   let client =
     create ?path ?admin_path ?name ?color ?base_dir ?endpoint ?media_type ()
@@ -837,8 +958,8 @@ let init ?path ?admin_path ?name ?color ?base_dir ?endpoint ?media_type () =
   in
   return client
 
-let init_mockup ?path ?admin_path ?name ?color ?base_dir ?sync_mode ?constants
-    ~protocol () =
+let init_mockup ?path ?admin_path ?name ?color ?base_dir ?sync_mode
+    ?parameter_file ?constants ~protocol () =
   (* The mockup's public documentation doesn't use `--mode mockup`
      for `create mockup` (as it is not required). We wanna do the same here.
      Hence `Client None` here: *)
@@ -851,7 +972,12 @@ let init_mockup ?path ?admin_path ?name ?color ?base_dir ?sync_mode ?constants
       ?base_dir
       (Client (None, None))
   in
-  let* () = create_mockup ?sync_mode ?constants ~protocol client in
+  let parameter_file =
+    Option.value
+      ~default:(Protocol.parameter_file ?constants protocol)
+      parameter_file
+  in
+  let* () = create_mockup ?sync_mode ~parameter_file ~protocol client in
   (* We want, however, to return a mockup client; hence the following: *)
   set_mode Mockup client ;
   return client
@@ -870,7 +996,7 @@ let write_sources_file ~min_agreement ~uris client =
       Lwt_io.fprintf oc "%s" @@ Ezjsonm.value_to_string obj)
 
 let init_light ?path ?admin_path ?name ?color ?base_dir ?(min_agreement = 0.66)
-    ?(nodes_args = []) () =
+    ?event_level ?(nodes_args = []) () =
   let filter_node_arg = function
     | Node.Connections _ | Synchronisation_threshold _ -> None
     | x -> Some x
@@ -879,8 +1005,8 @@ let init_light ?path ?admin_path ?name ?color ?base_dir ?(min_agreement = 0.66)
     List.filter_map filter_node_arg nodes_args
     @ Node.[Connections 1; Synchronisation_threshold 0]
   in
-  let* node1 = Node.init ~name:"node1" nodes_args
-  and* node2 = Node.init ~name:"node2" nodes_args in
+  let* node1 = Node.init ?event_level ~name:"node1" nodes_args
+  and* node2 = Node.init ?event_level ~name:"node2" nodes_args in
   let nodes = [node1; node2] in
   let client =
     create_with_mode
@@ -943,11 +1069,34 @@ let get_parameter_file ?additional_bootstrap_account_count
       in
       return (Some parameter_file)
 
-let init_activate_bake ?path ?admin_path ?name ?color ?base_dir
+let init_with_protocol ?path ?admin_path ?name ?color ?base_dir ?event_level
     ?(nodes_args = Node.[Connections 0; Synchronisation_threshold 0])
     ?additional_bootstrap_account_count ?default_accounts_balance
-    ?parameter_file ?(bake = true) tag ~protocol () =
-  let get_parameter_file client =
+    ?parameter_file tag ~protocol () =
+  let* (node, client) =
+    match tag with
+    | (`Client | `Proxy) as mode ->
+        let* node = Node.init ?event_level nodes_args in
+        let endpoint = Node node in
+        let mode =
+          match mode with
+          | `Client -> Client (Some endpoint, None)
+          | `Proxy -> Proxy endpoint
+        in
+        let client =
+          create_with_mode ?path ?admin_path ?name ?color ?base_dir mode
+        in
+        let* () =
+          Lwt_list.iter_s (import_secret_key client) Constant.all_secret_keys
+        in
+        return (node, client)
+    | `Light ->
+        let* (client, node1, _) =
+          init_light ?path ?admin_path ?name ?color ?base_dir ~nodes_args ()
+        in
+        return (node1, client)
+  in
+  let* parameter_file =
     get_parameter_file
       ?additional_bootstrap_account_count
       ?default_accounts_balance
@@ -955,31 +1104,6 @@ let init_activate_bake ?path ?admin_path ?name ?color ?base_dir
       ~protocol
       client
   in
-  match tag with
-  | (`Client | `Proxy) as mode ->
-      let* node = Node.init nodes_args in
-      let endpoint = Node node in
-      let mode =
-        match mode with
-        | `Client -> Client (Some endpoint, None)
-        | `Proxy -> Proxy endpoint
-      in
-      let client =
-        create_with_mode ?path ?admin_path ?name ?color ?base_dir mode
-      in
-      let* () =
-        Lwt_list.iter_s (import_secret_key client) Constant.all_secret_keys
-      in
-      let* parameter_file = get_parameter_file client in
-      let* () = activate_protocol ?parameter_file ~protocol client in
-      let* _ = Node.wait_for_level node 1 in
-      let* () = if bake then bake_for client else Lwt.return_unit in
-      return (node, client)
-  | `Light ->
-      let* (client, node1, _) =
-        init_light ?path ?admin_path ?name ?color ?base_dir ~nodes_args ()
-      in
-      let* parameter_file = get_parameter_file client in
-      let* () = activate_protocol ?parameter_file ~protocol client in
-      let* () = if bake then bake_for client else Lwt.return_unit in
-      return (node1, client)
+  let* () = activate_protocol ?parameter_file ~protocol client in
+  let* _ = Node.wait_for_level node 1 in
+  return (node, client)

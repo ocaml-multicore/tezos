@@ -164,20 +164,28 @@ let mempool_encoding : mempool Data_encoding.t =
     (fun operations ->
       let applied = [] in
       let refused = [] in
+      let outdated = [] in
       let branch_refused = [] in
       let branch_delayed = [] in
       let unprocessed = operations in
-      (applied, refused, branch_refused, branch_delayed, unprocessed))
-    (fun (applied, refused, branch_refused, branch_delayed, unprocessed) ->
+      (applied, refused, outdated, branch_refused, branch_delayed, unprocessed))
+    (fun ( applied,
+           refused,
+           outdated,
+           branch_refused,
+           branch_delayed,
+           unprocessed ) ->
       assert (is_empty applied) ;
       assert (is_empty refused) ;
+      assert (is_empty outdated) ;
       assert (is_empty branch_refused) ;
       assert (is_empty branch_delayed) ;
       unprocessed)
-    (obj5
+    (obj6
        (* We put [unit] as a stub *)
        (req "applied" (list (dynamic_size unit)))
        (req "refused" (list (dynamic_size unit)))
+       (req "outdated" (list (dynamic_size unit)))
        (req "branch_refused" (list (dynamic_size unit)))
        (req "branch_delayed" (list (dynamic_size unit)))
        (req
@@ -199,7 +207,7 @@ type state = {
   protocol : Tezos_crypto.Protocol_hash.t;
   sandbox_client : Tezt_tezos.Client.t;
   sandbox_node : Tezt_tezos.Node.t;
-  counters : (Constant.key, int) Hashtbl.t;
+  counters : (Account.key, int) Hashtbl.t;
 }
 
 let bootstraps =
@@ -247,10 +255,10 @@ let encode_unsigned_operation_to_binary state op =
   in
   return Hex.(to_bytes (`Hex (JSON.as_string json_hex)))
 
-let sign_operation_bytes (signer : Constant.key) (msg : Bytes.t) =
+let sign_operation_bytes (signer : Account.key) (msg : Bytes.t) =
   let open Tezos_crypto in
   let b58_secret_key =
-    match String.split_on_char ':' signer.secret with
+    match String.split_on_char ':' signer.secret_key with
     | ["unencrypted"; rest] -> rest
     | _ -> Test.fail "Could not parse secret key"
   in
@@ -313,13 +321,13 @@ let sample_next_transfer_for state ~fee ~branch ~account =
             [
               {
                 kind = "transaction";
-                source = account.Constant.identity;
+                source = account.Account.public_key_hash;
                 fee = string_of_int fee;
                 counter = string_of_int (get_next_counter state account);
                 gas_limit = string_of_int 2000;
                 storage_limit = string_of_int 0;
                 amount = string_of_int amount;
-                destination = receiver.Constant.identity;
+                destination = receiver.Account.public_key_hash;
               };
             ];
           signature = None;
@@ -386,8 +394,14 @@ let check_ordering ops =
 
 let assert_block_is_well_baked block =
   match JSON.(as_list (block |-> "operations")) with
-  | [empty1; empty2; empty3; manager_ops] ->
-      List.iter (fun l -> assert (JSON.as_list l = [])) [empty1; empty2; empty3] ;
+  | [endorsement_ops; vote_ops; anonymous_ops; manager_ops] ->
+      (* There very well might be endorsement operations *)
+      Log.debug
+        "%d endorsement operations"
+        (List.length (JSON.as_list endorsement_ops)) ;
+      List.iter
+        (fun l -> assert (JSON.as_list l = []))
+        [vote_ops; anonymous_ops] ;
       let fees_managers_and_counters =
         List.map
           (fun json -> get_fees_manager_and_counter json)
@@ -456,7 +470,7 @@ let bake_and_check state ~mempool =
   return ()
 
 let init ~protocol =
-  let* sandbox_node = Node.init [Bootstrap_threshold 0; Private_mode] in
+  let* sandbox_node = Node.init [Synchronisation_threshold 0; Private_mode] in
   let* sandbox_client = Client.init ~endpoint:(Node sandbox_node) () in
   let* () = Client.activate_protocol ~protocol sandbox_client in
   Log.info "Activated protocol." ;

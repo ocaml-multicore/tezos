@@ -1,8 +1,8 @@
-How to contribute
-=================
+How to contribute to Octez
+==========================
 
 The purpose of this document is to help contributors participate to
-the Tezos OCaml codebase.
+Octez.
 
 Introduction
 ------------
@@ -13,7 +13,7 @@ There are several ways to get involved with the codebase, and you may want to st
 Reporting issues
 ~~~~~~~~~~~~~~~~
 
-The simplest way to contribute to Tezos is to report issues that you may
+The simplest way to contribute to Octez is to report issues that you may
 find with the software on `GitLab <https://gitlab.com/tezos/tezos/-/issues>`__.
 If you are unsure about an issue
 consult the :doc:`technical support sources <../introduction/support>`
@@ -152,7 +152,7 @@ While working on your branch to prepare a Merge Request, make sure you respect t
      than master. You can (should) activate these jobs by including keywords in
      the branch name.
 
-     + Use ``opam`` in the branch name if you want to explictly trigger
+     + Use ``opam`` in the branch name if you want to explicitly trigger
        the OPAM packaging pipeline. Note that any OPAM related changes
        will automatically trigger it.
      + Use ``doc`` in the branch name if you change the documentation.
@@ -171,7 +171,7 @@ While working on your branch to prepare a Merge Request, make sure you respect t
 -  Follow the format of commit names, `<Component>: <message>`, with
    message in indicative or imperative present mood e.g. ``Shell: fix
    bug #13`` rather than ``Shell: fixed bug #13``.
-   Use multilines commit messages for important commits.
+   Use multiline commit messages for important commits.
 -  Adhere to the :doc:`coding guidelines <guidelines>`.
 -  Document your changes, in the MR description and commit messages.
    Imagine if somebody asked what your change was about in front of the
@@ -290,7 +290,7 @@ Therefore, when creating your MR, observe the following rules:
     as described above in the :ref:`MR workflow <mr_workflow>`, in order
     to ease the reviewers' task.
   + `Allow commits from members who can merge to the target branch.`
-    This option is useful to allow members of the merge team, who are
+    This option is useful to allow members of the :doc:`Octez merge team <merge_team>`, who are
     not developers in your project, to commit to your branch.
     It helps to rebase and propose fixes.
 
@@ -349,7 +349,7 @@ must be mitigated as follows:
   This will help reviewers get the big picture.
 - Explain why the intermediate state is harmless, if applicable.
 - To mitigate loss of work if the whole piece is not accepted,
-  we advice to split the work so that improvements that are desirable on their own
+  we advise to split the work so that improvements that are desirable on their own
   are the first ones to be merged in the sequence of small merge requests.
   A desirable standalone improvement is for example a refactoring that
   improves the quality of the code, or adds new tests, or fixes typos.
@@ -399,7 +399,7 @@ by prefixing its title with ``Draft:``.
 On ``tezos/tezos`` draft merge requests are ignored by reviewers.
 Marking merge requests as draft hence helps lower
 the number of merge requests that require attention from the
-:doc:`merge team<merge_team>`.
+:doc:`Octez merge team<merge_team>`.
 
 .. _adding_new_dependencies:
 
@@ -462,21 +462,21 @@ Code Review
 -----------
 
 At Tezos all the code is peer reviewed before getting committed in the
-master branch by the :doc:`merge team <merge_team>`.
+master branch by the :doc:`Octez merge team <merge_team>`.
 Briefly, a code review is a discussion between two or
 more developers about changes to the code to address an issue.
 
 Merge Request Approvals
 ~~~~~~~~~~~~~~~~~~~~~~~
 
-Two approvals from different merge team members are required for merge
+Two approvals from different Octez :doc:`Octez merge team <merge_team>` members are required for merge
 requests to be merged. After their review, the second approver will also
 typically merge unless there is another merge in progress.
 
 Both approvals must correspond to different thorough reviews
-but merge team members may trust the reviews of other developers and
+but Octez merge team members may trust the reviews of other developers and
 approve without reviewing thoroughly, especially for less critical
-parts of the code. Good comments from reviewers help the merge team to decide
+parts of the code. Good comments from reviewers help the Octez merge team to decide
 to approve a merge request without doing a full review.
 
 For this reason, if you make a partial review, for instance if you only
@@ -532,7 +532,7 @@ pitfalls a code reviewer should avoid.
 - Discuss in person for more detailed points: Online comments are useful for
   focused technical questions. On many occasions it is more productive to
   discuss it in person rather than in the comments. Similarly, if discussion
-  about a point goes back and forth, It will be often more productive to pick
+  about a point goes back and forth, it will be often more productive to pick
   it up in person and finish out the discussion.
 
 - Explain reasoning: Sometimes it is best to both ask if there is a better

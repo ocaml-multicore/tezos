@@ -587,8 +587,8 @@ module Make (Proto : Registered_protocol.T) = struct
       ~user_activated_protocol_overrides ~protocol_data ~live_blocks
       ~live_operations ~timestamp ~predecessor_context
       ~(predecessor_shell_header : Block_header.shell_header) ~predecessor_hash
-      ~predecessor_block_metadata_hash ~predecessor_ops_metadata_hash
-      ~operations =
+      ~predecessor_max_operations_ttl ~predecessor_block_metadata_hash
+      ~predecessor_ops_metadata_hash ~operations =
     let context = predecessor_context in
     update_testchain_status context ~predecessor_hash timestamp
     >>= fun context ->
@@ -617,10 +617,10 @@ module Make (Proto : Registered_protocol.T) = struct
         else return context
     | Some hash -> Context.add_predecessor_ops_metadata_hash context hash >|= ok)
     >>=? fun context ->
-    let context = Shell_context.wrap_disk_context context in
+    let wrapped_context = Shell_context.wrap_disk_context context in
     Proto.begin_construction
       ~chain_id
-      ~predecessor_context:context
+      ~predecessor_context:wrapped_context
       ~predecessor_timestamp:predecessor_shell_header.Block_header.timestamp
       ~predecessor_fitness:predecessor_shell_header.Block_header.fitness
       ~predecessor_level:predecessor_shell_header.level
@@ -727,26 +727,28 @@ module Make (Proto : Registered_protocol.T) = struct
       }
     in
     Proto.finalize_block preapply_state.state (Some shell_header)
-    >>=? fun (block_result, block_header_metadata) ->
+    >>=? fun (validation_result, block_header_metadata) ->
     may_patch_protocol
       ~user_activated_upgrades
       ~user_activated_protocol_overrides
       ~level
-      block_result
-    >>= fun {fitness; context; message; _} ->
-    Environment_context.Context.get_protocol context >>= fun protocol ->
+      validation_result
+    >>= fun validation_result ->
+    Environment_context.Context.get_protocol validation_result.context
+    >>= fun protocol ->
     let proto_level =
       if Protocol_hash.equal protocol Proto.hash then
         predecessor_shell_header.proto_level
       else (predecessor_shell_header.proto_level + 1) mod 256
     in
     let shell_header : Block_header.shell_header =
-      {shell_header with proto_level; fitness}
+      {shell_header with proto_level; fitness = validation_result.fitness}
     in
     (if Protocol_hash.equal protocol Proto.hash then
-     let (Environment_context.Context.Context {cache; _}) = context in
-     let context = Shell_context.unwrap_disk_context context in
-     return (context, cache, message, Proto.environment_version)
+     let (Environment_context.Context.Context {cache; _}) =
+       validation_result.context
+     in
+     return (validation_result, cache, Proto.environment_version)
     else
       match Registered_protocol.get protocol with
       | None ->
@@ -761,14 +763,19 @@ module Make (Proto : Registered_protocol.T) = struct
           >>?= fun () ->
           NewProto.set_log_message_consumer
             (Protocol_logging.make_log_message_consumer ()) ;
-          NewProto.init context shell_header >>=? fun {context; message; _} ->
-          let (Environment_context.Context.Context {cache; _}) = context in
-          let context = Shell_context.unwrap_disk_context context in
+          NewProto.init validation_result.context shell_header
+          >>=? fun validation_result ->
+          let (Environment_context.Context.Context {cache; _}) =
+            validation_result.context
+          in
           Validation_events.(emit new_protocol_initialisation NewProto.hash)
           >>= fun () ->
-          return (context, cache, message, NewProto.environment_version))
-    >>=? fun (context, cache, message, new_protocol_env_version) ->
-    let context_hash = Context.hash ?message ~time:timestamp context in
+          return (validation_result, cache, NewProto.environment_version))
+    >>=? fun (validation_result, cache, new_protocol_env_version) ->
+    let context = Shell_context.unwrap_disk_context validation_result.context in
+    let context_hash =
+      Context.hash ?message:validation_result.message ~time:timestamp context
+    in
     let preapply_result =
       ({shell_header with context = context_hash}, validation_result_list)
     in
@@ -810,14 +817,21 @@ module Make (Proto : Registered_protocol.T) = struct
                  ops_metadata),
             Some (Block_metadata_hash.hash_bytes [block_metadata]) ))
     >>=? fun (ops_metadata_hashes, block_metadata_hash) ->
+    let max_operations_ttl =
+      max
+        0
+        (min
+           (predecessor_max_operations_ttl + 1)
+           validation_result.max_operations_ttl)
+    in
     let result =
       let validation_store =
         {
           context_hash;
           timestamp;
-          message;
-          max_operations_ttl = block_result.max_operations_ttl;
-          last_allowed_fork_level = block_result.last_allowed_fork_level;
+          message = validation_result.message;
+          max_operations_ttl;
+          last_allowed_fork_level = validation_result.last_allowed_fork_level;
         }
       in
       let result =
@@ -832,6 +846,47 @@ module Make (Proto : Registered_protocol.T) = struct
       {result; cache}
     in
     return (preapply_result, (result, context))
+
+  let precheck chain_id ~(predecessor_block_header : Block_header.t)
+      ~predecessor_block_hash ~predecessor_context ~cache
+      ~(block_header : Block_header.t) operations =
+    let block_hash = Block_header.hash block_header in
+    check_block_header ~predecessor_block_header block_hash block_header
+    >>=? fun () ->
+    parse_block_header block_hash block_header >>=? fun block_header ->
+    check_operation_quota block_hash operations >>=? fun () ->
+    update_testchain_status
+      predecessor_context
+      ~predecessor_hash:predecessor_block_hash
+      block_header.shell.timestamp
+    >>= fun context ->
+    parse_operations block_hash operations >>=? fun operations ->
+    let context = Shell_context.wrap_disk_context context in
+    ( Proto.begin_partial_application
+        ~chain_id
+        ~ancestor_context:context
+        ~predecessor:predecessor_block_header
+        ~predecessor_hash:predecessor_block_hash
+        ~cache
+        block_header
+    >>=? fun state ->
+      List.fold_left_es
+        (fun state ops ->
+          List.fold_left_es
+            (fun state op ->
+              Proto.apply_operation state op >>=? fun (state, _op_metadata) ->
+              return state)
+            state
+            ops
+          >>=? fun state -> return state)
+        state
+        operations
+      >>=? fun state ->
+      Proto.finalize_block state None
+      >>=? fun (_validation_result, _block_data) -> return_unit )
+    >>= function
+    | Error err -> fail (invalid_block block_hash (Economic_protocol_error err))
+    | Ok () -> return_unit
 end
 
 let assert_no_duplicate_operations block_hash live_operations operations =
@@ -923,11 +978,32 @@ let apply ?cached_result
       fail (System_error {errno = Unix.error_message errno; fn; msg})
   | (Ok _ | Error _) as res -> Lwt.return res
 
+let precheck ~chain_id ~predecessor_block_header ~predecessor_block_hash
+    ~predecessor_context ~cache block_header operations =
+  let block_hash = Block_header.hash block_header in
+  Context.get_protocol predecessor_context >>= fun pred_protocol_hash ->
+  (match Registered_protocol.get pred_protocol_hash with
+  | None ->
+      fail
+        (Unavailable_protocol
+           {block = block_hash; protocol = pred_protocol_hash})
+  | Some p -> return p)
+  >>=? fun (module Proto) ->
+  let module Block_validation = Make (Proto) in
+  Block_validation.precheck
+    chain_id
+    ~predecessor_block_header
+    ~predecessor_block_hash
+    ~predecessor_context
+    ~cache
+    ~block_header
+    operations
+
 let preapply ~chain_id ~cache ~user_activated_upgrades
     ~user_activated_protocol_overrides ~timestamp ~protocol_data ~live_blocks
     ~live_operations ~predecessor_context ~predecessor_shell_header
-    ~predecessor_hash ~predecessor_block_metadata_hash
-    ~predecessor_ops_metadata_hash operations =
+    ~predecessor_hash ~predecessor_max_operations_ttl
+    ~predecessor_block_metadata_hash ~predecessor_ops_metadata_hash operations =
   Context.get_protocol predecessor_context >>= fun protocol ->
   (match Registered_protocol.get protocol with
   | None ->
@@ -960,6 +1036,7 @@ let preapply ~chain_id ~cache ~user_activated_upgrades
     ~predecessor_context
     ~predecessor_shell_header
     ~predecessor_hash
+    ~predecessor_max_operations_ttl
     ~predecessor_block_metadata_hash
     ~predecessor_ops_metadata_hash
     ~operations

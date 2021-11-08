@@ -53,10 +53,19 @@ type request =
       live_operations : Operation_hash.Set.t;
       predecessor_shell_header : Block_header.shell_header;
       predecessor_hash : Block_hash.t;
+      predecessor_max_operations_ttl : int;
       predecessor_block_metadata_hash : Block_metadata_hash.t option;
       predecessor_ops_metadata_hash :
         Operation_metadata_list_list_hash.t option;
       operations : Operation.t list list;
+    }
+  | Precheck of {
+      chain_id : Chain_id.t;
+      predecessor_block_header : Block_header.t;
+      predecessor_block_hash : Block_hash.t;
+      header : Block_header.t;
+      operations : Operation.t list list;
+      hash : Block_hash.t;
     }
   | Commit_genesis of {chain_id : Chain_id.t}
   | Fork_test_chain of {
@@ -84,6 +93,8 @@ let request_pp ppf = function
         predecessor_hash
         Chain_id.pp_short
         chain_id
+  | Precheck {hash; _} ->
+      Format.fprintf ppf "precheck block %a" Block_hash.pp_short hash
   | Commit_genesis {chain_id} ->
       Format.fprintf
         ppf
@@ -199,19 +210,21 @@ let case_preapply tag =
   case
     tag
     ~title:"preapply"
-    (obj10
-       (req "chain_id" Chain_id.encoding)
-       (req "timestamp" Time.Protocol.encoding)
-       (req "protocol_data" bytes)
-       (req "live_blocks" Block_hash.Set.encoding)
-       (req "live_operations" Operation_hash.Set.encoding)
-       (req "predecessor_shell_header" Block_header.shell_header_encoding)
-       (req "predecessor_hash" Block_hash.encoding)
-       (opt "predecessor_block_metadata_hash" Block_metadata_hash.encoding)
-       (opt
-          "predecessor_ops_metadata_hash"
-          Operation_metadata_list_list_hash.encoding)
-       (req "operations" (list (list (dynamic_size Operation.encoding)))))
+    (merge_objs
+       (obj10
+          (req "chain_id" Chain_id.encoding)
+          (req "timestamp" Time.Protocol.encoding)
+          (req "protocol_data" bytes)
+          (req "live_blocks" Block_hash.Set.encoding)
+          (req "live_operations" Operation_hash.Set.encoding)
+          (req "predecessor_shell_header" Block_header.shell_header_encoding)
+          (req "predecessor_hash" Block_hash.encoding)
+          (req "predecessor_max_operations_ttl" int31)
+          (opt "predecessor_block_metadata_hash" Block_metadata_hash.encoding)
+          (opt
+             "predecessor_ops_metadata_hash"
+             Operation_metadata_list_list_hash.encoding))
+       (obj1 (req "operations" (list (list (dynamic_size Operation.encoding))))))
     (function
       | Preapply
           {
@@ -222,31 +235,34 @@ let case_preapply tag =
             live_operations;
             predecessor_shell_header;
             predecessor_hash;
+            predecessor_max_operations_ttl;
             predecessor_block_metadata_hash;
             predecessor_ops_metadata_hash;
             operations;
           } ->
           Some
-            ( chain_id,
-              timestamp,
-              protocol_data,
-              live_blocks,
-              live_operations,
-              predecessor_shell_header,
-              predecessor_hash,
-              predecessor_block_metadata_hash,
-              predecessor_ops_metadata_hash,
+            ( ( chain_id,
+                timestamp,
+                protocol_data,
+                live_blocks,
+                live_operations,
+                predecessor_shell_header,
+                predecessor_hash,
+                predecessor_max_operations_ttl,
+                predecessor_block_metadata_hash,
+                predecessor_ops_metadata_hash ),
               operations )
       | _ -> None)
-    (fun ( chain_id,
-           timestamp,
-           protocol_data,
-           live_blocks,
-           live_operations,
-           predecessor_shell_header,
-           predecessor_hash,
-           predecessor_block_metadata_hash,
-           predecessor_ops_metadata_hash,
+    (fun ( ( chain_id,
+             timestamp,
+             protocol_data,
+             live_blocks,
+             live_operations,
+             predecessor_shell_header,
+             predecessor_hash,
+             predecessor_max_operations_ttl,
+             predecessor_block_metadata_hash,
+             predecessor_ops_metadata_hash ),
            operations ) ->
       Preapply
         {
@@ -257,9 +273,56 @@ let case_preapply tag =
           live_operations;
           predecessor_shell_header;
           predecessor_hash;
+          predecessor_max_operations_ttl;
           predecessor_block_metadata_hash;
           predecessor_ops_metadata_hash;
           operations;
+        })
+
+let case_precheck tag =
+  let open Data_encoding in
+  case
+    tag
+    ~title:"precheck"
+    (obj6
+       (req "chain_id" Chain_id.encoding)
+       (req "predecessor_block_header" (dynamic_size Block_header.encoding))
+       (req "predecessor_block_hash" Block_hash.encoding)
+       (req "header" (dynamic_size Block_header.encoding))
+       (req "hash" Block_hash.encoding)
+       (req "operations" (list (list (dynamic_size Operation.encoding)))))
+    (function
+      | Precheck
+          {
+            chain_id;
+            predecessor_block_header;
+            predecessor_block_hash;
+            header;
+            operations;
+            hash;
+          } ->
+          Some
+            ( chain_id,
+              predecessor_block_header,
+              predecessor_block_hash,
+              header,
+              hash,
+              operations )
+      | _ -> None)
+    (fun ( chain_id,
+           predecessor_block_header,
+           predecessor_block_hash,
+           header,
+           hash,
+           operations ) ->
+      Precheck
+        {
+          chain_id;
+          predecessor_block_header;
+          predecessor_block_hash;
+          header;
+          operations;
+          hash;
         })
 
 let request_encoding =
@@ -305,6 +368,7 @@ let request_encoding =
         (function Reconfigure_event_logging c -> Some c | _ -> None)
         (fun c -> Reconfigure_event_logging c);
       case_preapply (Tag 7);
+      case_precheck (Tag 8);
     ]
 
 let send pin encoding data =

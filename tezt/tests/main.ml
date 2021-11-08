@@ -54,7 +54,7 @@ let () =
   Normalize.register ~protocols:[Alpha] ;
   Double_bake.register ~protocols:[Alpha] ;
   Light.register ~protocols:[Alpha] ;
-  Mockup.register ~protocols ;
+  Mockup.register ~protocols:[Granada; Hangzhou; Alpha] ;
   Mockup.register_constant_migration ~migrate_from ~migrate_to ;
   Mockup.register_global_constants ~protocols:[Alpha] ;
   Node_event_level.register ~protocols:[Alpha] ;
@@ -78,6 +78,8 @@ let () =
   Stresstest_command.register ~protocols:[Alpha] ;
   (* Adding a new protocol would require adding samples at ./tezt/tests/encoding_samples directory*)
   Encoding.register ~protocols ;
+  Precheck.register ~protocols:[Alpha] ;
+  Tenderbake.register ~protocols:[Alpha] ;
   (* Tests that are protocol-independent.
      They do not take a protocol as a parameter and thus need to be registered only once. *)
   Light.register_protocol_independent () ;
@@ -88,8 +90,9 @@ let () =
   Cli_tezos.register_protocol_independent () ;
   (* Tests that are heavily protocol-dependent.
      Those modules define different tests for different protocols in their [register]. *)
-  RPC_test.register ~protocols ;
+  RPC_test.register () ;
   (* This file tests an RPC added in protocol G *)
   Big_map_all.register () ;
+  Reject_malformed_micheline.register ~protocols:[Alpha] ;
   (* Test.run () should be the last statement, don't register afterwards! *)
   Test.run ()

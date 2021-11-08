@@ -53,10 +53,19 @@ type request =
       live_operations : Operation_hash.Set.t;
       predecessor_shell_header : Block_header.shell_header;
       predecessor_hash : Block_hash.t;
+      predecessor_max_operations_ttl : int;
       predecessor_block_metadata_hash : Block_metadata_hash.t option;
       predecessor_ops_metadata_hash :
         Operation_metadata_list_list_hash.t option;
       operations : Operation.t list list;
+    }
+  | Precheck of {
+      chain_id : Chain_id.t;
+      predecessor_block_header : Block_header.t;
+      predecessor_block_hash : Block_hash.t;
+      header : Block_header.t;
+      operations : Operation.t list list;
+      hash : Block_hash.t;
     }
   | Commit_genesis of {chain_id : Chain_id.t}
   | Fork_test_chain of {
