@@ -103,6 +103,8 @@ module Tez : sig
 
   val ( -? ) : tez -> tez -> tez tzresult
 
+  val sub_opt : tez -> tez -> tez option
+
   val ( +? ) : tez -> tez -> tez tzresult
 
   val ( *? ) : tez -> int64 -> tez tzresult
@@ -480,6 +482,8 @@ module Script_timestamp : sig
   val to_zint : t -> Z.t
 
   val of_zint : Z.t -> t
+
+  val encoding : t Data_encoding.encoding
 end
 
 module Script : sig
@@ -570,6 +574,7 @@ module Script : sig
     | I_SLICE
     | I_STEPS_TO_QUOTA
     | I_SUB
+    | I_SUB_MUTEZ
     | I_SWAP
     | I_TRANSFER_TOKENS
     | I_SET_DELEGATE
@@ -673,6 +678,10 @@ module Script : sig
   val unit_parameter : lazy_expr
 
   val strip_locations_cost : node -> Gas.cost
+
+  val strip_annotations_cost : node -> Gas.cost
+
+  val strip_annotations : node -> node
 end
 
 module Constants : sig

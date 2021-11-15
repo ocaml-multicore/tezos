@@ -79,6 +79,14 @@ fi
 # Must be done before install_build_deps.raw.sh because install_build_deps.raw.sh installs
 # opam packages that depend on Rust.
 "$script_dir"/install_build_deps.rust.sh
+
+# Opam < 2.1 requires opam-depext as a plugin, later versions include it
+# natively:
+case $(opam --version) in
+    2.0.* )
+        opam install --yes opam-depext ;;
+esac
+
 "$script_dir"/install_build_deps.raw.sh
 
 # add back the default repo if asked to or it was present in the first
