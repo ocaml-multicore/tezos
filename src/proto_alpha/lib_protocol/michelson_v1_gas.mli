@@ -129,6 +129,8 @@ module Cost_of : sig
 
     val sub_tez : Gas.cost
 
+    val sub_tez_legacy : Gas.cost
+
     val mul_teznat : Gas.cost
 
     val mul_nattez : Gas.cost
@@ -476,6 +478,8 @@ module Cost_of : sig
     val bls12_381_fr : Gas.cost
 
     val unparse_type : 'a Script_typed_ir.ty -> Gas.cost
+
+    val unparse_comparable_type : 'a Script_typed_ir.comparable_ty -> Gas.cost
 
     val unparse_instr_cycle : Gas.cost
 

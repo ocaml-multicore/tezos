@@ -365,7 +365,7 @@ module Cost_of = struct
     let cost_N_ILeft = S.safe_int 15
 
     (* model N_ILevel *)
-    let cost_N_ILevel = S.safe_int 25
+    let cost_N_ILevel = S.safe_int 15
 
     (* model N_IList_iter *)
     let cost_N_IList_iter _ = S.safe_int 50
@@ -519,7 +519,7 @@ module Cost_of = struct
       S.safe_int 25 + ((v0 lsr 4) + (v0 lsr 7))
 
     (* model N_INow *)
-    let cost_N_INow = S.safe_int 25
+    let cost_N_INow = S.safe_int 15
 
     (* model N_IOpen_chest *)
     (* 612000 + chest * 19 + time * 19050 *)
@@ -631,6 +631,9 @@ module Cost_of = struct
 
     (* model N_ISub_tez *)
     let cost_N_ISub_tez = S.safe_int 25
+
+    (* model N_ISub_tez_legacy *)
+    let cost_N_ISub_tez_legacy = S.safe_int 25
 
     (* model N_ISub_timestamp_seconds *)
     (* Approximating 0.077794 x term *)
@@ -914,6 +917,9 @@ module Cost_of = struct
        parameter fit for the UNPARSE_TYPE benchmark. *)
     let cost_UNPARSE_TYPE type_size = S.mul (S.safe_int 20) type_size
 
+    (* TODO: Add benchmarked value from [Unparse_comparable_type_benchmark]. *)
+    let cost_UNPARSE_COMPARABLE_TYPE type_size = S.mul (S.safe_int 20) type_size
+
     (* TODO: benchmark *)
     let cost_COMPARABLE_TY_OF_TY = S.safe_int 120
 
@@ -1052,6 +1058,8 @@ module Cost_of = struct
     let add_tez = atomic_step_cost cost_N_IAdd_tez
 
     let sub_tez = atomic_step_cost cost_N_ISub_tez
+
+    let sub_tez_legacy = atomic_step_cost cost_N_ISub_tez_legacy
 
     let mul_teznat = atomic_step_cost cost_N_IMul_teznat
 
@@ -1739,6 +1747,11 @@ module Cost_of = struct
     let unparse_type ty =
       atomic_step_cost
       @@ cost_UNPARSE_TYPE Script_typed_ir.(ty_size ty |> Type_size.to_int)
+
+    let unparse_comparable_type comp_ty =
+      atomic_step_cost
+      @@ cost_UNPARSE_COMPARABLE_TYPE
+           Script_typed_ir.(comparable_ty_size comp_ty |> Type_size.to_int)
 
     let unparse_instr_cycle = atomic_step_cost cost_UNPARSING_CODE
 

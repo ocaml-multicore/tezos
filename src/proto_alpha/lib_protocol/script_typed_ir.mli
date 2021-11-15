@@ -33,6 +33,8 @@ type step_constants = {
   self : Contract.t;
   amount : Tez.t;
   chain_id : Chain_id.t;
+  now : Script_timestamp.t;
+  level : Script_int.n Script_int.num;
 }
 
 (* Preliminary definitions. *)
@@ -587,6 +589,9 @@ and ('before_top, 'before, 'result_top, 'result) kinstr =
       (Tez.t, Tez.t * 's) kinfo * (Tez.t, 's, 'r, 'f) kinstr
       -> (Tez.t, Tez.t * 's, 'r, 'f) kinstr
   | ISub_tez :
+      (Tez.t, Tez.t * 's) kinfo * (Tez.t option, 's, 'r, 'f) kinstr
+      -> (Tez.t, Tez.t * 's, 'r, 'f) kinstr
+  | ISub_tez_legacy :
       (Tez.t, Tez.t * 's) kinfo * (Tez.t, 's, 'r, 'f) kinstr
       -> (Tez.t, Tez.t * 's, 'r, 'f) kinstr
   | IMul_teznat :
@@ -1384,6 +1389,8 @@ val kinstr_rewritek :
 
 val ty_size : 'a ty -> 'a Type_size.t
 
+val comparable_ty_size : 'a comparable_ty -> 'a Type_size.t
+
 val unit_t : annot:type_annot option -> unit ty
 
 val int_t : annot:type_annot option -> z num ty
@@ -1435,6 +1442,8 @@ val option_t :
   Script.location -> 'v ty -> annot:type_annot option -> 'v option ty tzresult
 
 (* the quote is used to indicate where the annotation will go *)
+
+val option_mutez'_t : _ ty_metadata -> Tez.t option ty
 
 val option_string'_t : _ ty_metadata -> Script_string.t option ty
 
