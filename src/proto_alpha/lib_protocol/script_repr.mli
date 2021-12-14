@@ -47,9 +47,14 @@ type error += Lazy_script_decode (* `Permanent *)
     computed on-demand. *)
 type lazy_expr = expr Data_encoding.lazy_t
 
+type 'location michelson_node =
+  ('location, Michelson_v1_primitives.prim) Micheline.node
+
+type unlocated_michelson_node = unit michelson_node
+
 (** Same as [expr], but used in different contexts, as required by Micheline's
     abstract interface. *)
-type node = (location, Michelson_v1_primitives.prim) Micheline.node
+type node = location michelson_node
 
 val location_encoding : location Data_encoding.t
 
@@ -74,10 +79,24 @@ val serialized_cost : bytes -> Gas_limit_repr.cost
 
 val bytes_node_cost : bytes -> Gas_limit_repr.cost
 
+(** Returns (a lower bound on) the cost to deserialize a
+    {!lazy_expr}. If the expression has already been deserialized
+    (i.e. the lazy expression contains the deserialized value or both
+    the bytes representation and the deserialized value) then the cost
+    is {b free}. *)
 val force_decode_cost : lazy_expr -> Gas_limit_repr.cost
+
+(** Like {!force_decode_cost}, excepted that the returned cost does
+    not depend on the internal state of the lazy_expr. This means that
+    the cost is never free (excepted for zero bytes expressions). *)
+val stable_force_decode_cost : lazy_expr -> Gas_limit_repr.cost
 
 val force_decode : lazy_expr -> expr tzresult
 
+(** Returns the cost to serialize a {!lazy_expr}. If the expression
+    has already been deserialized (i.e. le lazy expression contains the
+    bytes representation or both the bytes representation and the
+    deserialized value) then the cost is {b free}. *)
 val force_bytes_cost : lazy_expr -> Gas_limit_repr.cost
 
 val force_bytes : lazy_expr -> bytes tzresult
@@ -88,7 +107,7 @@ val is_unit_parameter : lazy_expr -> bool
 
 val strip_annotations : node -> node
 
-val strip_locations_cost : node -> Gas_limit_repr.cost
+val strip_locations_cost : _ michelson_node -> Gas_limit_repr.cost
 
 val strip_annotations_cost : node -> Gas_limit_repr.cost
 

@@ -54,8 +54,6 @@ end
 
 module Int31_index : sig
   include INDEX with type t = int
-
-  val encoding : int Data_encoding.t
 end = struct
   type t = int
 
@@ -74,8 +72,6 @@ end = struct
         encoding = Data_encoding.int31;
         compare = Compare.Int.compare;
       }
-
-  let encoding = Data_encoding.int31
 end
 
 module Make_index (H : Storage_description.INDEX) :
@@ -149,7 +145,7 @@ end
 
 type deposits = {initial_amount : Tez_repr.t; current_amount : Tez_repr.t}
 
-module Bonds = struct
+module Deposits = struct
   type t = deposits
 
   let encoding =
@@ -160,6 +156,19 @@ module Bonds = struct
       (obj2
          (req "initial_amount" Tez_repr.encoding)
          (req "actual_amount" Tez_repr.encoding))
+end
+
+type missed_endorsements_info = {remaining_slots : int; missed_levels : int}
+
+module Missed_endorsements_info = struct
+  type t = missed_endorsements_info
+
+  let encoding =
+    let open Data_encoding in
+    conv
+      (fun {remaining_slots; missed_levels} -> (remaining_slots, missed_levels))
+      (fun (remaining_slots, missed_levels) -> {remaining_slots; missed_levels})
+      (obj2 (req "remaining_slots" int31) (req "missed_levels" int31))
 end
 
 module Contract = struct
@@ -195,12 +204,12 @@ module Contract = struct
       end)
       (Tez_repr)
 
-  module Remaining_allowed_missed_slots =
+  module Missed_endorsements =
     Indexed_context.Make_map
       (struct
-        let name = ["remaining_allowed_missed_slots"]
+        let name = ["missed_endorsements"]
       end)
-      (Int31_index)
+      (Missed_endorsements_info)
 
   module Legacy_frozen_balance_index =
     Make_indexed_subcontext
@@ -382,9 +391,8 @@ module Contract = struct
     Indexed_context.Make_map
       (struct
         let name = ["frozen_deposits"]
-        (* named bond to avoid the clash with legacy_frozen_balance *)
       end)
-      (Bonds)
+      (Deposits)
 
   module Frozen_deposits_limit =
     Indexed_context.Make_map
@@ -997,7 +1005,7 @@ module Cycle = struct
   module Roll_snapshot_legacy =
     Indexed_context.Make_map
       (struct
-        let name = ["stake_snapshot"]
+        let name = ["roll_snapshot"]
       end)
       (Encoding.UInt16)
 
@@ -1492,6 +1500,12 @@ module Commitments =
 (** Ramp up rewards... *)
 
 module Ramp_up = struct
+  type reward = {
+    baking_reward_fixed_portion : Tez_repr.t;
+    baking_reward_bonus_per_slot : Tez_repr.t;
+    endorsing_reward_per_slot : Tez_repr.t;
+  }
+
   module Rewards =
     Make_indexed_data_storage
       (Make_subcontext (Registered) (Raw_context)
@@ -1500,14 +1514,31 @@ module Ramp_up = struct
          end))
          (Make_index (Cycle_repr.Index))
          (struct
-           type t = Tez_repr.t * Tez_repr.t * Tez_repr.t
+           type t = reward
 
            let encoding =
              Data_encoding.(
-               obj3
-                 (req "baking_reward_fixed_portion" Tez_repr.encoding)
-                 (req "baking_reward_bonus_per_slot" Tez_repr.encoding)
-                 (req "endorsing_reward_per_slot" Tez_repr.encoding))
+               conv
+                 (fun {
+                        baking_reward_fixed_portion;
+                        baking_reward_bonus_per_slot;
+                        endorsing_reward_per_slot;
+                      } ->
+                   ( baking_reward_fixed_portion,
+                     baking_reward_bonus_per_slot,
+                     endorsing_reward_per_slot ))
+                 (fun ( baking_reward_fixed_portion,
+                        baking_reward_bonus_per_slot,
+                        endorsing_reward_per_slot ) ->
+                   {
+                     baking_reward_fixed_portion;
+                     baking_reward_bonus_per_slot;
+                     endorsing_reward_per_slot;
+                   })
+                 (obj3
+                    (req "baking_reward_fixed_portion" Tez_repr.encoding)
+                    (req "baking_reward_bonus_per_slot" Tez_repr.encoding)
+                    (req "endorsing_reward_per_slot" Tez_repr.encoding)))
          end)
 end
 
@@ -1582,4 +1613,31 @@ module Ticket_balance = struct
   module Index = Make_index (Script_expr_hash)
   module Table =
     Make_indexed_carbonated_data_storage (Sub_context) (Index) (Encoding.Z)
+end
+
+module Tx_rollup = struct
+  module Raw_context =
+    Make_subcontext (Registered) (Raw_context)
+      (struct
+        let name = ["tx_rollup"]
+      end)
+
+  module Indexed_context =
+    Make_indexed_subcontext
+      (Make_subcontext (Registered) (Raw_context)
+         (struct
+           let name = ["index"]
+         end))
+         (Make_index (Tx_rollup_repr.Index))
+
+  module State =
+    Indexed_context.Make_map
+      (struct
+        let name = ["state"]
+      end)
+      (struct
+        type t = Tx_rollup_repr.state
+
+        let encoding = Tx_rollup_repr.state_encoding
+      end)
 end

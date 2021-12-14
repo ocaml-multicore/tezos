@@ -86,22 +86,21 @@ module Raw_consensus = struct
         (** Record the preendorsements already seen. Only initial slots
             are indexed. *)
     locked_round_evidence : (Round_repr.t * int) option;
-        (** Associate for each round the [payload_hashes] seen and how
-            many people have seen it. *)
+        (** Record the preendorsement power for a locked round. *)
     preendorsements_quorum_round : Round_repr.t option;
-        (** If there is a predeensorement quorum, record the round
-            associate with the quorum. *)
+        (** in block construction mode, record the round of preendorsements
+            included in a block. *)
     endorsement_branch : (Block_hash.t * Block_payload_hash.t) option;
     grand_parent_branch : (Block_hash.t * Block_payload_hash.t) option;
   }
 
   (** Invariant:
 
-      - If [i \in endorsements_seen => \exists data, Int_map.find_opt allowed_endorsements i = Some data]
+      - [slot \in endorsements_seen => Int_map.mem slot allowed_endorsements]
 
-      - If [i \in preendorsements_seen => \exists data, Int_map.find_opt allowed_preendorsements i = Some data]
+      - [slot \in preendorsements_seen => Int_map.mem slot allowed_preendorsements]
 
-      - If [i \in endorsements_seen => included_endorsements > 0]
+      - [ |endorsements_seen| > 0 => |included endorsements| > 0]
 
   *)
 
@@ -207,12 +206,13 @@ end
 type back = {
   context : Context.t;
   constants : Constants_repr.parametric;
+  round_durations : Round_repr.Durations.t;
   cycle_eras : Level_repr.cycle_eras;
   level : Level_repr.t;
   predecessor_timestamp : Time.t;
   timestamp : Time.t;
   fees : Tez_repr.t;
-  origination_nonce : Contract_repr.origination_nonce option;
+  origination_nonce : Origination_nonce.t option;
   temporary_lazy_storage_ids : Lazy_storage_kind.Temp_ids.t;
   internal_nonce : int;
   internal_nonces_used : Int_set.t;
@@ -255,6 +255,8 @@ let[@inline] current_level ctxt = ctxt.back.level
 let[@inline] predecessor_timestamp ctxt = ctxt.back.predecessor_timestamp
 
 let[@inline] current_timestamp ctxt = ctxt.back.timestamp
+
+let[@inline] round_durations ctxt = ctxt.back.round_durations
 
 let[@inline] cycle_eras ctxt = ctxt.back.cycle_eras
 
@@ -414,9 +416,7 @@ let () =
     (fun () -> Undefined_operation_nonce)
 
 let init_origination_nonce ctxt operation_hash =
-  let origination_nonce =
-    Some (Contract_repr.initial_origination_nonce operation_hash)
-  in
+  let origination_nonce = Some (Origination_nonce.initial operation_hash) in
   update_origination_nonce ctxt origination_nonce
 
 let increment_origination_nonce ctxt =
@@ -424,7 +424,7 @@ let increment_origination_nonce ctxt =
   | None -> error Undefined_operation_nonce
   | Some cur_origination_nonce ->
       let origination_nonce =
-        Some (Contract_repr.incr_origination_nonce cur_origination_nonce)
+        Some (Origination_nonce.incr cur_origination_nonce)
       in
       let ctxt = update_origination_nonce ctxt origination_nonce in
       ok (ctxt, cur_origination_nonce)
@@ -730,6 +730,10 @@ let prepare ~level ~predecessor_timestamp ~timestamp ctxt =
   Raw_level_repr.of_int32 level >>?= fun level ->
   check_inited ctxt >>=? fun () ->
   get_constants ctxt >>=? fun constants ->
+  Round_repr.Durations.create
+    ~first_round_duration:constants.minimal_block_delay
+    ~delay_increment_per_round:constants.delay_increment_per_round
+  >>?= fun round_durations ->
   get_cycle_eras ctxt >|=? fun cycle_eras ->
   check_cycle_eras cycle_eras constants ;
   let level = Level_repr.from_raw ~cycle_eras level in
@@ -742,6 +746,7 @@ let prepare ~level ~predecessor_timestamp ~timestamp ctxt =
         level;
         predecessor_timestamp;
         timestamp;
+        round_durations;
         cycle_eras;
         fees = Tez_repr.zero;
         origination_nonce = None;
@@ -825,12 +830,27 @@ let prepare_first_block ~level ~timestamp ctxt =
       add_constants ctxt param.constants >|= ok
   | Hangzhou_011 ->
       get_previous_protocol_constants ctxt >>= fun c ->
-      let block_time = 30 in
-      Round_repr.Durations.create
-        ~round0:(Period_repr.of_seconds_exn (Int64.of_int block_time))
-        ~round1:(Period_repr.of_seconds_exn 45L)
-        ()
-      >>?= fun round_durations ->
+      let minimal_block_delay = c.minimal_block_delay in
+      let minimal_block_delay_s = Period_repr.to_seconds minimal_block_delay in
+      (if Compare.Int64.(minimal_block_delay_s = 30L) then
+       (* that's the mainnet value of the constant; so we're
+          probably on the mainnet: do no inherit this constant's
+          value (as done in the else case below) *)
+       Period_repr.of_seconds 15L
+      else
+        match c.time_between_blocks with
+        | first_time_between_blocks :: _ ->
+            let delay_increment_per_round_s =
+              let m =
+                Int64.sub
+                  (Period_repr.to_seconds first_time_between_blocks)
+                  minimal_block_delay_s
+              in
+              if Compare.Int64.(m < 1L) then 1L else m
+            in
+            Period_repr.of_seconds delay_increment_per_round_s
+        | [] -> ok minimal_block_delay)
+      >>?= fun delay_increment_per_round ->
       let constants =
         let consensus_committee_size = 7000 in
         let Constants_repr.Generated.
@@ -842,7 +862,8 @@ let prepare_first_block ~level ~timestamp ctxt =
               } =
           Constants_repr.Generated.generate
             ~consensus_committee_size
-            ~blocks_per_minute:(60 / block_time)
+            ~blocks_per_minute:
+              {numerator = 60; denominator = Int64.to_int minimal_block_delay_s}
         in
         Constants_repr.
           {
@@ -854,8 +875,10 @@ let prepare_first_block ~level ~timestamp ctxt =
             hard_gas_limit_per_operation = c.hard_gas_limit_per_operation;
             hard_gas_limit_per_block = c.hard_gas_limit_per_block;
             proof_of_work_threshold = c.proof_of_work_threshold;
-            tokens_per_roll = c.tokens_per_roll;
-            (* NB: it will still during the migration, but a bit later *)
+            tokens_per_roll =
+              (* NB: the old value is used during the migration, and
+                 changed to a new value there *)
+              c.tokens_per_roll;
             seed_nonce_revelation_tip = c.seed_nonce_revelation_tip;
             origination_size = c.origination_size;
             (* Same value as in the previous protocol. *)
@@ -872,12 +895,12 @@ let prepare_first_block ~level ~timestamp ctxt =
             liquidity_baking_subsidy = c.liquidity_baking_subsidy;
             liquidity_baking_sunset_level =
               (* preserve a lower level for testnets *)
-              (if Compare.Int32.(c.liquidity_baking_sunset_level = 2_032_928l)
-              then 2_244_609l
+              (if Compare.Int32.(c.liquidity_baking_sunset_level = 2_244_609l)
+              then 3_063_809l
               else c.liquidity_baking_sunset_level);
-            liquidity_baking_escape_ema_threshold =
-              c.liquidity_baking_escape_ema_threshold;
-            round_durations;
+            liquidity_baking_escape_ema_threshold = 666_667l;
+            minimal_block_delay;
+            delay_increment_per_round;
             consensus_committee_size;
             consensus_threshold;
             minimal_participation_ratio = {numerator = 2; denominator = 3};
@@ -887,6 +910,9 @@ let prepare_first_block ~level ~timestamp ctxt =
             ratio_of_frozen_deposits_slashed_per_double_endorsement =
               {numerator = 1; denominator = 2};
             delegate_selection = Random;
+            tx_rollup_enable = false;
+            (* TODO: https://gitlab.com/tezos/tezos/-/issues/2152 *)
+            tx_rollup_origination_size = 60_000;
           }
       in
       add_constants ctxt constants >>= fun ctxt -> return ctxt)
@@ -991,7 +1017,8 @@ let add_or_remove_tree ctxt k = function
 
 let list ctxt ?offset ?length k = Context.list (context ctxt) ?offset ?length k
 
-let fold ?depth ctxt k ~init ~f = Context.fold ?depth (context ctxt) k ~init ~f
+let fold ?depth ctxt k ~order ~init ~f =
+  Context.fold ?depth (context ctxt) k ~order ~init ~f
 
 module Tree :
   Raw_context_intf.TREE
@@ -1117,11 +1144,10 @@ let non_consensus_operations ctxt = List.rev (non_consensus_operations ctxt)
 
 let set_sampler_for_cycle ctxt cycle sampler_with_seed =
   let map = sampler_state ctxt in
-  match Cycle_repr.Map.find cycle map with
-  | None ->
-      let map = Cycle_repr.Map.add cycle sampler_with_seed map in
-      Ok (update_sampler_state ctxt map)
-  | Some _ -> Error `Sampler_already_set
+  if Cycle_repr.Map.mem cycle map then Error `Sampler_already_set
+  else
+    let map = Cycle_repr.Map.add cycle sampler_with_seed map in
+    Ok (update_sampler_state ctxt map)
 
 let sampler_for_cycle ctxt cycle =
   let map = sampler_state ctxt in

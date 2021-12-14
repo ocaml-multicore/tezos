@@ -29,6 +29,7 @@ module CamlinternalFormatBasics = struct include CamlinternalFormatBasics end
  (targets registerer.ml)
  (deps
    misc.mli misc.ml
+   non_empty_string.mli non_empty_string.ml
    path_encoding.mli path_encoding.ml
    storage_description.mli storage_description.ml
    state_hash.mli state_hash.ml
@@ -37,6 +38,7 @@ module CamlinternalFormatBasics = struct include CamlinternalFormatBasics end
    contract_hash.mli contract_hash.ml
    blinded_public_key_hash.mli blinded_public_key_hash.ml
    block_payload_hash.mli block_payload_hash.ml
+   origination_nonce.mli origination_nonce.ml
    slot_repr.mli slot_repr.ml
    tez_repr.mli tez_repr.ml
    period_repr.mli period_repr.ml
@@ -61,6 +63,7 @@ module CamlinternalFormatBasics = struct include CamlinternalFormatBasics end
    script_repr.mli script_repr.ml
    cache_memory_helpers.ml
    contract_repr.mli contract_repr.ml
+   tx_rollup_repr.mli tx_rollup_repr.ml
    roll_repr_legacy.mli roll_repr_legacy.ml
    vote_repr.mli vote_repr.ml
    block_header_repr.mli block_header_repr.ml
@@ -108,14 +111,16 @@ module CamlinternalFormatBasics = struct include CamlinternalFormatBasics end
    sapling_validator.ml
    global_constants_costs.mli global_constants_costs.ml
    global_constants_storage.mli global_constants_storage.ml
+   tx_rollup_storage.mli tx_rollup_storage.ml
    alpha_context.mli alpha_context.ml
    local_gas_counter.ml
+   gas_monad.mli gas_monad.ml
    script_tc_errors.ml
+   script_ir_annot.mli script_ir_annot.ml
    script_typed_ir.mli script_typed_ir.ml
    script_typed_ir_size.mli script_typed_ir_size.ml
    script_typed_ir_size_costs.mli script_typed_ir_size_costs.ml
    michelson_v1_gas.mli michelson_v1_gas.ml
-   script_ir_annot.mli script_ir_annot.ml
    script_list.mli script_list.ml
    script_comparable.mli script_comparable.ml
    script_set.mli script_set.ml
@@ -138,6 +143,7 @@ module CamlinternalFormatBasics = struct include CamlinternalFormatBasics end
    contract_services.mli contract_services.ml
    delegate_services.mli delegate_services.ml
    voting_services.mli voting_services.ml
+   tx_rollup_services.mli tx_rollup_services.ml
    alpha_services.mli alpha_services.ml
    main.mli main.ml
    (:src_dir TEZOS_PROTOCOL))
@@ -149,6 +155,7 @@ module CamlinternalFormatBasics = struct include CamlinternalFormatBasics end
  (targets functor.ml)
  (deps
    misc.mli misc.ml
+   non_empty_string.mli non_empty_string.ml
    path_encoding.mli path_encoding.ml
    storage_description.mli storage_description.ml
    state_hash.mli state_hash.ml
@@ -157,6 +164,7 @@ module CamlinternalFormatBasics = struct include CamlinternalFormatBasics end
    contract_hash.mli contract_hash.ml
    blinded_public_key_hash.mli blinded_public_key_hash.ml
    block_payload_hash.mli block_payload_hash.ml
+   origination_nonce.mli origination_nonce.ml
    slot_repr.mli slot_repr.ml
    tez_repr.mli tez_repr.ml
    period_repr.mli period_repr.ml
@@ -181,6 +189,7 @@ module CamlinternalFormatBasics = struct include CamlinternalFormatBasics end
    script_repr.mli script_repr.ml
    cache_memory_helpers.ml
    contract_repr.mli contract_repr.ml
+   tx_rollup_repr.mli tx_rollup_repr.ml
    roll_repr_legacy.mli roll_repr_legacy.ml
    vote_repr.mli vote_repr.ml
    block_header_repr.mli block_header_repr.ml
@@ -228,14 +237,16 @@ module CamlinternalFormatBasics = struct include CamlinternalFormatBasics end
    sapling_validator.ml
    global_constants_costs.mli global_constants_costs.ml
    global_constants_storage.mli global_constants_storage.ml
+   tx_rollup_storage.mli tx_rollup_storage.ml
    alpha_context.mli alpha_context.ml
    local_gas_counter.ml
+   gas_monad.mli gas_monad.ml
    script_tc_errors.ml
+   script_ir_annot.mli script_ir_annot.ml
    script_typed_ir.mli script_typed_ir.ml
    script_typed_ir_size.mli script_typed_ir_size.ml
    script_typed_ir_size_costs.mli script_typed_ir_size_costs.ml
    michelson_v1_gas.mli michelson_v1_gas.ml
-   script_ir_annot.mli script_ir_annot.ml
    script_list.mli script_list.ml
    script_comparable.mli script_comparable.ml
    script_set.mli script_set.ml
@@ -258,6 +269,7 @@ module CamlinternalFormatBasics = struct include CamlinternalFormatBasics end
    contract_services.mli contract_services.ml
    delegate_services.mli delegate_services.ml
    voting_services.mli voting_services.ml
+   tx_rollup_services.mli tx_rollup_services.ml
    alpha_services.mli alpha_services.ml
    main.mli main.ml
    (:src_dir TEZOS_PROTOCOL))
@@ -269,6 +281,7 @@ module CamlinternalFormatBasics = struct include CamlinternalFormatBasics end
  (targets protocol.ml)
  (deps
    misc.mli misc.ml
+   non_empty_string.mli non_empty_string.ml
    path_encoding.mli path_encoding.ml
    storage_description.mli storage_description.ml
    state_hash.mli state_hash.ml
@@ -277,6 +290,7 @@ module CamlinternalFormatBasics = struct include CamlinternalFormatBasics end
    contract_hash.mli contract_hash.ml
    blinded_public_key_hash.mli blinded_public_key_hash.ml
    block_payload_hash.mli block_payload_hash.ml
+   origination_nonce.mli origination_nonce.ml
    slot_repr.mli slot_repr.ml
    tez_repr.mli tez_repr.ml
    period_repr.mli period_repr.ml
@@ -301,6 +315,7 @@ module CamlinternalFormatBasics = struct include CamlinternalFormatBasics end
    script_repr.mli script_repr.ml
    cache_memory_helpers.ml
    contract_repr.mli contract_repr.ml
+   tx_rollup_repr.mli tx_rollup_repr.ml
    roll_repr_legacy.mli roll_repr_legacy.ml
    vote_repr.mli vote_repr.ml
    block_header_repr.mli block_header_repr.ml
@@ -348,14 +363,16 @@ module CamlinternalFormatBasics = struct include CamlinternalFormatBasics end
    sapling_validator.ml
    global_constants_costs.mli global_constants_costs.ml
    global_constants_storage.mli global_constants_storage.ml
+   tx_rollup_storage.mli tx_rollup_storage.ml
    alpha_context.mli alpha_context.ml
    local_gas_counter.ml
+   gas_monad.mli gas_monad.ml
    script_tc_errors.ml
+   script_ir_annot.mli script_ir_annot.ml
    script_typed_ir.mli script_typed_ir.ml
    script_typed_ir_size.mli script_typed_ir_size.ml
    script_typed_ir_size_costs.mli script_typed_ir_size_costs.ml
    michelson_v1_gas.mli michelson_v1_gas.ml
-   script_ir_annot.mli script_ir_annot.ml
    script_list.mli script_list.ml
    script_comparable.mli script_comparable.ml
    script_set.mli script_set.ml
@@ -378,6 +395,7 @@ module CamlinternalFormatBasics = struct include CamlinternalFormatBasics end
    contract_services.mli contract_services.ml
    delegate_services.mli delegate_services.ml
    voting_services.mli voting_services.ml
+   tx_rollup_services.mli tx_rollup_services.ml
    alpha_services.mli alpha_services.ml
    main.mli main.ml)
  (action
@@ -411,6 +429,7 @@ include Tezos_raw_protocol_alpha.Main
                    -open Error_monad))
  (modules
    Misc
+   Non_empty_string
    Path_encoding
    Storage_description
    State_hash
@@ -419,6 +438,7 @@ include Tezos_raw_protocol_alpha.Main
    Contract_hash
    Blinded_public_key_hash
    Block_payload_hash
+   Origination_nonce
    Slot_repr
    Tez_repr
    Period_repr
@@ -443,6 +463,7 @@ include Tezos_raw_protocol_alpha.Main
    Script_repr
    Cache_memory_helpers
    Contract_repr
+   Tx_rollup_repr
    Roll_repr_legacy
    Vote_repr
    Block_header_repr
@@ -490,14 +511,16 @@ include Tezos_raw_protocol_alpha.Main
    Sapling_validator
    Global_constants_costs
    Global_constants_storage
+   Tx_rollup_storage
    Alpha_context
    Local_gas_counter
+   Gas_monad
    Script_tc_errors
+   Script_ir_annot
    Script_typed_ir
    Script_typed_ir_size
    Script_typed_ir_size_costs
    Michelson_v1_gas
-   Script_ir_annot
    Script_list
    Script_comparable
    Script_set
@@ -520,6 +543,7 @@ include Tezos_raw_protocol_alpha.Main
    Contract_services
    Delegate_services
    Voting_services
+   Tx_rollup_services
    Alpha_services
    Main))
 
@@ -572,6 +596,7 @@ include Tezos_raw_protocol_alpha.Main
  (alias runtest_compile_protocol)
  (deps
    misc.mli misc.ml
+   non_empty_string.mli non_empty_string.ml
    path_encoding.mli path_encoding.ml
    storage_description.mli storage_description.ml
    state_hash.mli state_hash.ml
@@ -580,6 +605,7 @@ include Tezos_raw_protocol_alpha.Main
    contract_hash.mli contract_hash.ml
    blinded_public_key_hash.mli blinded_public_key_hash.ml
    block_payload_hash.mli block_payload_hash.ml
+   origination_nonce.mli origination_nonce.ml
    slot_repr.mli slot_repr.ml
    tez_repr.mli tez_repr.ml
    period_repr.mli period_repr.ml
@@ -604,6 +630,7 @@ include Tezos_raw_protocol_alpha.Main
    script_repr.mli script_repr.ml
    cache_memory_helpers.ml
    contract_repr.mli contract_repr.ml
+   tx_rollup_repr.mli tx_rollup_repr.ml
    roll_repr_legacy.mli roll_repr_legacy.ml
    vote_repr.mli vote_repr.ml
    block_header_repr.mli block_header_repr.ml
@@ -651,14 +678,16 @@ include Tezos_raw_protocol_alpha.Main
    sapling_validator.ml
    global_constants_costs.mli global_constants_costs.ml
    global_constants_storage.mli global_constants_storage.ml
+   tx_rollup_storage.mli tx_rollup_storage.ml
    alpha_context.mli alpha_context.ml
    local_gas_counter.ml
+   gas_monad.mli gas_monad.ml
    script_tc_errors.ml
+   script_ir_annot.mli script_ir_annot.ml
    script_typed_ir.mli script_typed_ir.ml
    script_typed_ir_size.mli script_typed_ir_size.ml
    script_typed_ir_size_costs.mli script_typed_ir_size_costs.ml
    michelson_v1_gas.mli michelson_v1_gas.ml
-   script_ir_annot.mli script_ir_annot.ml
    script_list.mli script_list.ml
    script_comparable.mli script_comparable.ml
    script_set.mli script_set.ml
@@ -681,6 +710,7 @@ include Tezos_raw_protocol_alpha.Main
    contract_services.mli contract_services.ml
    delegate_services.mli delegate_services.ml
    voting_services.mli voting_services.ml
+   tx_rollup_services.mli tx_rollup_services.ml
    alpha_services.mli alpha_services.ml
    main.mli main.ml
   (:src_dir TEZOS_PROTOCOL))

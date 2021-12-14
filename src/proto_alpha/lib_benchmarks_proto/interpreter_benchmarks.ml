@@ -983,6 +983,34 @@ module Registration_section = struct
                k = halt_unit;
              })
         ()
+
+    let () =
+      benchmark_with_fixed_stack
+        ~name:Interpreter_workload.N_IOpt_map
+        ~salt:"none"
+        ~stack:(None, ((), eos))
+        ~kinstr:
+          (IOpt_map
+             {
+               kinfo = kinfo (option unit @$ unit @$ bot);
+               body = halt_unitunit;
+               k = halt (option unit @$ unit @$ bot);
+             })
+        ()
+
+    let () =
+      benchmark_with_fixed_stack
+        ~name:Interpreter_workload.N_IOpt_map
+        ~salt:"some"
+        ~stack:(Some (), ((), eos))
+        ~kinstr:
+          (IOpt_map
+             {
+               kinfo = kinfo (option unit @$ unit @$ bot);
+               body = halt_unitunit;
+               k = halt (option unit @$ unit @$ bot);
+             })
+        ()
   end
 
   module Unions = struct
@@ -1716,6 +1744,8 @@ module Registration_section = struct
     let () =
       simple_benchmark_with_stack_sampler
         ~name:Interpreter_workload.N_IEdiv_teznat
+        ~intercept_stack:
+          (Alpha_context.Tez.zero, (Alpha_context.Script_int.zero_n, eos))
         ~kinstr:
           (IEdiv_teznat
              ( kinfo (mutez @$ nat @$ bot),
@@ -1730,6 +1760,7 @@ module Registration_section = struct
     let () =
       simple_benchmark
         ~name:Interpreter_workload.N_IEdiv_tez
+        ~intercept_stack:(Alpha_context.Tez.zero, (Alpha_context.Tez.zero, eos))
         ~kinstr:
           (IEdiv_tez
              ( kinfo (mutez @$ mutez @$ bot),
@@ -2500,6 +2531,9 @@ module Registration_section = struct
       Registration_helpers.register (module B)
   end
 
+  (* when benchmarking, compile bls12-381-unix without ADX, see
+     https://gitlab.com/dannywillems/ocaml-bls12-381/-/blob/71d0b4d467fbfaa6452d702fcc408d7a70916a80/README.md#install
+  *)
   module Bls12_381 = struct
     let () =
       simple_benchmark
@@ -3090,6 +3124,16 @@ module Registration_section = struct
             let (key, map) = Maps.generate_map_and_key_in_map cfg rng_state in
             let cont = KMap_exit_body (kbody, [], map, key, KNil) in
             Ex_stack_and_cont {stack = ((), ((), eos)); cont})
+        ()
+
+    let () =
+      (* KMap_head -> KNil *)
+      continuation_benchmark
+        ~amplification:100
+        ~name:Interpreter_workload.N_KMap_head
+        ~cont_and_stack_sampler:(fun _cfg _rng_state () ->
+          let cont = KMap_head (Option.some, KNil) in
+          Ex_stack_and_cont {stack = ((), ((), eos)); cont})
         ()
   end
 end

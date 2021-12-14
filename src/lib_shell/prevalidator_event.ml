@@ -64,13 +64,13 @@ let unparsable_operation =
     ~level:Debug
     ("oph", Operation_hash.encoding)
 
-let processing_n_operations =
-  declare_1
+let processing_operations =
+  declare_0
     ~section
-    ~name:"processing_n_operations"
-    ~msg:"processing {count} operations"
+    ~name:"processing_operations"
+    ~msg:"processing operations"
     ~level:Debug
-    ("count", Data_encoding.int31)
+    ()
 
 let fetching_operation =
   declare_1
@@ -88,11 +88,11 @@ let operation_included =
     ~level:Debug
     ("oph", Operation_hash.encoding)
 
-let operations_not_flushed =
+let operations_to_reclassify =
   declare_1
     ~section
-    ~name:"operations_not_flushed"
-    ~msg:"{count} operations were not washed by the flush"
+    ~name:"operations_to_reclassify"
+    ~msg:"{count} operations set to be reeclassified after the flush"
     ~level:Debug
     ("count", Data_encoding.int31)
 

@@ -33,7 +33,12 @@ type expr = Michelson_v1_primitives.prim Micheline.canonical
 
 type lazy_expr = expr Data_encoding.lazy_t
 
-type node = (location, Michelson_v1_primitives.prim) Micheline.node
+type 'location michelson_node =
+  ('location, Michelson_v1_primitives.prim) Micheline.node
+
+type unlocated_michelson_node = unit michelson_node
+
+type node = location michelson_node
 
 let expr_encoding =
   Micheline.canonical_encoding
@@ -250,6 +255,30 @@ let force_decode_cost lexpr =
       deserialization_cost_estimated_from_bytes (Bytes.length b))
     ~fun_combine:(fun _ _ -> Gas_limit_repr.free)
     lexpr
+
+let stable_force_decode_cost lexpr =
+  let has_bytes =
+    Data_encoding.apply_lazy
+      ~fun_value:(fun v -> `Only_value v)
+      ~fun_bytes:(fun b -> `Has_bytes b)
+      ~fun_combine:(fun _v b ->
+        (* When the lazy_expr contains both a deserialized version
+           and a serialized one, we compute the cost from the
+           serialized version because its is cheaper to do. *)
+        b)
+      lexpr
+  in
+  match has_bytes with
+  | `Has_bytes b -> deserialization_cost_estimated_from_bytes (Bytes.length b)
+  | `Only_value v ->
+      (* This code path should not be reached in theory because values that are
+         decoded should have been encoded before.
+         Here we use Data_encoding.Binary.length, which yields the same results
+         as serializing the value and taking the size, without the need to
+         encode (in particular, less allocations).
+      *)
+      deserialization_cost_estimated_from_bytes
+        (Data_encoding.Binary.length expr_encoding v)
 
 let force_decode lexpr =
   match Data_encoding.force_decode lexpr with

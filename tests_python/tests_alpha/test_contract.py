@@ -180,7 +180,7 @@ class TestManager:
         new_balance = client.get_mutez_balance('manager')
         new_balance_dest = client.get_mutez_balance('manager2')
         new_balance_bootstrap = client.get_mutez_balance('bootstrap2')
-        fee = 0.000727
+        fee = 0.000787
         fee_mutez = utils.mutez_of_tez(fee)
         assert balance - amount_mutez == new_balance
         assert balance_dest + amount_mutez == new_balance_dest
@@ -378,17 +378,24 @@ class TestExecutionOrdering:
         assert client.get_storage(storer) == '"{}"'.format(expected)
 
 
-@pytest.mark.slow
 @pytest.mark.contract
-class TestContracts:
-    """Test type checking and execution of a bunch of contracts"""
+@pytest.mark.regression
+class TestTypecheck:
+    """Regression testing of Michelson typechecking"""
 
     @pytest.mark.parametrize("contract", all_contracts())
-    def test_typecheck(self, client: Client, contract):
+    def test_typecheck(self, client_regtest: Client, contract):
+        client = client_regtest
         assert contract.endswith(
             '.tz'
         ), "test contract should have .tz extension"
-        client.typecheck(os.path.join(CONTRACT_PATH, contract))
+        client.typecheck(os.path.join(CONTRACT_PATH, contract), details=True)
+
+
+@pytest.mark.slow
+@pytest.mark.contract
+class TestContracts:
+    """Test type checking errors"""
 
     @pytest.mark.parametrize("contract", all_legacy_contracts())
     def test_deprecated_typecheck_breaks(self, client, contract):
@@ -609,7 +616,7 @@ class TestContracts:
     def test_zero_transfer_to_implicit_contract(self, client):
         pubkey = IDENTITIES['bootstrap3']['identity']
         err = (
-            'Transaction of 0ꜩ towards a contract without code are '
+            'Transactions of 0ꜩ towards a contract without code are '
             rf'forbidden \({pubkey}\).'
         )
         with utils.assert_run_failure(err):

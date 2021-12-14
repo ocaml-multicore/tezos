@@ -42,6 +42,7 @@ let migrate_to = Protocol.Alpha
    Each module defines tests which are thematically related,
    as functions to be called here. *)
 let () =
+  Cli.init () ;
   (* Tests that are relatively protocol-agnostic.
      We can run them on all protocols, or only one if the CI would be too slow. *)
   Baker_test.register ~protocols:[Alpha] ;
@@ -91,8 +92,20 @@ let () =
   (* Tests that are heavily protocol-dependent.
      Those modules define different tests for different protocols in their [register]. *)
   RPC_test.register () ;
+  Voting.register
+    ~from_protocol:Granada
+    ~to_protocol:(Known Hangzhou)
+    ~loser_protocols:[Alpha] ;
+  Voting.register
+    ~from_protocol:Granada
+    ~to_protocol:Injected_test
+    ~loser_protocols:[Alpha; Hangzhou] ;
   (* This file tests an RPC added in protocol G *)
   Big_map_all.register () ;
   Reject_malformed_micheline.register ~protocols:[Alpha] ;
+  Tx_rollup.register ~protocols:[Alpha] ;
+
+  Manager_operations.register ~protocols ;
+  Replace_by_fees.register ~protocols:[Alpha] ;
   (* Test.run () should be the last statement, don't register afterwards! *)
   Test.run ()

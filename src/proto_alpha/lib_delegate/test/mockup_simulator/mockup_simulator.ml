@@ -36,8 +36,7 @@ type chain = block list
    wrapped into this type. *)
 type broadcast =
   | Broadcast_block of Block_hash.t * Block_header.t * Operation.t list list
-  | Broadcast_op of
-      Operation_hash.t * Tezos_raw_protocol_alpha.Alpha_context.packed_operation
+  | Broadcast_op of Operation_hash.t * Alpha_context.packed_operation
 
 (** The state of a mockup node. *)
 type state = {
@@ -114,10 +113,8 @@ module type Hooks = sig
     (Block_hash.t * Block_header.t) option Lwt.t
 
   val on_new_operation :
-    Operation_hash.t * Tezos_raw_protocol_alpha.Alpha_context.packed_operation ->
-    (Operation_hash.t * Tezos_raw_protocol_alpha.Alpha_context.packed_operation)
-    option
-    Lwt.t
+    Operation_hash.t * Alpha_context.packed_operation ->
+    (Operation_hash.t * Alpha_context.packed_operation) option Lwt.t
 
   val check_block_before_processing :
     level:int32 ->
@@ -446,6 +443,8 @@ let make_mocked_services_hooks (state : state) (user_hooks : (module Hooks)) :
       in
       List.map_es lookup_head heads
 
+    let live_blocks block = live_blocks state block
+
     let raw_protocol_data block =
       locate_block state block >>=? fun x -> return x.raw_protocol_data
   end in
@@ -594,9 +593,7 @@ let rec process_block state block_hash (block_header : Block_header.t)
             List.map
               (fun (Operation.{shell; proto} as op) ->
                 let hash : Operation_hash.t = Operation.hash op in
-                let protocol_data :
-                    Tezos_raw_protocol_alpha.Alpha_context.packed_protocol_data
-                    =
+                let protocol_data : Alpha_context.packed_protocol_data =
                   Data_encoding.Binary.of_bytes_exn
                     Protocol.operation_data_encoding
                     proto
@@ -881,9 +878,9 @@ let make_genesis_context ~delegate_selection ~round0 ~round1
     let open Alpha_context in
     Stdlib.Option.get
       (Round.Durations.create_opt
-         ~round0:(Period.of_seconds_exn round0)
-         ~round1:(Period.of_seconds_exn round1)
-         ())
+         ~first_round_duration:(Period.of_seconds_exn round0)
+         ~delay_increment_per_round:
+           (Period.of_seconds_exn (Int64.sub round1 round0)))
   in
   let constants =
     {
@@ -891,7 +888,9 @@ let make_genesis_context ~delegate_selection ~round0 ~round1
       delegate_selection;
       consensus_committee_size;
       consensus_threshold;
-      round_durations;
+      minimal_block_delay = Alpha_context.Period.of_seconds_exn (max 1L round0);
+      delay_increment_per_round =
+        Alpha_context.Period.of_seconds_exn Int64.(max 1L (sub round1 round0));
     }
   in
   let common_parameters =
@@ -945,7 +944,7 @@ let make_genesis_context ~delegate_selection ~round0 ~round1
     in
     return (block_header, rpc_context)
   in
-  let round_durations = constants.round_durations in
+
   let level0_round0_duration =
     Protocol.Alpha_context.Round.round_duration
       round_durations
@@ -1004,18 +1003,16 @@ type config = {
 let default_config =
   {
     debug = false;
-    round0 = 3L;
+    round0 = 2L;
     (* Rounds should be long enough for the bakers to
        exchange all the necessary messages. *)
     round1 = 3L (* No real need to increase round durations. *);
     timeout = 10;
     delegate_selection = Random;
     consensus_committee_size =
-      Tezos_protocol_alpha_parameters.Default_parameters.constants_mainnet
-        .consensus_committee_size;
+      Default_parameters.constants_mainnet.consensus_committee_size;
     consensus_threshold =
-      Tezos_protocol_alpha_parameters.Default_parameters.constants_mainnet
-        .consensus_threshold;
+      Default_parameters.constants_mainnet.consensus_threshold;
   }
 
 let make_baking_delegate

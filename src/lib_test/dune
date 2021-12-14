@@ -7,6 +7,11 @@
   fmt
   qcheck-alcotest
   alcotest
-  alcotest-lwt
+  lwt
   pure-splitmix)
+ (js_of_ocaml)
  (flags (:standard -linkall)))
+
+;; This rule is necessary for `make lint-tests-pkg`, without it dune
+;; complains that the alias is empty
+(rule (alias runtest_js) (action progn))

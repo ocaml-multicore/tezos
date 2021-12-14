@@ -117,7 +117,8 @@ let endorse (cctxt : Protocol_client_context.full) ?(force = false) delegates =
 
 let bake_at_next_level state =
   let cctxt = state.global_state.cctxt in
-  Baking_scheduling.compute_next_potential_baking_time state >>= function
+  Baking_scheduling.compute_next_potential_baking_time_at_next_level state
+  >>= function
   | None -> cctxt#error "No baking slot found for the delegates"
   | Some (timestamp, round) ->
       cctxt#message
@@ -250,7 +251,7 @@ let endorsement_quorum state =
   if
     Compare.Int.(
       power >= state.global_state.constants.parametric.consensus_threshold)
-  then Some endorsements
+  then Some (power, endorsements)
   else None
 
 (* Here's the sketch of the algorithm:
@@ -283,7 +284,7 @@ let propose (cctxt : Protocol_client_context.full) ?minimal_fees
   | Some _ -> propose_at_next_level ~minimal_timestamp state
   | None -> (
       match endorsement_quorum state with
-      | Some endorsement_qc ->
+      | Some (voting_power, endorsement_qc) ->
           let state =
             {
               state with
@@ -304,7 +305,8 @@ let propose (cctxt : Protocol_client_context.full) ?minimal_fees
           in
           State_transitions.step
             state
-            (Baking_state.Quorum_reached (candidate, endorsement_qc))
+            (Baking_state.Quorum_reached
+               (candidate, voting_power, endorsement_qc))
           >>= do_action
           (* this will register the elected block *)
           >>=? fun state -> propose_at_next_level ~minimal_timestamp state
@@ -461,7 +463,6 @@ let bake (cctxt : Protocol_client_context.full) ?minimal_fees
     ?minimal_nanotez_per_gas_unit ?minimal_nanotez_per_byte ?force
     ?(minimal_timestamp = false) ?mempool ?monitor_node_mempool ?context_path
     delegates =
-  (* Operation_worker.Mempool.retrieve cctxt mempool >>= fun initial_mempool -> *)
   let config =
     let initial_mempool = mempool in
     Baking_configuration.make

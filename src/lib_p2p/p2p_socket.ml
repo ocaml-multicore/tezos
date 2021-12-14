@@ -332,7 +332,7 @@ let nack {scheduled_conn; cryptobox_data; info} motive
    whether we're trying to connect to a peer or checking an incoming
    connection, both parties must first introduce themselves. *)
 let authenticate ~canceler ~proof_of_work_target ~incoming scheduled_conn
-    ((remote_addr, remote_socket_port) as point) ?listening_port identity
+    ((remote_addr, remote_socket_port) as point) ?advertised_port identity
     announced_version metadata_config =
   let local_nonce_seed = Crypto_box.random_nonce () in
   Events.(emit sending_authentication) point >>= fun () ->
@@ -343,7 +343,7 @@ let authenticate ~canceler ~proof_of_work_target ~incoming scheduled_conn
       public_key = identity.P2p_identity.public_key;
       proof_of_work_stamp = identity.proof_of_work_stamp;
       message_nonce = local_nonce_seed;
-      port = listening_port;
+      port = advertised_port;
       version = announced_version;
     }
   >>=? fun sent_msg ->
@@ -417,7 +417,7 @@ module Reader = struct
 
   let read_message st init =
     let rec loop status =
-      Lwt_unix.yield () >>= fun () ->
+      Lwt.pause () >>= fun () ->
       let open Data_encoding.Binary in
       match status with
       | Success {result; size; stream} -> return (result, size, stream)
@@ -517,7 +517,7 @@ module Writer = struct
     | Ok bytes -> ok (Utils.cut st.binary_chunks_size bytes)
 
   let rec worker_loop st =
-    Lwt_unix.yield () >>= fun () ->
+    Lwt.pause () >>= fun () ->
     protect ~canceler:st.canceler (fun () ->
         Lwt_pipe.Maybe_bounded.pop st.messages >>= return)
     >>= function

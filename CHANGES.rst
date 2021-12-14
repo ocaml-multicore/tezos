@@ -23,6 +23,15 @@ be documented here either.
 Node
 ----
 
+- UNIX errors are now displayed using human-friendly English instead of error codes.
+
+- Manager operations do no longer need to be executed before being
+  propagated over the network. This feature will be available from
+  protocol `I`, provided the latter is activated. The aim is to
+  increase the throughput of transactions gossiped over the network,
+  while reducing the load on the Octez node's prevalidator
+  (aka the mempool).
+
 - The following RPCs output format changed:
   1. ``/workers/block_validator``,
   2. ``/workers/chain_validators``,
@@ -93,8 +102,34 @@ Node
   fields can be used to override the values normally returned by the
   ``NOW`` and ``LEVEL`` instructions.
 
+- Add a new CLI & config option ``advertised-net-port``.
+
+- Added an optional ``show_types`` field in the input of the
+  ``/chains/<chain_id>/blocks/<block>/helpers/scripts/typecheck_code``
+  RPC. When this field is set to ``false``, type checking details are
+  omitted. This can be used to improve the performances of this RPC.
+
+- Fix the comparison operator of history modes to avoid considering
+  the default history modes as not equal to an history mode manually
+  set to the same default value.
+
+- The prevalidator (which handles operations which have been received but not
+  yet included in a block) was made more restrictive: it now accepts a single
+  manager operation from a given manager for a given block. This limitation
+  was already present implicitely if you were using the `tezos-client` commands.
+  Batches of operations can be used to get around this restriction, see the
+  `multiple transfers` command to learn more. In addition, operations
+  rejected because of this limitation are solely delayed to a future block.
+
+-  Removed support for store versions 0.0.4 (used by Octez 9.7) or below.
+   It is no longer possible to run ``tezos-node upgrade storage`` to upgrade
+   from those older versions. It is also no longer possible to import
+   snapshots that were exported using this version.
+
 Client
 ------
+
+- Expanded the number of product ids searched with the HID API when looking for a ledger device.
 
 - Added an optional parameter ``media-type`` for the "accept" header for RPC requests to the node.
   The media accept header indicates to the node which format of data serialisation is supported.
@@ -105,6 +140,7 @@ Client
   code. These options can be used to override the values normally
   returned by the ``NOW`` and ``LEVEL`` instructions.
 
+- The output of ``tezos-client``'s RPC commands now uses the format specified by the ``--media-type``.
 
 Baker / Endorser / Accuser
 --------------------------
@@ -136,6 +172,20 @@ Miscellaneous
 
 -  Added specific documentation pages about logging for users and
    developers.
+
+-  Some RPC entry points are stricter about their inputs. Specifically, some
+   RPCs where only positive integers would make sense will now error when
+   provided negative values (instead of, e.g., returning empty results).
+
+-  Added diffing functionality to the Micheline library. It allows to compare
+   Micheline expressions whose primitives are ``strings``. The difference is
+   returned as another Micheline expression annotated appropriately in places
+   where compared values differ.
+
+Version 11.0
+============
+
+No changes compared to 11.0~rc2.
 
 Version 11.0~rc2
 ================

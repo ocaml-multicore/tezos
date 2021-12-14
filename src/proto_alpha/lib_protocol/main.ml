@@ -286,8 +286,9 @@ let begin_construction ~chain_id ~predecessor_context:ctxt
   | Some proto_header ->
       Alpha_context.Fitness.round_from_raw predecessor_fitness
       >>?= fun predecessor_round ->
+      let round_durations = Alpha_context.Constants.round_durations ctxt in
       Alpha_context.Round.round_of_timestamp
-        (Alpha_context.Constants.round_durations ctxt)
+        round_durations
         ~predecessor_timestamp
         ~predecessor_round
         ~timestamp
@@ -803,5 +804,19 @@ let value_of_key ~chain_id:_ ~predecessor_context:ctxt ~predecessor_timestamp
   let level = Int32.succ pred_level in
   Alpha_context.prepare ctxt ~level ~predecessor_timestamp ~timestamp
   >>=? fun (ctxt, _, _) -> return (Apply.value_of_key ctxt)
+
+let check_manager_signature {chain_id; ctxt; _} op raw_op =
+  Apply.check_manager_signature ctxt chain_id op raw_op
+
+let precheck_manager {ctxt; _} op =
+  (* We do not account for the gas limit of the batch in the block
+     since this function does not return a context, but we check that
+     this limit is within bounds (and fail otherwise with a
+     permanenent error). *)
+  Apply.precheck_manager_contents_list ctxt op ~mempool_mode:true
+  >|=? fun (_ :
+             Alpha_context.t
+             * 'kind Alpha_context.Kind.manager
+               Apply_results.prechecked_contents_list) -> ()
 
 (* Vanity nonce: TBD *)

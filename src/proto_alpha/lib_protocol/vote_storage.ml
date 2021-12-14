@@ -34,6 +34,7 @@ let record_proposal ctxt proposal proposer =
 let get_proposals ctxt =
   Storage.Vote.Proposals.fold
     ctxt
+    ~order:`Sorted
     ~init:(ok Protocol_hash.Map.empty)
     ~f:(fun (proposal, delegate) acc ->
       (* Assuming the same listings is used at votings *)
@@ -67,6 +68,7 @@ let record_ballot = Storage.Vote.Ballots.init
 let get_ballots ctxt =
   Storage.Vote.Ballots.fold
     ctxt
+    ~order:`Sorted
     ~f:(fun delegate ballot (ballots : ballots tzresult) ->
       (* Assuming the same listings is used at votings *)
       Storage.Vote.Listings.get ctxt delegate >>=? fun weight ->
@@ -90,13 +92,16 @@ let listings_encoding =
 
 let update_listings ctxt =
   Storage.Vote.Listings.clear ctxt >>= fun ctxt ->
-  Stake_storage.fold ctxt (ctxt, 0l) ~f:(fun (delegate, stake) (ctxt, total) ->
-      let tokens_per_roll = Constants_storage.tokens_per_roll ctxt in
+  let tokens_per_roll =
+    Tez_repr.to_mutez (Constants_storage.tokens_per_roll ctxt)
+  in
+  Stake_storage.fold
+    ctxt
+    (ctxt, 0l)
+    ~order:`Sorted
+    ~f:(fun (delegate, stake) (ctxt, total) ->
       let nb_rolls =
-        Int64.to_int32
-        @@ Int64.div
-             (Tez_repr.to_mutez stake)
-             (Tez_repr.to_mutez tokens_per_roll)
+        Int64.to_int32 @@ Int64.div (Tez_repr.to_mutez stake) tokens_per_roll
       in
       Storage.Vote.Listings.init ctxt delegate nb_rolls >|=? fun ctxt ->
       (ctxt, Int32.add total nb_rolls))

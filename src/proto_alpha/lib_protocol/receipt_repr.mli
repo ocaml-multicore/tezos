@@ -30,8 +30,8 @@ type balance =
   | Legacy_rewards of Signature.Public_key_hash.t * Cycle_repr.t
   | Block_fees
   | Legacy_deposits of Signature.Public_key_hash.t * Cycle_repr.t
-  | Bonds of Signature.Public_key_hash.t
-  | NonceRevelation_rewards
+  | Deposits of Signature.Public_key_hash.t
+  | Nonce_revelation_rewards
   | Double_signing_evidence_rewards
   | Endorsing_rewards
   | Baking_rewards
@@ -70,10 +70,11 @@ val compare_update_origin : update_origin -> update_origin -> int
     for baker [b] and cycle [c]. *)
 type balance_updates = (balance * balance_update * update_origin) list
 
+(** The property [Json.destruct (Json.construct balance_updates) = balance_updates]
+    does not always hold for [balance_updates_encoding] when [balance_updates]
+    contains entries of the form [(_, _ Tez_repr.zero, _)]. This is because the
+    [balance_update] [(_ Tez_repr.zero)] always decodes into [(Credited Tez_repr.zero)]. *)
 val balance_updates_encoding : balance_updates Data_encoding.t
-
-(** Remove zero-valued balances from a list of updates. *)
-val cleanup_balance_updates : balance_updates -> balance_updates
 
 (** Group updates by (balance x origin), and remove zero-valued balances. *)
 val group_balance_updates : balance_updates -> balance_updates tzresult

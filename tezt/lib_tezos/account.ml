@@ -24,26 +24,18 @@
 (*                                                                           *)
 (*****************************************************************************)
 
+type secret_key = Unencrypted of string
+
 type key = {
   alias : string;
   public_key_hash : string;
   public_key : string;
-  secret_key : string;
+  secret_key : secret_key;
 }
 
-let write_stresstest_sources_file (accounts : key list) =
-  let account_to_json (account : key) =
-    `O
-      [
-        ("pkh", `String account.public_key_hash);
-        ("pk", `String account.public_key);
-        ("sk", `String account.secret_key);
-      ]
+let sign_bytes ~watermark ~signer (message : Bytes.t) =
+  let (Unencrypted b58_secret_key) = signer.secret_key in
+  let secret_key =
+    Tezos_crypto.Signature.Secret_key.of_b58check_exn b58_secret_key
   in
-  let accounts_json_obj = `A (List.map account_to_json accounts) in
-  let sources = Temp.file "sources.json" in
-  let* () =
-    Lwt_io.with_file ~mode:Lwt_io.Output sources (fun oc ->
-        Lwt_io.fprintf oc "%s" @@ Ezjsonm.value_to_string accounts_json_obj)
-  in
-  return sources
+  Tezos_crypto.Signature.sign ~watermark secret_key message

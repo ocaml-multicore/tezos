@@ -113,9 +113,13 @@ let liquidity_baking_escape_ema_threshold c =
 
 let parametric c = Raw_context.constants c
 
-let round_durations c =
+let minimal_block_delay c =
   let constants = Raw_context.constants c in
-  constants.round_durations
+  constants.minimal_block_delay
+
+let delay_increment_per_round c =
+  let constants = Raw_context.constants c in
+  constants.delay_increment_per_round
 
 let consensus_committee_size c =
   let constants = Raw_context.constants c in
@@ -140,6 +144,14 @@ let frozen_deposits_percentage c =
 let double_baking_punishment c =
   let constants = Raw_context.constants c in
   constants.double_baking_punishment
+
+let tx_rollup_enable c =
+  let constants = Raw_context.constants c in
+  constants.tx_rollup_enable
+
+let tx_rollup_origination_size c =
+  let constants = Raw_context.constants c in
+  constants.tx_rollup_origination_size
 
 let ratio_of_frozen_deposits_slashed_per_double_endorsement c =
   let constants = Raw_context.constants c in

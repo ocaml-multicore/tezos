@@ -62,7 +62,7 @@ let typecheck_by_tezos =
     let ctxt = Incremental.alpha_ctxt vs in
     (* Required for eg Create_contract *)
     return
-    @@ Protocol.Alpha_context.Contract.init_origination_nonce
+    @@ Protocol.Alpha_context.Origination_nonce.init
          ctxt
          Tezos_crypto.Operation_hash.zero
   in

@@ -100,15 +100,19 @@ let test_valid_double_baking_evidence () =
   double_baking (B blk_a) blk_a.header blk_b.header |> fun operation ->
   Block.bake ~policy:(By_account baker2) ~operation blk_a >>=? fun blk_final ->
   (* Check that the frozen deposits are slashed *)
-  Context.Delegate.frozen_deposits (B blk_a) baker1
+  Context.Delegate.current_frozen_deposits (B blk_a) baker1
   >>=? fun frozen_deposits_before ->
-  Context.Delegate.frozen_deposits (B blk_final) baker1
+  Context.Delegate.current_frozen_deposits (B blk_final) baker1
   >>=? fun frozen_deposits_after ->
   let slashed_amount =
     Test_tez.(frozen_deposits_before -! frozen_deposits_after)
   in
   Assert.equal_tez ~loc:__LOC__ slashed_amount double_baking_punishment
-  >>=? fun () -> return_unit
+  >>=? fun () ->
+  (* Check that the initial frozen deposits has not changed *)
+  Context.Delegate.initial_frozen_deposits (B blk_final) baker1
+  >>=? fun initial_frozen_deposits ->
+  Assert.equal_tez ~loc:__LOC__ initial_frozen_deposits frozen_deposits_before
 
 (** Test that the payload producer of the block containing a double
    baking evidence (and not the block producer, if different) receives
@@ -151,9 +155,9 @@ let test_payload_producer_gets_evidence_rewards () =
     b1
   >>=? fun b' ->
   (* the frozen deposits of the double-signer [baker1] are slashed *)
-  Context.Delegate.frozen_deposits (B b1) baker1
+  Context.Delegate.current_frozen_deposits (B b1) baker1
   >>=? fun frozen_deposits_before ->
-  Context.Delegate.frozen_deposits (B b') baker1
+  Context.Delegate.current_frozen_deposits (B b') baker1
   >>=? fun frozen_deposits_after ->
   let slashed_amount =
     Test_tez.(frozen_deposits_before -! frozen_deposits_after)
@@ -247,6 +251,21 @@ let test_too_late_double_baking_evidence () =
       | Apply.Outdated_denunciation {kind = Block; _} -> true
       | _ -> false)
 
+(** Check that before [max_slashing_period * blocks_per_cycle] blocks
+   -- corresponding to 2 cycles --, it is still possible to create a
+   double baking operation. *)
+let test_just_in_time_double_baking_evidence () =
+  Context.init ~consensus_threshold:0 2 >>=? fun (b, contracts) ->
+  Context.get_constants (B b)
+  >>=? fun Constants.{parametric = {blocks_per_cycle; _}; _} ->
+  block_fork ~policy:(By_round 0) contracts b >>=? fun (blk_a, blk_b) ->
+  Block.bake_until_cycle_end blk_a >>=? fun blk ->
+  Block.bake_n Int32.(sub blocks_per_cycle 2l |> to_int) blk >>=? fun blk ->
+  let operation = double_baking (B blk) blk_a.header blk_b.header in
+  (* We include the denuncation in the previous to last block of the
+     cycle. *)
+  Block.bake ~operation blk >>=? fun _ -> return_unit
+
 (** Check that an invalid double baking evidence that exposes two
     block baking with same level made by different bakers fails. *)
 let test_different_delegates () =
@@ -333,6 +352,10 @@ let tests =
       "too late double baking evidence"
       `Quick
       test_too_late_double_baking_evidence;
+    Tztest.tztest
+      "just in time double baking evidence"
+      `Quick
+      test_just_in_time_double_baking_evidence;
     Tztest.tztest "different delegates" `Quick test_different_delegates;
     Tztest.tztest "wrong delegate" `Quick test_wrong_signer;
     Tztest.tztest

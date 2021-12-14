@@ -87,7 +87,7 @@ let payload_encoding =
 let pp_payload fmt {votes_payload; anonymous_payload; managers_payload} =
   Format.fprintf
     fmt
-    "payload: [votes: %d, anonymous: %d, managers: %d]"
+    "[votes: %d, anonymous: %d, managers: %d]"
     (List.length votes_payload)
     (List.length anonymous_payload)
     (List.length managers_payload)
@@ -317,3 +317,11 @@ let extract_operations_of_list_list = function
       let payload = {votes_payload; anonymous_payload; managers_payload} in
       Some (preendorsements, endorsements, payload)
   | _ -> None
+
+let filter_pool p {consensus; votes; anonymous; managers} =
+  {
+    consensus = OpSet.filter p consensus;
+    votes = OpSet.filter p votes;
+    anonymous = OpSet.filter p anonymous;
+    managers = OpSet.filter p managers;
+  }

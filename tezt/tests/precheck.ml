@@ -91,7 +91,12 @@ let precheck_block =
   Cluster.connect [n1] [n2] ;
   let cluster = n1 :: ring in
   Log.info "Starting up cluster" ;
-  let* () = Cluster.start ~wait_connections:true ~event_level:"debug" cluster in
+  let* () =
+    Cluster.start
+      ~wait_connections:true
+      ~event_sections_levels:[("validator.block", `Debug)]
+      cluster
+  in
   Log.info "Cluster initialized" ;
   let block_to_bake = 4 in
   let state = Hashtbl.create 11 in
@@ -135,7 +140,7 @@ let forge_block ~protocol ?client node ~key =
   let* () =
     let open Protocol in
     if protocol = Granada || protocol = Hangzhou then
-      Client.bake_for ~key client2
+      Client.bake_for ~keys:[key] client2
     else
       (* We want an empty block, in tenderbake, we can simply propose
          so that there is no endorsement operations. *)
@@ -183,7 +188,12 @@ let propagate_precheckable_bad_block =
   Cluster.connect [n1] [n2] ;
   let cluster = n1 :: ring in
   Log.info "Starting up cluster" ;
-  let* () = Cluster.start ~wait_connections:true ~event_level:"debug" cluster in
+  let* () =
+    Cluster.start
+      ~wait_connections:true
+      ~event_sections_levels:[("validator.block", `Debug)]
+      cluster
+  in
   Log.info "Cluster initialized" ;
   let* client = Client.(init ~endpoint:(Node n1) ()) in
   let* () = Client.activate_protocol ~protocol client in
@@ -192,7 +202,7 @@ let propagate_precheckable_bad_block =
     List.init blocks_to_bake Fun.id
     |> List.map succ
     |> Lwt_list.iter_s (fun i ->
-           let* () = Client.bake_for ~key:bootstrap1 client in
+           let* () = Client.bake_for ~keys:[bootstrap1] client in
            wait_for_cluster_at_level cluster i)
   in
   let* block_header = forge_block ~protocol ~client n1 ~key:bootstrap1 in
@@ -270,7 +280,7 @@ let propagate_precheckable_bad_block =
   in
   Log.info "Bake a valid block and check the cluster receives it" ;
   (* One final bake to ensure everyone is at the same level *)
-  let* () = Client.bake_for ~key:bootstrap1 client in
+  let* () = Client.bake_for ~keys:[bootstrap1] client in
   (* activation block + four blocks + the final bake *)
   wait_for_cluster_at_level cluster (1 + blocks_to_bake + 1)
 

@@ -15,6 +15,7 @@ test-script-gen-genesis:
     - .default_settings_template
     - .image_template__runtime_build_test_dependencies_template
     - .rules_template__development
+    - .template__coverage
   stage: test
   before_script:
     - . ./scripts/version.sh
@@ -55,14 +56,18 @@ test-script-gen-genesis:
     - arm64
 
 unit:010_PtGRANAD:
-  extends: .unit_test_template_x86_64
+  extends:
+  - .unit_test_template_x86_64
+  - .template__coverage_files
   variables:
     MAKE_TARGETS: >
       src/proto_010_PtGRANAD/lib_client.test_proto
       src/proto_010_PtGRANAD/lib_protocol.test_proto
 
 unit:011_PtHangz2:
-  extends: .unit_test_template_x86_64
+  extends:
+  - .unit_test_template_x86_64
+  - .template__coverage_files
   variables:
     MAKE_TARGETS: >
       src/proto_011_PtHangz2/lib_benchmark/lib_benchmark_type_inference.test_proto
@@ -71,7 +76,9 @@ unit:011_PtHangz2:
       src/proto_011_PtHangz2/lib_protocol.test_proto
 
 unit:alpha:
-  extends: .unit_test_template_x86_64
+  extends:
+  - .unit_test_template_x86_64
+  - .template__coverage_files
   variables:
     MAKE_TARGETS: >
       src/proto_alpha/lib_benchmark/lib_benchmark_type_inference.test_proto
@@ -82,7 +89,9 @@ unit:alpha:
       src/proto_alpha/lib_delegate.test_proto
 
 unit:non-proto-x86_64:
-  extends: .unit_test_template_x86_64
+  extends:
+  - .unit_test_template_x86_64
+  - .template__coverage_files
   variables:
     MAKE_TARGETS: test-nonproto-unit
 
@@ -94,7 +103,9 @@ unit:non-proto-arm64:
 unit:js_components:
   extends: .unit_test_template_x86_64
   script:
-    - dune build @runtest_js
+    # install node
+    - . ./scripts/install_build_deps.js.sh
+    - make test-js
 
 unit:protocol_compiles:
   extends: .unit_test_template_x86_64

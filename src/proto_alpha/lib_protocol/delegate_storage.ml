@@ -188,10 +188,10 @@ let staking_balance ctxt delegate =
   else return Tez_repr.zero
 
 let pubkey ctxt delegate =
-  Contract_manager_storage.revealed_key
+  Contract_manager_storage.get_manager_key
     ctxt
     delegate
-    (Unregistered_delegate delegate)
+    ~error:(Unregistered_delegate delegate)
 
 let init ctxt contract delegate =
   Contract_manager_storage.is_manager_key_revealed ctxt delegate
@@ -272,6 +272,7 @@ let update_activity ctxt last_cycle =
   | Some _unfrozen_cycle ->
       Stake_storage.fold_on_active_delegates_with_rolls
         ctxt
+        ~order:`Sorted
         ~init:(Ok (ctxt, []))
         ~f:(fun delegate () acc ->
           acc >>?= fun (ctxt, deactivated) ->
@@ -303,11 +304,10 @@ let expected_slots_for_given_active_stake ctxt ~total_active_stake ~active_stake
           (Z.of_int64 (Tez_repr.to_mutez total_active_stake))))
 
 let delegate_participated_enough ctxt delegate =
-  Storage.Contract.Remaining_allowed_missed_slots.find ctxt delegate
-  >>=? function
+  Storage.Contract.Missed_endorsements.find ctxt delegate >>=? function
   | None -> return_true
-  | Some remaining_allowed_missed_levels ->
-      return Compare.Int.(remaining_allowed_missed_levels > 0)
+  | Some missed_endorsements ->
+      return Compare.Int.(missed_endorsements.remaining_slots >= 0)
 
 let delegate_has_revealed_nonces delegate unrevelead_nonces_set =
   not (Signature.Public_key_hash.Set.mem delegate unrevelead_nonces_set)
@@ -342,15 +342,13 @@ let distribute_endorsing_rewards ctxt last_cycle unrevealed_nonces =
       let rewards = Tez_repr.mul_exn endorsing_reward_per_slot expected_slots in
       (if sufficient_participation && has_revealed_nonces then
        (* Sufficient participation: we pay the rewards *)
-       if Tez_repr.(rewards <> zero) then
-         Token.transfer
-           ctxt
-           `Endorsing_rewards
-           (`Contract delegate_contract)
-           rewards
-         >|=? fun (ctxt, payed_rewards_receipts) ->
-         (ctxt, payed_rewards_receipts @ balance_updates)
-       else return (ctxt, balance_updates)
+       Token.transfer
+         ctxt
+         `Endorsing_rewards
+         (`Contract delegate_contract)
+         rewards
+       >|=? fun (ctxt, payed_rewards_receipts) ->
+       (ctxt, payed_rewards_receipts @ balance_updates)
       else
         (* Insufficient participation or unrevealed nonce: no rewards *)
         Token.transfer
@@ -362,9 +360,7 @@ let distribute_endorsing_rewards ctxt last_cycle unrevealed_nonces =
         >|=? fun (ctxt, payed_rewards_receipts) ->
         (ctxt, payed_rewards_receipts @ balance_updates))
       >>=? fun (ctxt, balance_updates) ->
-      Storage.Contract.Remaining_allowed_missed_slots.remove
-        ctxt
-        delegate_contract
+      Storage.Contract.Missed_endorsements.remove ctxt delegate_contract
       >>= fun ctxt -> return (ctxt, balance_updates))
     (ctxt, [])
     delegates
@@ -376,8 +372,8 @@ let clear_outdated_slashed_deposits ctxt ~new_cycle =
   | Some outdated_cycle -> Storage.Slashed_deposits.clear (ctxt, outdated_cycle)
 
 (* Return a map from delegates (with active stake at some cycle
-   between in the cycle window [from_cycle, to_cycle]) to the maximum
-   of the "bondable stake" for each such cycle (which is just the
+   in the cycle window [from_cycle, to_cycle]) to the maximum
+   of the stake to be deposited for each such cycle (which is just the
    [frozen_deposits_percentage] of the active stake at that cycle). Also
    return the delegates that have fallen out of the sliding window. *)
 let max_frozen_deposits_and_delegates_to_remove ctxt ~from_cycle ~to_cycle =
@@ -404,15 +400,16 @@ let max_frozen_deposits_and_delegates_to_remove ctxt ~from_cycle ~to_cycle =
       >|=? fun active_stakes ->
       List.fold_left
         (fun (maxima, delegates_to_remove) (delegate, stake) ->
-          let bondable_stake =
+          let stake_to_be_deposited =
             Tez_repr.(div_exn (mul_exn stake frozen_deposits_percentage) 100)
           in
           let maxima =
             Signature.Public_key_hash.Map.update
               delegate
               (function
-                | None -> Some bondable_stake
-                | Some maximum -> Some (Tez_repr.max maximum bondable_stake))
+                | None -> Some stake_to_be_deposited
+                | Some maximum ->
+                    Some (Tez_repr.max maximum stake_to_be_deposited))
               maxima
           in
           let delegates_to_remove =
@@ -442,18 +439,18 @@ let freeze_deposits ?(origin = Receipt_repr.Block_application) ctxt ~new_cycle
   max_frozen_deposits_and_delegates_to_remove ctxt ~from_cycle ~to_cycle
   >>=? fun (maxima, delegates_to_remove) ->
   Signature.Public_key_hash.Map.fold_es
-    (fun delegate maximum_bondable_stake (ctxt, balance_updates) ->
+    (fun delegate maximum_stake_to_be_deposited (ctxt, balance_updates) ->
       (* Here we make sure to preserve the following invariant :
-         maximum_bondable_stake <= frozen_deposits + balance
+         maximum_stake_to_be_deposited <= frozen_deposits + balance
          See select_distribution_for_cycle *)
       let delegate_contract = Contract_repr.implicit_contract delegate in
       Frozen_deposits_storage.update_deposits_cap
         ctxt
         delegate_contract
-        maximum_bondable_stake
+        maximum_stake_to_be_deposited
       >>=? fun (ctxt, current_amount) ->
-      if Tez_repr.(current_amount > maximum_bondable_stake) then
-        Tez_repr.(current_amount -? maximum_bondable_stake)
+      if Tez_repr.(current_amount > maximum_stake_to_be_deposited) then
+        Tez_repr.(current_amount -? maximum_stake_to_be_deposited)
         >>?= fun to_reimburse ->
         Token.transfer
           ~origin
@@ -462,17 +459,17 @@ let freeze_deposits ?(origin = Receipt_repr.Block_application) ctxt ~new_cycle
           (`Delegate_balance delegate)
           to_reimburse
         >|=? fun (ctxt, bupds) -> (ctxt, bupds @ balance_updates)
-      else if Tez_repr.(current_amount < maximum_bondable_stake) then
-        Tez_repr.(maximum_bondable_stake -? current_amount)
+      else if Tez_repr.(current_amount < maximum_stake_to_be_deposited) then
+        Tez_repr.(maximum_stake_to_be_deposited -? current_amount)
         >>?= fun desired_to_freeze ->
         Storage.Contract.Balance.get ctxt delegate_contract >>=? fun balance ->
         (* In case the delegate hasn't been slashed in this cycle,
            the following invariant holds:
-           maximum_bondable_stake <= frozen_deposits + balance
+           maximum_stake_to_be_deposited <= frozen_deposits + balance
            See select_distribution_for_cycle
 
            If the delegate has been slashed during the cycle, the invariant
-           above doesn't necessiraly hold. In this case, we freeze the max
+           above doesn't necessarily hold. In this case, we freeze the max
            we can for the delegate. *)
         let to_freeze = Tez_repr.(min balance desired_to_freeze) in
         Token.transfer
@@ -501,7 +498,7 @@ let freeze_deposits ?(origin = Receipt_repr.Block_application) ctxt ~new_cycle
           ctxt
           delegate_contract
           Tez_repr.zero
-        >>=? fun (ctxt, _) ->
+        >>=? fun (ctxt, (_current_amount : Tez_repr.t)) ->
         Token.transfer
           ~origin
           ctxt
@@ -535,12 +532,11 @@ let balance ctxt delegate =
 
 let frozen_deposits ctxt delegate =
   Frozen_deposits_storage.get ctxt (Contract_repr.implicit_contract delegate)
-  >>=? fun deposits -> return deposits.current_amount
 
 let full_balance ctxt delegate =
   frozen_deposits ctxt delegate >>=? fun frozen_deposits ->
   balance ctxt delegate >>=? fun balance ->
-  Lwt.return Tez_repr.(frozen_deposits +? balance)
+  Lwt.return Tez_repr.(frozen_deposits.current_amount +? balance)
 
 let deactivated = Delegate_activation_storage.is_inactive
 
@@ -548,7 +544,8 @@ let delegated_balance ctxt delegate =
   staking_balance ctxt delegate >>=? fun staking_balance ->
   balance ctxt delegate >>=? fun balance ->
   frozen_deposits ctxt delegate >>=? fun frozen_deposits ->
-  Tez_repr.(balance +? frozen_deposits) >>?= fun self_staking_balance ->
+  Tez_repr.(balance +? frozen_deposits.current_amount)
+  >>?= fun self_staking_balance ->
   Lwt.return Tez_repr.(staking_balance -? self_staking_balance)
 
 let fold = Storage.Delegates.fold
@@ -607,8 +604,8 @@ module Random = struct
     loop state
 
   let owner c (level : Level_repr.t) offset =
-    (* TODO-TB compute sampler at stake distribution snapshot instead
-       of lazily *)
+    (* TODO: https://gitlab.com/tezos/tezos/-/issues/2084
+       compute sampler at stake distribution snapshot instead of lazily. *)
     let cycle = level.Level_repr.cycle in
     (match Raw_context.sampler_for_cycle c cycle with
     | Error `Sampler_not_set ->
@@ -698,7 +695,11 @@ let punish_double_endorsing ctxt delegate (level : Level_repr.t) =
   let amount_to_burn =
     Tez_repr.(min frozen_deposits.current_amount punish_value)
   in
-  Token.transfer ctxt (`Frozen_deposits delegate) `Burned amount_to_burn
+  Token.transfer
+    ctxt
+    (`Frozen_deposits delegate)
+    `Double_signing_punishments
+    amount_to_burn
   >>=? fun (ctxt, balance_updates) ->
   Stake_storage.remove_stake ctxt delegate amount_to_burn >>=? fun ctxt ->
   Storage.Slashed_deposits.find (ctxt, level.cycle) (level.level, delegate)
@@ -725,7 +726,11 @@ let punish_double_baking ctxt delegate (level : Level_repr.t) =
   let amount_to_burn =
     Tez_repr.(min frozen_deposits.current_amount slashing_for_one_block)
   in
-  Token.transfer ctxt (`Frozen_deposits delegate) `Burned amount_to_burn
+  Token.transfer
+    ctxt
+    (`Frozen_deposits delegate)
+    `Double_signing_punishments
+    amount_to_burn
   >>=? fun (ctxt, balance_updates) ->
   Stake_storage.remove_stake ctxt delegate amount_to_burn >>=? fun ctxt ->
   Storage.Slashed_deposits.find (ctxt, level.cycle) (level.level, delegate)
@@ -753,15 +758,13 @@ let record_endorsing_participation ctxt ~delegate ~participation
   | Participated -> set_active ctxt delegate
   | Didn't_participate -> (
       let contract = Contract_repr.implicit_contract delegate in
-      Storage.Contract.Remaining_allowed_missed_slots.find ctxt contract
-      >>=? function
-      | Some 0 -> return ctxt
-      | Some n ->
-          let remaining = Compare.Int.max 0 (n - endorsing_power) in
-          Storage.Contract.Remaining_allowed_missed_slots.update
+      Storage.Contract.Missed_endorsements.find ctxt contract >>=? function
+      | Some {remaining_slots; missed_levels} ->
+          let remaining_slots = remaining_slots - endorsing_power in
+          Storage.Contract.Missed_endorsements.update
             ctxt
             contract
-            remaining
+            {remaining_slots; missed_levels = missed_levels + 1}
       | None -> (
           let level = Level_storage.current ctxt in
           Raw_context.stake_distribution_for_current_cycle ctxt
@@ -790,13 +793,11 @@ let record_endorsing_participation ctxt ~delegate ~participation
               in
               let minimal_activity = expected_slots * numerator / denominator in
               let maximal_inactivity = expected_slots - minimal_activity in
-              let remaining =
-                Compare.Int.max 0 (maximal_inactivity - endorsing_power)
-              in
-              Storage.Contract.Remaining_allowed_missed_slots.init
+              let remaining_slots = maximal_inactivity - endorsing_power in
+              Storage.Contract.Missed_endorsements.init
                 ctxt
                 contract
-                remaining))
+                {remaining_slots; missed_levels = 1}))
 
 let record_baking_activity_and_pay_rewards_and_fees ctxt ~payload_producer
     ~block_producer ~baking_reward ~reward_bonus =
@@ -808,18 +809,14 @@ let record_baking_activity_and_pay_rewards_and_fees ctxt ~payload_producer
   let pay_payload_producer ctxt delegate =
     let contract = Contract_repr.implicit_contract delegate in
     Token.balance ctxt `Block_fees >>=? fun block_fees ->
-    if Tez_repr.(block_fees <> zero || baking_reward <> zero) then
-      Token.transfer_n
-        ctxt
-        [(`Block_fees, block_fees); (`Baking_rewards, baking_reward)]
-        (`Contract contract)
-    else return (ctxt, [])
+    Token.transfer_n
+      ctxt
+      [(`Block_fees, block_fees); (`Baking_rewards, baking_reward)]
+      (`Contract contract)
   in
   let pay_block_producer ctxt delegate bonus =
     let contract = Contract_repr.implicit_contract delegate in
-    if Tez_repr.(bonus <> zero) then
-      Token.transfer ctxt `Baking_bonuses (`Contract contract) bonus
-    else return (ctxt, [])
+    Token.transfer ctxt `Baking_bonuses (`Contract contract) bonus
   in
   pay_payload_producer ctxt payload_producer
   >>=? fun (ctxt, balance_updates_payload_producer) ->
@@ -833,30 +830,11 @@ let record_baking_activity_and_pay_rewards_and_fees ctxt ~payload_producer
 type participation_info = {
   expected_cycle_activity : int;
   minimal_cycle_activity : int;
-  missed_slots : bool;
+  missed_slots : int;
+  missed_levels : int;
   remaining_allowed_missed_slots : int;
   expected_endorsing_rewards : Tez_repr.t;
-  current_pending_rewards : Tez_repr.t;
 }
-
-let estimated_activity_for_given_active_stake ctxt ~level ~total_active_stake
-    ~active_stake =
-  let consensus_committee_size =
-    Constants_storage.consensus_committee_size ctxt
-  in
-  let blocks_per_cycle =
-    Int32.to_int (Constants_storage.blocks_per_cycle ctxt)
-  in
-  let estimated_number_of_endorsements =
-    (Int32.to_int level.Level_repr.cycle_position + 1)
-    mod blocks_per_cycle * consensus_committee_size
-  in
-  Z.to_int
-    (Z.div
-       (Z.mul
-          (Z.of_int64 (Tez_repr.to_mutez active_stake))
-          (Z.of_int estimated_number_of_endorsements))
-       (Z.of_int64 (Tez_repr.to_mutez total_active_stake)))
 
 (* Inefficient, only for RPC *)
 let delegate_participation_info ctxt delegate =
@@ -875,10 +853,10 @@ let delegate_participation_info ctxt delegate =
         {
           expected_cycle_activity = 0;
           minimal_cycle_activity = 0;
-          missed_slots = false;
+          missed_slots = 0;
+          missed_levels = 0;
           remaining_allowed_missed_slots = 0;
           expected_endorsing_rewards = Tez_repr.zero;
-          current_pending_rewards = Tez_repr.zero;
         }
   | Some active_stake ->
       Stake_storage.get_total_active_stake ctxt level.cycle
@@ -904,33 +882,27 @@ let delegate_participation_info ctxt delegate =
         Tez_repr.mul_exn endorsing_reward_per_slot expected_cycle_activity
       in
       let contract = Contract_repr.implicit_contract delegate in
-      Storage.Contract.Remaining_allowed_missed_slots.find ctxt contract
-      >>=? fun remaining ->
-      let (missed_slots, remaining_allowed_missed_slots) =
-        match remaining with
-        | None -> (false, maximal_cycle_inactivity)
-        | Some remaining -> (true, remaining)
+      Storage.Contract.Missed_endorsements.find ctxt contract
+      >>=? fun missed_endorsements ->
+      let (missed_slots, missed_levels, remaining_allowed_missed_slots) =
+        match missed_endorsements with
+        | None -> (0, 0, maximal_cycle_inactivity)
+        | Some {remaining_slots; missed_levels} ->
+            ( maximal_cycle_inactivity - remaining_slots,
+              missed_levels,
+              Compare.Int.max 0 remaining_slots )
       in
-      let optimal_cycle_activity =
-        estimated_activity_for_given_active_stake
-          ctxt
-          ~total_active_stake
-          ~active_stake
-          ~level
-      in
-      let (current_pending_rewards, expected_endorsing_rewards) =
-        match remaining with
-        | Some r when Compare.Int.(r <= 0) -> (Tez_repr.zero, Tez_repr.zero)
-        | _ ->
-            ( Tez_repr.mul_exn endorsing_reward_per_slot optimal_cycle_activity,
-              expected_endorsing_rewards )
+      let expected_endorsing_rewards =
+        match missed_endorsements with
+        | Some r when Compare.Int.(r.remaining_slots < 0) -> Tez_repr.zero
+        | _ -> expected_endorsing_rewards
       in
       return
         {
           expected_cycle_activity;
           minimal_cycle_activity;
           missed_slots;
+          missed_levels;
           remaining_allowed_missed_slots;
           expected_endorsing_rewards;
-          current_pending_rewards;
         }

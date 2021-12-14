@@ -611,6 +611,19 @@ let test_votes ?endpoint client =
   let* _ = RPC.Votes.get_total_voting_power ?endpoint ~hooks client in
   unit
 
+let test_tx_rollup ?endpoint client =
+  let client_bake_for = make_client_bake_for () in
+  let* tx_rollup_hash =
+    Client.originate_tx_rollup
+      ~burn_cap:Tez.(of_int 9999999)
+      ~storage_limit:60_000
+      ~src:Constant.bootstrap1.public_key_hash
+      client
+  in
+  let* () = client_bake_for client in
+  let* _ = RPC.Tx_rollup.get_state ?endpoint ~tx_rollup_hash client in
+  unit
+
 (* Test the various other RPCs. *)
 let test_others ?endpoint client =
   let* _ = RPC.get_constants ?endpoint ~hooks client in
@@ -654,6 +667,17 @@ let get_client_port client =
          proxy server only. Both have an endpoint and hence a RPC port so this \
          should not happen."
 
+let mempool_node_flags =
+  Node.
+    [
+      Synchronisation_threshold 0;
+      (* Node does not need to be synchronized with peers before being
+         bootstrapped *)
+      Connections 1;
+      (* Number of connection allowed for each of our 2 nodes used in the
+         mempool tests *)
+    ]
+
 (* Test the mempool RPCs: /chains/<chain>/mempool/...
 
    Tested RPCs:
@@ -671,6 +695,7 @@ let get_client_port client =
    - Branch_refused (Branch error classification in protocol)
    - Branch_delayed (Temporary)
    - Refused (Permanent)
+   - Outdated (Outdated)
 
    The main goal is to have a record of the encoding of the different
    operations returned by the RPC calls. This allows
@@ -682,17 +707,28 @@ let get_client_port client =
    - POST unban_operation
    - POST unban_all_operations *)
 let test_mempool protocol ?endpoint client =
-  let* node = Node.init [Synchronisation_threshold 0; Connections 1] in
+  let* node = Node.init mempool_node_flags in
   let* () = Client.Admin.trust_address ?endpoint client ~peer:node in
   let* () = Client.Admin.connect_address ?endpoint client ~peer:node in
   let level = 1 in
   let* _ = Node.wait_for_level node level in
   let* node1_identity = Node.wait_for_identity node in
   let* () = Client.Admin.kick_peer ~peer:node1_identity client in
-  let* _ = Mempool.bake_empty_mempool client in
-  (* Outdated operation after the second empty baking. *)
+  (* Inject a transfer to increment the counter of bootstrap1. Bake with this
+     transfer to trigger the counter_in_the_past error for the following
+     transfer. *)
+  let* _ =
+    Operation.inject_transfer
+      ~source:Constant.bootstrap1
+      ~dest:Constant.bootstrap2
+      client
+  in
+  let* _ = Client.bake_for ?endpoint client in
+
+  (* Outdated operation: consensus_operation_for_old_level (classified as
+     outdated after the second empty baking). *)
   let* () = Client.endorse_for ~protocol ~force:true client in
-  let* _ = Mempool.bake_empty_mempool client in
+  let* _ = Mempool.bake_empty_mempool ~protocol client in
   let monitor_path =
     (* To test the monitor_operations rpc we use curl since the client does
        not support streaming RPCs yet. *)
@@ -705,45 +741,51 @@ let test_mempool protocol ?endpoint client =
        to record them. *)
     Process.spawn ~hooks:mempool_hooks "curl" ["-s"; monitor_path]
   in
-  (* Refused operation after the reclassification following the flush. *)
-  let* branch = Lwt.Infix.(RPC.get_branch client >|= JSON.as_string) in
-  let* _ =
-    Mempool.forge_and_inject_operation
-      ~branch
-      ~fee:10
-      ~gas_limit:1040
-      ~source:Constant.bootstrap1.public_key_hash
-      ~destination:Constant.bootstrap2.public_key_hash
-      ~counter:1
-      ~signer:Constant.bootstrap1
-      ~client
-  in
-  (* Applied operation. *)
-  let* _ =
-    Client.transfer
-      ?endpoint
-      ~amount:Tez.(of_int 2)
-      ~giver:Constant.bootstrap2.alias
-      ~receiver:Constant.bootstrap3.alias
+  let* counter =
+    RPC.Contracts.get_counter
+      ~contract_id:Constant.bootstrap1.Account.public_key_hash
       client
   in
-  (* This operation as the same giver as the previous one and so the same
-     counter. It is applied on a different branch since we bake an empty block
-     on the other endpoint. Once the nodes will be synced this operation will
-     be classified as Branch_refused because its counter is in the past on the
-     other endpoint. *)
+  let counter = JSON.as_int counter in
+  (* Branch_refused op: counter_in_the_past *)
   let* _ =
-    Client.transfer
-      ~endpoint:(Client.Node node)
-      ~amount:Tez.(of_int 2)
-      ~giver:Constant.bootstrap2.alias
-      ~receiver:Constant.bootstrap3.alias
+    Operation.inject_transfer
+      ~force:true
+      ~source:Constant.bootstrap1
+      ~dest:Constant.bootstrap2
+      ~counter
       client
   in
-  (* Branch_delayed operation after the empty baking. *)
-  let* _ = Client.endorse_for ?endpoint ~protocol ~force:true client in
-  (* Reconnect and sync nodes to force branch_refused operation and delay of
-     endorsement. *)
+  let* counter =
+    RPC.Contracts.get_counter
+      ~contract_id:Constant.bootstrap2.Account.public_key_hash
+      client
+  in
+  let counter = JSON.as_int counter in
+  (* Branch_delayed op: counter_in_the_future *)
+  let* _ =
+    Operation.inject_transfer
+      ~force:true
+      ~source:Constant.bootstrap2
+      ~dest:Constant.bootstrap2
+      ~counter:(counter + 5)
+      client
+  in
+  (* Refused op: fees_too_low *)
+  let* _ =
+    Operation.inject_transfer
+      ~source:Constant.bootstrap3
+      ~dest:Constant.bootstrap2
+      ~fee:0
+      client
+  in
+  (* Applied op *)
+  let* _ =
+    Operation.inject_transfer
+      ~source:Constant.bootstrap4
+      ~dest:Constant.bootstrap2
+      client
+  in
   let* () = Client.Admin.connect_address ?endpoint ~peer:node client in
   let flush_waiter = Node_event_level.wait_for_flush node in
   let* _ = Mempool.bake_empty_mempool ~endpoint:(Client.Node node) client in
@@ -874,19 +916,30 @@ let test_blacklist address () =
   let* _success_resp = Client.rpc GET ["network"; "connections"] client in
   unit
 
-(* Test RPC with binary mode. *)
-let start_binary address =
-  let node = Node.create ~rpc_host:address [] in
+let binary_regression_test () =
+  let node = Node.create ~rpc_host:"127.0.0.1" [] in
   let endpoint = Client.(Node node) in
   let* () = Node.config_init node [] in
   let* () = Node.identity_generate node in
   let* () = Node.run node [] in
-  Client.init ~endpoint ~media_type:Binary ()
-
-let test_client_binary_mode address () =
-  let* client = start_binary address in
-  let* _success_resp = Client.rpc GET ["network"; "connections"] client in
-  unit
+  let* json_client = Client.init ~endpoint ~media_type:Json () in
+  let* binary_client = Client.init ~endpoint ~media_type:Binary () in
+  let call_rpc client =
+    Client.spawn_rpc
+      ~hooks
+      GET
+      ["chains"; "main"; "blocks"; "head"; "header"; "shell"]
+      client
+    |> Process.check_and_read_stdout
+  in
+  let* json_result = call_rpc json_client in
+  let* binary_result = call_rpc binary_client in
+  let* decoded_binary_result =
+    Codec.decode ~name:"block_header.shell" binary_result
+  in
+  if JSON.unannotate decoded_binary_result = Ezjsonm.from_string json_result
+  then Lwt.return_unit
+  else Test.fail "Unexpected binary answer"
 
 let test_no_service_at_valid_prefix address () =
   let node = Node.create ~rpc_host:address [] in
@@ -908,6 +961,13 @@ let test_no_service_at_valid_prefix address () =
   unit
 
 let register () =
+  Regression.register
+    ~__FILE__
+    ~title:"Binary RPC regression tests"
+    ~tags:["rpc"; "regression"; "binary"]
+    ~output_file:"binary_rpc"
+    ~regression_output_path:"tezt/_regressions/rpc/"
+    binary_regression_test ;
   let alpha_consensus_threshold = [(["consensus_threshold"], Some "0")] in
   let alpha_overrides = Some alpha_consensus_threshold in
   let register_alpha test_mode_tag =
@@ -929,6 +989,11 @@ let register () =
                 ]
                @ alpha_consensus_threshold),
              None );
+           ( "tx_rollup",
+             test_tx_rollup,
+             Some
+               ((["tx_rollup_enable"], Some "true") :: alpha_consensus_threshold),
+             None );
            ("others", test_others, alpha_overrides, None);
          ]
         @
@@ -939,7 +1004,7 @@ let register () =
               ( "mempool",
                 test_mempool Protocol.Alpha,
                 None,
-                Some [Node.Synchronisation_threshold 0; Node.Connections 1] );
+                Some mempool_node_flags );
             ])
       ()
   in
@@ -1000,11 +1065,6 @@ let register () =
         ~title:(mk_title "blacklist" addr)
         ~tags:["rpc"; "acl"]
         (test_blacklist addr) ;
-      Test.register
-        ~__FILE__
-        ~title:(mk_title "client binary mode" addr)
-        ~tags:["rpc"; "client"; "binary"]
-        (test_client_binary_mode addr) ;
       Test.register
         ~__FILE__
         ~title:(mk_title "no_service_at_valid_prefix" addr)

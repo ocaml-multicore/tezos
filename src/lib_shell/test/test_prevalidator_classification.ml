@@ -31,7 +31,6 @@
 *)
 
 open Lib_test.Qcheck_helpers
-module Generators = Prevalidator_generators
 module Classification = Prevalidator_classification
 
 module Operation_map = struct
@@ -69,12 +68,17 @@ type classification_event =
   | Remove of Operation_hash.t
   | Flush of bool
 
+let drop oph t =
+  let open Classification in
+  let (_ : (Operation.t * classification) option) = remove oph t in
+  ()
+
 let play_event event t =
   let open Classification in
   match event with
   | Add_if_not_present (classification, oph, op) ->
       Generators.add_if_not_present classification oph op t
-  | Remove oph -> remove oph t
+  | Remove oph -> drop oph t
   | Flush handle_branch_refused ->
       Internal_for_tests.flush ~handle_branch_refused t
 
@@ -89,11 +93,10 @@ module Extra_generators = struct
   let event_gen t =
     let open QCheck.Gen in
     let add_gen =
-      let+ (classification, oph, op) =
-        triple
+      let+ (classification, (oph, op)) =
+        pair
           Generators.classification_gen
-          Generators.operation_hash_gen
-          Generators.operation_gen
+          (Generators.operation_with_hash_gen ())
       in
       Add_if_not_present (classification, oph, op)
     in
@@ -180,14 +183,19 @@ let disjoint_union_classified_fields ?fail_msg (t : Classification.t) =
     2021). Instead, we run scenarios which might carry particular risks
     of breaking this using [Tezt]. *)
 let check_invariants ?fail_msg (t : Classification.t) =
+  let to_set map =
+    Operation_hash.Map.to_seq map |> Seq.map fst |> Operation_hash.Set.of_seq
+  in
   let expected_in_mempool = disjoint_union_classified_fields ?fail_msg t in
-  if not (Operation_hash.Set.equal expected_in_mempool t.in_mempool) then
+  let mempool_as_set = to_set t.in_mempool in
+  if not (Operation_hash.Set.equal expected_in_mempool (to_set t.in_mempool))
+  then
     let set_pp ppf set =
       set |> Operation_hash.Set.elements
       |> Format.fprintf ppf "%a" (Format.pp_print_list Operation_hash.pp)
     in
-    let set1 = Operation_hash.Set.diff expected_in_mempool t.in_mempool in
-    let set2 = Operation_hash.Set.diff t.in_mempool expected_in_mempool in
+    let set1 = Operation_hash.Set.diff expected_in_mempool mempool_as_set in
+    let set2 = Operation_hash.Set.diff mempool_as_set expected_in_mempool in
     let sets_report =
       Format.asprintf
         "In individual fields but not in [in_mempool]:\n\
@@ -312,7 +320,7 @@ let test_is_in_mempool_remove =
   @@ fun ((t, (oph, op)), unrefused_classification) ->
   Classification.add unrefused_classification oph op t ;
   qcheck_eq_true ~actual:(Classification.is_in_mempool oph t) ;
-  Classification.remove oph t ;
+  drop oph t ;
   qcheck_eq_false ~actual:(Classification.is_in_mempool oph t) ;
   true
 
@@ -320,15 +328,16 @@ let test_is_applied =
   let open QCheck in
   Test.make
     ~name:"[is_applied] is well-behaved"
-    (make @@ Generators.(Gen.triple (t_gen ()) operation_hash_gen operation_gen))
-  @@ fun (t, oph, op) ->
+    (make @@ Generators.(Gen.pair (t_gen ()) (operation_with_hash_gen ())))
+  @@ fun (t, (oph, op)) ->
   Classification.add `Applied oph op t ;
-  qcheck_eq_true ~actual:(Classification.is_applied oph t) ;
   qcheck_eq_true ~actual:(Classification.is_in_mempool oph t) ;
-  Classification.remove oph t ;
-  qcheck_eq_false ~actual:(Classification.is_applied oph t) ;
-  qcheck_eq_false ~actual:(Classification.is_in_mempool oph t) ;
-  true
+  match Classification.remove oph t with
+  | None -> false
+  | Some (_op, classification) ->
+      qcheck_eq_true ~actual:(classification = `Applied) ;
+      qcheck_eq_false ~actual:(Classification.is_in_mempool oph t) ;
+      true
 
 let test_invariants =
   QCheck.Test.make
@@ -399,21 +408,19 @@ module Bounded = struct
     let* inputs =
       list_size
         (0 -- map_size_limit)
-        Generators.(triple classification_gen operation_hash_gen operation_gen)
+        Generators.(pair classification_gen (operation_with_hash_gen ()))
     in
     let t = Classification.create parameters in
     List.iter
-      (fun (classification, operation_hash, operation) ->
+      (fun (classification, (operation_hash, operation)) ->
         Classification.add classification operation_hash operation t)
       inputs ;
     let+ error_classification =
       oneofl [`Branch_delayed []; `Branch_refused []; `Refused []; `Outdated []]
     and+ first_bindings =
-      list_size (1 -- 10) Generators.(pair operation_hash_gen operation_gen)
+      list_size (1 -- 10) Generators.(operation_with_hash_gen ())
     and+ other_bindings =
-      list_repeat
-        map_size_limit
-        Generators.(pair operation_hash_gen operation_gen)
+      list_repeat map_size_limit Generators.(operation_with_hash_gen ())
     in
     (t, error_classification, first_bindings, other_bindings)
 
@@ -442,10 +449,9 @@ module Bounded = struct
 
   let check_map_is_full ~expected_size ~bounded_map =
     if
-      not
-        (List.length
-           (Operation_hash.Map.bindings (Classification.map bounded_map))
-        = expected_size)
+      Compare.List_length_with.(
+        Operation_hash.Map.bindings (Classification.map bounded_map)
+        <> expected_size)
     then
       QCheck.Test.fail_reportf
         "Expected bounded_map to be full (size = %i) but its actual size is \
@@ -470,7 +476,8 @@ module Bounded = struct
     in
     let unique_hashes = Operation_hash.Set.of_list hashes in
     QCheck.assume
-      (Operation_hash.Set.cardinal unique_hashes = List.length hashes) ;
+      Compare.List_length_with.(
+        hashes = Operation_hash.Set.cardinal unique_hashes) ;
     (* Remove all operations for the tested classification *)
     let bounded_map =
       match error_classification with
@@ -481,7 +488,7 @@ module Bounded = struct
     in
     let () =
       Operation_hash.Map.iter
-        (fun oph _op -> Classification.remove oph t)
+        (fun oph _op -> drop oph t)
         (Classification.map bounded_map)
     in
     discarded_operations_rev := [] ;
@@ -597,7 +604,7 @@ module To_map = struct
       (QCheck.make (Generators.t_with_operation_gen ()))
     @@ fun (t, (oph, _)) ->
     let initial = to_map_all t in
-    Classification.remove oph t ;
+    drop oph t ;
     (* We need to use [eq_mod_binding] because it covers the two possible cases:
        if [oph] is not in [initial], we have [initial = to_map_all t]
        if [oph] is in [initial], we have [initial = to_map_all t @@ [(oph, op)] ] *)
@@ -634,7 +641,7 @@ module To_map = struct
             Generators.classification_gen))
     @@ fun ((t, (oph, op)), classification) ->
     let t' = Classification.Internal_for_tests.copy t in
-    Classification.remove oph t ;
+    drop oph t ;
     let initial = to_map_all t in
     let left = Operation_hash.Map.add oph op initial in
     Classification.add classification oph op t' ;
@@ -676,7 +683,7 @@ module To_map = struct
     Classification.add classification oph op t ;
     let initial = to_map_all t in
     let left = Operation_hash.Map.remove oph initial in
-    Classification.remove oph t' ;
+    drop oph t' ;
     let right = to_map_all t' in
     qcheck_eq'
       ~expected:left
@@ -704,29 +711,6 @@ module To_map = struct
     Classification.Internal_for_tests.flush ~handle_branch_refused t ;
     let flushed = to_map_all t in
     qcheck_eq' ~pp:map_pp ~eq:map_eq ~expected:initial ~actual:flushed ()
-
-  (** Tests the relationship between [Classification.is_applied]
-      and [Classification.to_map] *)
-  let test_is_applied =
-    QCheck.Test.make
-      ~name:"[is_applied] can be emulated by [to_map ~applied:true]"
-      (QCheck.make (Generators.t_with_operation_gen ()))
-    @@ fun (t, (oph, _)) ->
-    let is_applied = Classification.is_applied oph t in
-    let map =
-      Classification.Internal_for_tests.to_map
-        ~applied:true
-        ~branch_delayed:false
-        ~branch_refused:false
-        ~refused:false
-        ~outdated:false
-        t
-      |> Operation_hash.Map.filter (fun oph' _val -> oph' = oph)
-    in
-    qcheck_eq'
-      ~expected:is_applied
-      ~actual:(Operation_hash.Map.cardinal map = 1)
-      ()
 
   (** Tests the relationship between [Classification.is_in_mempool]
       and [Classification.to_map] *)
@@ -791,6 +775,7 @@ let () =
             test_map_remove_add;
             test_map_add_remove;
             test_flush;
+            test_is_applied;
             test_is_in_mempool;
             test_none;
           ];

@@ -6,9 +6,10 @@ bug-reports: "https://gitlab.com/tezos/tezos/issues"
 dev-repo: "git+https://gitlab.com/tezos/tezos.git"
 license: "MIT"
 depends: [
-  "dune" { >= "2.0" }
+  "dune" { >= "2.9" }
   "zarith" { >= "1.12" & < "1.13" } # the signature of the [Z] module has changed in 1.12
-  "bls12-381" { >= "1.0.0" & < "1.1.0" } # for env4
+  "zarith_stubs_js"
+  "bls12-381" { >= "1.1.0" & < "1.2.0" } # for env4
   "tezos-base"
   "tezos-sapling"
   "tezos-protocol-environment-sigs"
@@ -17,7 +18,7 @@ depends: [
   "tezos-context"
   "tezos-event-logging"
   "bls12-381-unix" {with-test}
-  "alcotest-lwt" { with-test & >= "1.1.0" }
+  "alcotest-lwt" { with-test & >= "1.5.0" }
   "tezos-test-helpers" {with-test}
   "qcheck-alcotest" {with-test}
   "lwt" { with-test & >= "5.4.0" }

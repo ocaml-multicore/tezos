@@ -3,4 +3,5 @@
  (public_name tezos-lwt-result-stdlib.bare.functor-outputs)
  (instrumentation (backend bisect_ppx))
  (libraries
-  lwt))
+  lwt)
+ (js_of_ocaml))

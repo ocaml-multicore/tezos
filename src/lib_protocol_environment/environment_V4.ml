@@ -76,6 +76,7 @@ module type V4 = sig
        and type Pvss_secp256k1.Clear_share.t = Pvss_secp256k1.Clear_share.t
        and type Pvss_secp256k1.Public_key.t = Pvss_secp256k1.Public_key.t
        and type Pvss_secp256k1.Secret_key.t = Pvss_secp256k1.Secret_key.t
+       and type Micheline.canonical_location = Micheline.canonical_location
        and type 'a Micheline.canonical = 'a Micheline.canonical
        and type Z.t = Z.t
        and type ('a, 'b) Micheline.node = ('a, 'b) Micheline.node
@@ -682,8 +683,6 @@ struct
         (Tezos_error_monad.TzLwtreslib.Monad)
 
     (* Backwards compatibility additions (dont_wait, trace helpers) *)
-    include Tezos_protocol_environment_structs.V4.M.Error_monad_trace_eval
-
     let dont_wait ex er f = dont_wait f er ex
 
     let trace_of_error e = TzTrace.make e
@@ -1118,7 +1117,7 @@ struct
         ~predecessor
         ~timestamp
       >>=? fun value_of_key ->
-      Context.load_cache predecessor_context cache value_of_key
+      Context.load_cache predecessor predecessor_context cache value_of_key
 
     let begin_partial_application ~chain_id ~ancestor_context
         ~(predecessor : Block_header.t) ~predecessor_hash ~cache

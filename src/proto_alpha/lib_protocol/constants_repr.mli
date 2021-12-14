@@ -119,7 +119,8 @@ type parametric = {
   liquidity_baking_sunset_level : int32;
   liquidity_baking_escape_ema_threshold : int32;
   max_operations_time_to_live : int;
-  round_durations : Round_repr.Durations.t;
+  minimal_block_delay : Period_repr.t;
+  delay_increment_per_round : Period_repr.t;
   minimal_participation_ratio : ratio;
   consensus_committee_size : int;
   (* in slots *)
@@ -132,6 +133,8 @@ type parametric = {
   double_baking_punishment : Tez_repr.t;
   ratio_of_frozen_deposits_slashed_per_double_endorsement : ratio;
   delegate_selection : delegate_selection;
+  tx_rollup_enable : bool;
+  tx_rollup_origination_size : int;
 }
 
 val parametric_encoding : parametric Data_encoding.encoding
@@ -157,7 +160,7 @@ module Generated : sig
 
   (* This function is meant to be used just in lib_parameters and in the
      migration code to be sure that the parameters are consistent. *)
-  val generate : consensus_committee_size:int -> blocks_per_minute:int -> t
+  val generate : consensus_committee_size:int -> blocks_per_minute:ratio -> t
 end
 
 module Proto_previous : sig

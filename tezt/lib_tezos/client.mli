@@ -218,6 +218,22 @@ module Admin : sig
 
   (** Same as [kick_peer], but do not wait for the process to exit. *)
   val spawn_kick_peer : ?endpoint:endpoint -> peer:string -> t -> Process.t
+
+  (** Run [tezos-admin-client inject protocol <protocol_path>].
+
+      Returns the hash of the injected protocol. *)
+  val inject_protocol :
+    ?endpoint:endpoint -> protocol_path:string -> t -> string Lwt.t
+
+  (** Same as [inject_protocol], but do not wait for the process to exit. *)
+  val spawn_inject_protocol :
+    ?endpoint:endpoint -> protocol_path:string -> t -> Process.t
+
+  (** Run [tezos-admin-client list protocols] and return the list of protocol hashes. *)
+  val list_protocols : ?endpoint:endpoint -> t -> string list Lwt.t
+
+  (** Same as [list_protocols], but do not wait for the process to exit. *)
+  val spawn_list_protocols : ?endpoint:endpoint -> t -> Process.t
 end
 
 (** {2 Regular Client Commands} *)
@@ -276,10 +292,13 @@ val empty_mempool_file : ?filename:string -> unit -> string Lwt.t
 val bake_for :
   ?endpoint:endpoint ->
   ?protocol:Protocol.t ->
-  ?key:string ->
+  ?keys:string list ->
+  ?minimal_fees:int ->
+  ?minimal_nanotez_per_gas_unit:int ->
+  ?minimal_nanotez_per_byte:int ->
   ?minimal_timestamp:bool ->
   ?mempool:string ->
-  ?monitor_node_mempool:bool ->
+  ?ignore_node_mempool:bool ->
   ?force:bool ->
   ?context_path:string ->
   t ->
@@ -289,29 +308,17 @@ val bake_for :
 val spawn_bake_for :
   ?endpoint:endpoint ->
   ?protocol:Protocol.t ->
-  ?key:string ->
+  ?keys:string list ->
+  ?minimal_fees:int ->
+  ?minimal_nanotez_per_gas_unit:int ->
+  ?minimal_nanotez_per_byte:int ->
   ?minimal_timestamp:bool ->
   ?mempool:string ->
-  ?monitor_node_mempool:bool ->
+  ?ignore_node_mempool:bool ->
   ?force:bool ->
   ?context_path:string ->
   t ->
   Process.t
-
-(** Run [tezos-client bake for].
-
-    Default [key] is {!Constant.bootstrap1.alias}. *)
-val tenderbake_for :
-  ?endpoint:endpoint ->
-  ?protocol:Protocol.t ->
-  ?keys:string list ->
-  ?minimal_timestamp:bool ->
-  ?mempool:string ->
-  ?monitor_node_mempool:bool ->
-  ?force:bool ->
-  ?context_path:string ->
-  t ->
-  unit Lwt.t
 
 (** Run [tezos-client endorse for].
 
@@ -377,22 +384,32 @@ val propose_for :
   t ->
   unit Lwt.t
 
-(** Run [tezos-client show address]. *)
+(** Run [tezos-client show address <alias> --show-secret] and parse
+    the output into an [Account.key].
+    E.g. for [~alias:"bootstrap1"] the command yields:
+    {|Hash: tz1KqTpEZ7Yob7QbPE4Hy4Wo8fHG8LhKxZSx
+      Public Key: edpkuBknW28nW72KG6RoHtYW7p12T6GKc7nAbwYX5m8Wd9sDVC9yav
+      Secret Key: unencrypted:edsk3gUfUPyBSfrS9CCgmCiQsTCHGkviBDusMxDJstFtojtc1zcpsh|}
+    which becomes:
+    [{ alias = "bootstrap1";
+       public_key_hash = "tz1KqTpEZ7Yob7QbPE4Hy4Wo8fHG8LhKxZSx";
+       public_key = "edpkuBknW28nW72KG6RoHtYW7p12T6GKc7nAbwYX5m8Wd9sDVC9yav";
+       secret_key =
+         Unencrypted "edsk3gUfUPyBSfrS9CCgmCiQsTCHGkviBDusMxDJstFtojtc1zcpsh"; }] *)
 val show_address : alias:string -> t -> Account.key Lwt.t
 
-(** Same as [show_address], but do not wait for the process to exit. *)
+(** Same as [show_address], but do not wait for the process to exit
+    (which also implies that there is no output key to parse). *)
 val spawn_show_address : alias:string -> t -> Process.t
 
-(** Run [tezos-client gen keys]. *)
-val gen_keys : alias:string -> t -> unit Lwt.t
+(** Run [tezos-client gen keys] and return the key alias.
+
+    The default value for [alias] is a fresh alias of the form [tezt_<n>]. *)
+val gen_keys : ?alias:string -> t -> string Lwt.t
 
 (** A helper to run [tezos-client gen keys] followed by
     [tezos-client show address] to get the generated key. *)
-val gen_and_show_keys : alias:string -> t -> Account.key Lwt.t
-
-(** Same as [gen_and_show_keys] but returns a [Constant.key] instead of an
-    [Account.key]. *)
-val gen_and_show_secret_keys : alias:string -> t -> Account.key Lwt.t
+val gen_and_show_keys : ?alias:string -> t -> Account.key Lwt.t
 
 (** Run [tezos-client transfer amount from giver to receiver]. *)
 val transfer :
@@ -507,13 +524,26 @@ val spawn_create_mockup :
 
 (** Run [tezos-client submit proposals for].
 
+    If both [proto_hash] and [proto_hashes] are specified,
+    the list of protocols which are proposed is [proto_hash :: proto_hashes].
+
     Default [key] is {!Constant.bootstrap1.alias}. *)
 val submit_proposals :
-  ?key:string -> ?wait:string -> proto_hash:string -> t -> unit Lwt.t
+  ?key:string ->
+  ?wait:string ->
+  ?proto_hash:string ->
+  ?proto_hashes:string list ->
+  t ->
+  unit Lwt.t
 
 (** Same as [submit_proposals], but do not wait for the process to exit. *)
 val spawn_submit_proposals :
-  ?key:string -> ?wait:string -> proto_hash:string -> t -> Process.t
+  ?key:string ->
+  ?wait:string ->
+  ?proto_hash:string ->
+  ?proto_hashes:string list ->
+  t ->
+  Process.t
 
 type ballot = Nay | Pass | Yay
 
@@ -554,33 +584,59 @@ val spawn_originate_contract :
   t ->
   Process.t
 
-(** Returns the name of a file containing the accounts corresponding
-    to [bootstrap1], ..., [bootstrap5], in JSON format as expected by
-    the [stresstest] command. *)
-val write_bootstrap_stresstest_sources_file : t -> string Lwt.t
+(** Convert the given smart contract from Michelson to JSON string. *)
+val convert_script_to_json :
+  ?endpoint:endpoint -> script:string -> t -> Ezjsonm.value Lwt.t
 
-(** [stresstest ?endpoint ?transfers ?tps client] calls
-    [tezos-client stresstest transfer using <sources> --transfers <transfers> --tps <tps>],
-    where [sources] is the result of {!write_bootstrap_stresstest_sources_file}.
+(** Convert the given Michelson constant to JSON string. *)
+val convert_data_to_json :
+  ?endpoint:endpoint -> data:string -> t -> Ezjsonm.value Lwt.t
 
-    Default values:
-    - [endpoint]: cf {!create}
-    - [transfers] and [tps]: do not provide the argument to the command
-*)
+(** Run [tezos-client stresstest transfer using <sources>].
+
+    [sources] is a string containing all the [source_aliases],
+    [source_pkhs], and [source_accounts] in JSON format as expected by
+    the [stresstest] command. Each optional argument [source_aliases],
+    [source_pkhs], and [source_accounts] defaults to an empty
+    list. However, if all three are empty, then the [sources] given to
+    the command are [Constant.bootstrap_keys] i.e. [bootstrap1], ...,
+    [bootstrap5].
+
+    The parameter [--seed <seed>] is always provided (because without
+    it, the [stresstest] command would use a fixed seed). If the
+    corresponding optional argument is not provided to the function,
+    then a new random seed is generated.
+
+    Optional parameters (provided only if the function is called with
+    the corresponding optional argument):
+    - [--transfers <transfers>]
+    - [--tps <tps>]
+    - [--single-op-per-pkh-per-block] (if the argument
+      [single_op_per_pkh_per_block] is [true])
+
+    [endpoint]: cf {!create} *)
 val stresstest :
-  ?endpoint:endpoint -> ?transfers:int -> ?tps:int -> t -> unit Lwt.t
-
-(** Same as {!stresstest}, but does not wait for the process to exit,
-    and takes an additional argument [sources] to pass on to te command.
-
-    Note that the [sources] argument cannot easily be made optional or
-    removed: indeed, we would need [Lwt] to compute the value used in
-    {!stresstest}. *)
-val spawn_stresstest :
   ?endpoint:endpoint ->
+  ?source_aliases:string list ->
+  ?source_pkhs:string list ->
+  ?source_accounts:Account.key list ->
+  ?seed:int ->
   ?transfers:int ->
   ?tps:int ->
-  sources:string ->
+  ?single_op_per_pkh_per_block:bool ->
+  t ->
+  unit Lwt.t
+
+(** Same as {!stresstest}, but do not wait for the process to exit. *)
+val spawn_stresstest :
+  ?endpoint:endpoint ->
+  ?source_aliases:string list ->
+  ?source_pkhs:string list ->
+  ?source_accounts:Account.key list ->
+  ?seed:int ->
+  ?transfers:int ->
+  ?tps:int ->
+  ?single_op_per_pkh_per_block:bool ->
   t ->
   Process.t
 
@@ -699,7 +755,10 @@ val spawn_typecheck_script :
   t ->
   Process.t
 
-(** Run [tezos-client list mode protocols]. *)
+(** Run [tezos-client list mode protocols].
+
+    Note: the [list protocols] command (without mode) is an admin command
+    (see {!Admin.list_protocols}). *)
 val list_protocols : [< `Light | `Mockup | `Proxy] -> t -> string list Lwt.t
 
 (** Same as [list_protocols], but do not wait for the process to exit
@@ -718,6 +777,30 @@ val sign_block : t -> string -> delegate:string -> string Lwt.t
 (** Same as [sign_block], but do not wait for the process to exit. *)
 val spawn_sign_block : t -> string -> delegate:string -> Process.t
 
+(** Run [tezos-client originate tx rollup from <src>]. *)
+val originate_tx_rollup :
+  ?wait:string ->
+  ?burn_cap:Tez.t ->
+  ?storage_limit:int ->
+  src:string ->
+  t ->
+  string Lwt.t
+
+(** Same as [originate_tx_rollup], but do not wait for the process to exit. *)
+val spawn_originate_tx_rollup :
+  ?wait:string ->
+  ?burn_cap:Tez.t ->
+  ?storage_limit:int ->
+  src:string ->
+  t ->
+  Process.t
+
+(** Run [tezos-client show voting period] and return the period name. *)
+val show_voting_period : ?endpoint:endpoint -> t -> string Lwt.t
+
+(** Same as [show_voting_period], but do not wait for the process to exit. *)
+val spawn_show_voting_period : ?endpoint:endpoint -> t -> Process.t
+
 (** {2 High-Level Functions} *)
 
 (** Create a client with mode [Client] and import all secret keys
@@ -732,6 +815,28 @@ val init :
   ?media_type:media_type ->
   unit ->
   t Lwt.t
+
+(** Set up a client and node(s).
+
+    - Create a client with mode [Client], [Light], or [Proxy].
+    - Import all secret [?keys] (by default, {!Constant.all_secret_keys}).
+
+    In addition to the client, returns the first created node
+    (if [`Light] is passed, a second node has been created, but it is
+    not exposed). *)
+val init_with_node :
+  ?path:string ->
+  ?admin_path:string ->
+  ?name:string ->
+  ?color:Log.Color.t ->
+  ?base_dir:string ->
+  ?event_level:Daemon.Level.default_level ->
+  ?event_sections_levels:(string * Daemon.Level.level) list ->
+  ?nodes_args:Node.argument list ->
+  ?keys:Account.key list ->
+  [`Client | `Light | `Proxy] ->
+  unit ->
+  (Node.t * t) Lwt.t
 
 (** Set up a client and node(s) and activate a protocol.
 
@@ -751,7 +856,8 @@ val init_with_protocol :
   ?name:string ->
   ?color:Log.Color.t ->
   ?base_dir:string ->
-  ?event_level:string ->
+  ?event_level:Daemon.Level.default_level ->
+  ?event_sections_levels:(string * Daemon.Level.level) list ->
   ?nodes_args:Node.argument list ->
   ?additional_bootstrap_account_count:int ->
   ?default_accounts_balance:int ->
@@ -793,7 +899,8 @@ val init_light :
   ?color:Log.Color.t ->
   ?base_dir:string ->
   ?min_agreement:float ->
-  ?event_level:string ->
+  ?event_level:Daemon.Level.default_level ->
+  ?event_sections_levels:(string * Daemon.Level.level) list ->
   ?nodes_args:Node.argument list ->
   unit ->
   (t * Node.t * Node.t) Lwt.t

@@ -94,20 +94,25 @@ module Script_timestamp = struct
   include Script_timestamp_repr
 
   let now ctxt =
-    let {Constants_repr.round_durations; _} = Raw_context.constants ctxt in
-    let first_delay = Round_repr.Durations.first round_durations in
+    let {Constants_repr.minimal_block_delay; _} = Raw_context.constants ctxt in
+    let first_delay = Period_repr.to_seconds minimal_block_delay in
     let current_timestamp = Raw_context.predecessor_timestamp ctxt in
-    Time.add current_timestamp (Period_repr.to_seconds first_delay)
-    |> Timestamp.to_seconds |> of_int64
+    Time.add current_timestamp first_delay |> Timestamp.to_seconds |> of_int64
 end
 
 module Script = struct
   include Michelson_v1_primitives
   include Script_repr
 
-  let force_decode_in_context ctxt lexpr =
-    Raw_context.consume_gas ctxt (Script_repr.force_decode_cost lexpr)
-    >>? fun ctxt ->
+  type consume_deserialization_gas = Always | When_needed
+
+  let force_decode_in_context ~consume_deserialization_gas ctxt lexpr =
+    let gas_cost =
+      match consume_deserialization_gas with
+      | Always -> Script_repr.stable_force_decode_cost lexpr
+      | When_needed -> Script_repr.force_decode_cost lexpr
+    in
+    Raw_context.consume_gas ctxt gas_cost >>? fun ctxt ->
     Script_repr.force_decode lexpr >|? fun v -> (v, ctxt)
 
   let force_bytes_in_context ctxt lexpr =
@@ -128,6 +133,8 @@ module Constants = struct
   include Constants_repr
   include Constants_storage
 
+  let round_durations ctxt = Raw_context.round_durations ctxt
+
   let all ctxt = all (parametric ctxt)
 end
 
@@ -138,6 +145,7 @@ end
 
 module Round = struct
   include Round_repr
+  module Durations = Durations
 
   type round_durations = Durations.t
 
@@ -176,6 +184,10 @@ module Gas = struct
   let update_remaining_operation_gas =
     Raw_context.update_remaining_operation_gas
 
+  let reset_block_gas ctxt =
+    let gas = Constants.hard_gas_limit_per_block ctxt in
+    Raw_context.update_remaining_block_gas ctxt gas
+
   let level = Raw_context.gas_level
 
   let consumed = Raw_context.gas_consumed
@@ -203,19 +215,31 @@ module Lazy_storage = struct
       Contract_storage.Legacy_big_map_diff.encoding
 end
 
+module Origination_nonce = struct
+  let init = Raw_context.init_origination_nonce
+
+  let unset = Raw_context.unset_origination_nonce
+
+  module Internal_for_tests = Origination_nonce
+end
+
 module Contract = struct
   include Contract_repr
   include Contract_storage
-
-  let init_origination_nonce = Raw_context.init_origination_nonce
-
-  let unset_origination_nonce = Raw_context.unset_origination_nonce
 
   let is_manager_key_revealed = Contract_manager_storage.is_manager_key_revealed
 
   let reveal_manager_key = Contract_manager_storage.reveal_manager_key
 
   let get_manager_key = Contract_manager_storage.get_manager_key
+
+  module Internal_for_tests = Contract_repr
+end
+
+module Tx_rollup = struct
+  include Tx_rollup_repr
+  include Tx_rollup_storage
+  module Internal_for_tests = Tx_rollup_repr
 end
 
 module Global_constants_storage = Global_constants_storage
@@ -296,6 +320,11 @@ module Receipt = Receipt_repr
 
 module Delegate = struct
   include Delegate_storage
+
+  type deposits = Storage.deposits = {
+    initial_amount : Tez.t;
+    current_amount : Tez.t;
+  }
 
   let grace_period = Delegate_activation_storage.grace_period
 

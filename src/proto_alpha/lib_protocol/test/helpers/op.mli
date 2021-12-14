@@ -89,7 +89,13 @@ val revelation :
 val failing_noop :
   Context.t -> public_key_hash -> string -> Operation.packed tzresult Lwt.t
 
-val origination :
+(** [contract_origination ctxt source] Create a new contract origination
+    operation, sign it with [source] and returns it alongside the contract
+    address. The contract address is using the initial origination nonce with the
+    hash of the operation. If this operation is combine with [combine_operations]
+    then the contract address is false as the nonce is not based on the correct
+    operation hash. *)
+val contract_origination :
   ?counter:Z.t ->
   ?delegate:public_key_hash ->
   script:Script.t ->
@@ -109,7 +115,7 @@ val register_global_constant :
   ?counter:Z.t ->
   ?public_key:Signature.public_key ->
   ?fee:Tez.tez ->
-  ?gas_limit:Tezos_raw_protocol_alpha.Alpha_context.Gas.Arith.integral ->
+  ?gas_limit:Alpha_context.Gas.Arith.integral ->
   ?storage_limit:Z.t ->
   Context.t ->
   (* Account doing the registration *)
@@ -173,3 +179,18 @@ val ballot :
 val dummy_script : Script.t
 
 val dummy_script_cost : Tez.t
+
+(** [tx_rollup_origination ctxt source] Originate a new tx rollup operation,
+    sign it with [source] and returns it alongside the tx rollup address. The
+    tx_rollup address is using the initial origination nonce with the hash of the
+    operation. If this operation is combined with [combine_operations] then the
+    tx rollup address is false as the nonce is not based on the correct operation
+    hash. *)
+val tx_rollup_origination :
+  ?counter:Z.t ->
+  ?fee:Tez.tez ->
+  ?gas_limit:Gas.Arith.integral ->
+  ?storage_limit:Z.t ->
+  Context.t ->
+  Contract.t ->
+  (Operation.packed * Tx_rollup.t) tzresult Lwt.t

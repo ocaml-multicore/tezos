@@ -9,8 +9,10 @@
   tezos-crypto
   tezos-stdlib
   zarith
+  zarith_stubs_js
   tezos-hacl-glue-unix
   data-encoding
+  alcotest
   alcotest-lwt
   lwt.unix
   qcheck-alcotest

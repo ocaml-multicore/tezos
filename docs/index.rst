@@ -3,7 +3,7 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-.. TODO nomadic-labs/tezos#462: search shifted protocol name/number & adapt
+.. TODO tezos/tezos#2170: search shifted protocol name/number & adapt
 
 Welcome to the Tezos Developer Documentation!
 =============================================
@@ -26,7 +26,7 @@ Octez is an implementation of Tezos software, including a node, a client, a bake
 This implementation is available at https://gitlab.com/tezos/tezos.
 The source code is placed under the MIT Open Source License.
 
-The current release of Octez is :doc:`../releases/version-10`.
+The current release of Octez is :doc:`../releases/version-11`.
 
 This website
 ------------
@@ -146,7 +146,7 @@ in the :ref:`introduction <howtoget>`.
 
 .. toctree::
    :maxdepth: 2
-   :caption: 010 Granada Protocol doc:
+   :caption: 011 Hangzhou Protocol doc:
 
    active/michelson
    active/proof_of_stake
@@ -154,6 +154,7 @@ in the :ref:`introduction <howtoget>`.
    active/sapling
    active/voting
    active/liquidity_baking
+   active/timelock
    active/plugins
    active/glossary
    active/cli-commands
@@ -161,33 +162,9 @@ in the :ref:`introduction <howtoget>`.
 
 .. toctree::
    :maxdepth: 2
-   :caption: 011 Hangzhou Protocol doc:
-
-   011/michelson
-   011/proof_of_stake
-   011/consensus
-   011/sapling
-   011/voting
-   011/liquidity_baking
-   011/timelock
-   011/plugins
-   011/glossary
-   011/cli-commands
-   011/rpc
-
-.. toctree::
-   :maxdepth: 2
    :caption: Alpha Development Protocol doc:
 
-   alpha/michelson
-   alpha/proof_of_stake
-   alpha/consensus
-   alpha/sapling
-   alpha/voting
-   alpha/liquidity_baking
-   alpha/timelock
-   alpha/global_constants
-   alpha/plugins
+   alpha/protocol
    alpha/glossary
    alpha/cli-commands
    alpha/rpc

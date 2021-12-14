@@ -31,16 +31,19 @@ open Protocol_client_context
 
 let get_branch (rpc_config : #Protocol_client_context.full) ~chain
     ~(block : Block_services.block) branch =
-  (* The default value is set to 2, because with Tenderbake the same
-     transaction may be included again in another block candidate at
-     the same level, so 'branch' cannot point to the head. It's not a good
-     idea if it points to the head's predecessor as well, as the predecessor
-     hash may still change because of potential reorgs (only the predecessor
-     payload is finalized, not the whole block). So 'branch' should point to
-     HEAD~2 or to an older ancestor. *)
-  let branch = Option.value ~default:2 branch in
+  (* The default branch is set to HEAD~2, because with Tenderbake the
+     same transaction may be included again in another block candidate
+     at the same level, so the operation branch should not point to
+     the current head. It's not a good idea if it points to the head's
+     predecessor as well, as the predecessor hash may still change
+     because of potential reorgs (only the predecessor payload is
+     finalized, not the whole block). *)
+  let branch = Option.value ~default:0 branch in
   (* TODO export parameter *)
   (match block with
+  | `Head 0 ->
+      (* Default client's block value: we branch to head's grandfather *)
+      return (`Head (2 + branch))
   | `Head n -> return (`Head (n + branch))
   | `Hash (h, n) -> return (`Hash (h, n + branch))
   | `Alias (a, n) -> return (`Alias (a, n))
@@ -316,6 +319,8 @@ let estimated_gas_single (type kind)
     | Applied (Register_global_constant_result {consumed_gas; _}) ->
         Ok consumed_gas
     | Applied (Set_deposits_limit_result {consumed_gas}) -> Ok consumed_gas
+    | Applied (Tx_rollup_origination_result {consumed_gas; _}) ->
+        Ok consumed_gas
     | Skipped _ -> assert false
     | Backtracked (_, None) ->
         Ok Gas.Arith.zero (* there must be another error for this to happen *)
@@ -329,7 +334,8 @@ let estimated_gas_single (type kind)
     (consumed_gas operation_result)
     internal_operation_results
 
-let estimated_storage_single (type kind) origination_size
+let estimated_storage_single (type kind) ~tx_rollup_origination_size
+    ~origination_size
     (Manager_operation_result {operation_result; internal_operation_results; _} :
       kind Kind.manager contents_result) =
   let storage_size_diff (type kind) (result : kind manager_operation_result) =
@@ -347,6 +353,7 @@ let estimated_storage_single (type kind) origination_size
     | Applied (Register_global_constant_result {size_of_constant; _}) ->
         Ok size_of_constant
     | Applied (Set_deposits_limit_result _) -> Ok Z.zero
+    | Applied (Tx_rollup_origination_result _) -> Ok tx_rollup_origination_size
     | Skipped _ -> assert false
     | Backtracked (_, None) ->
         Ok Z.zero (* there must be another error for this to happen *)
@@ -360,14 +367,21 @@ let estimated_storage_single (type kind) origination_size
     (storage_size_diff operation_result)
     internal_operation_results
 
-let estimated_storage origination_size res =
+let estimated_storage ~tx_rollup_origination_size ~origination_size res =
   let rec estimated_storage : type kind. kind contents_result_list -> _ =
     function
     | Single_result (Manager_operation_result _ as res) ->
-        estimated_storage_single origination_size res
+        estimated_storage_single
+          ~tx_rollup_origination_size
+          ~origination_size
+          res
     | Single_result _ -> Ok Z.zero
     | Cons_result (res, rest) ->
-        estimated_storage_single origination_size res >>? fun storage1 ->
+        estimated_storage_single
+          ~tx_rollup_origination_size
+          ~origination_size
+          res
+        >>? fun storage1 ->
         estimated_storage rest >>? fun storage2 -> Ok (Z.add storage1 storage2)
   in
   estimated_storage res >>? fun diff -> Ok (Z.max Z.zero diff)
@@ -386,6 +400,7 @@ let originated_contracts_single (type kind)
     | Applied (Reveal_result _) -> Ok []
     | Applied (Delegation_result _) -> Ok []
     | Applied (Set_deposits_limit_result _) -> Ok []
+    | Applied (Tx_rollup_origination_result _) -> Ok []
     | Skipped _ -> assert false
     | Backtracked (_, None) ->
         Ok [] (* there must be another error for this to happen *)
@@ -489,6 +504,7 @@ let may_patch_limits (type kind) (cctxt : #Protocol_client_context.full)
                  hard_gas_limit_per_block;
                  hard_storage_limit_per_operation;
                  origination_size;
+                 tx_rollup_origination_size;
                  cost_per_byte;
                  _;
                };
@@ -675,7 +691,10 @@ let may_patch_limits (type kind) (cctxt : #Protocol_client_context.full)
         >>=? fun op ->
         (if user_storage_limit_needs_patching c.storage_limit then
          Lwt.return
-           (estimated_storage_single (Z.of_int origination_size) result)
+           (estimated_storage_single
+              ~tx_rollup_origination_size:(Z.of_int tx_rollup_origination_size)
+              ~origination_size:(Z.of_int origination_size)
+              result)
          >>=? fun storage ->
          if Z.equal storage Z.zero then
            cctxt#message "Estimated storage: no bytes added" >>= fun () ->
@@ -757,7 +776,10 @@ let may_patch_limits (type kind) (cctxt : #Protocol_client_context.full)
           >>= fun () -> return_unit)
       >>=? fun () ->
       ( Lwt.return
-          (estimated_storage (Z.of_int origination_size) result.contents)
+          (estimated_storage
+             ~tx_rollup_origination_size:(Z.of_int tx_rollup_origination_size)
+             ~origination_size:(Z.of_int origination_size)
+             result.contents)
       >>=? fun storage ->
         Lwt.return
           (Environment.wrap_tzresult Tez.(cost_per_byte *? Z.to_int64 storage))

@@ -75,8 +75,6 @@ val consensus_committee_size : Raw_context.t -> int
 
 val consensus_threshold : Raw_context.t -> int
 
-val round_durations : Raw_context.t -> Round_repr.Durations.t
-
 val minimal_participation_ratio : Raw_context.t -> Constants_repr.ratio
 
 val max_slashing_period : Raw_context.t -> int
@@ -85,5 +83,13 @@ val frozen_deposits_percentage : Raw_context.t -> int
 
 val double_baking_punishment : Raw_context.t -> Tez_repr.t
 
+val tx_rollup_enable : Raw_context.t -> bool
+
+val tx_rollup_origination_size : Raw_context.t -> int
+
 val ratio_of_frozen_deposits_slashed_per_double_endorsement :
   Raw_context.t -> Constants_repr.ratio
+
+val minimal_block_delay : Raw_context.t -> Period_repr.t
+
+val delay_increment_per_round : Raw_context.t -> Period_repr.t

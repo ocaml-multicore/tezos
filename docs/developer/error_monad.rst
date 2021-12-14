@@ -753,97 +753,41 @@ type ``_ Lwt.t``) or a simple result (an immediate value of a
 enough that the module ``Lwt_result_syntax`` provides helpers dedicated
 to this.
 
-**From Lwt-only into Lwt-``result``**
+From ``result``-only into Lwt-``result``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-``lwt_ok: 'a Lwt.t -> ('a, 'e) result Lwt.t``: the expression
-``lwt_ok p`` is a promise which waits for the promise ``p`` to resolve
-to a value, after which it resolves successfully with the same value.
-
-The expression ``lwt_ok p`` is equivalent to
-``let open Lwt_syntax in let* v = p in return (Ok v)``
-
-In more practical terms, the function ``lwt_ok`` lifts an Lwt-only value
-(a promise) into an Lwt-``result`` value (a promise of a result). The
-function is generally used as follows:
+The module ``Lwt_result_syntax`` includes the binding operator ``let*?``. It is
+dedicated to binding Result-only expressions.
 
 ::
 
-   let* x = lwt_ok @@ plain_lwt_function foo bar in
+   let*? x = check foo bar in (* Result-only: checking doesn't yield *)
    ..
 
-**From ``result``-only into Lwt-``result``**
 
-``bind_from_result : ('a, 'e) result -> ('a -> ('b, 'e) result Lwt.t) -> ('b, 'e) result Lwt.t``:
-the expression ``bind_from_result r (fun x -> e)`` is either ``e`` with
-``x`` set to the value carried by the ``Ok`` constructor of ``r``, or a
-promise already unsuccessfully resolved if ``r`` is an ``Error``. In
-less formal terms, ``bind_from_result r (fun x -> e)`` either
-continues with ``e`` or interrupts immediately without evaluating ``e``
-if ``r`` is an ``Error``.
+.. sidebar:: Mnemonic
 
-The expression ``bind_from_result r (fun x -> e)`` is equivalent to
-``match r with | Error err -> fail err | Ok x -> e``
+   The ``let*?`` binding operator uses the question mark (``?``) to represent
+   the uncertainty of the ``result``. Is it a sucess? Is it a failure?
 
-The function ``bind_from_result`` is useful to use a ``result``-only in
-an Lwt-``result`` expression. Notice however that the name and type are
-different from ``lwt_ok``. That is because ``result`` and Lwt have
-different control-flow roles: the former is for aborting a computation
-the latter is for concurrency. Thus, simply lifting from ``result``-only
-into Lwt-``result`` is somewhat inefficient because, in case of
-``Error``, it doesn’t abort immediately. This efficiency consideration
-is the motivation behind the ``bind_from_result`` function.
 
-The difference of type with ``lwt_ok`` makes ``bind_from_result``
-somewhat less syntactically graceful. Here are examples of practical
-uses.
+From Lwt-only into Lwt-``result``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The module ``Lwt_result_syntax`` includes the binding operator ``let*!``. It is
+dedicated to binding Lwt-only expressions.
 
 ::
 
-   (* modify in-place the content of a file, return the new content *)
-   let map_file_content filename (f : string -> (string, string) result) =
-     let open Lwt_result_syntax in
-     let* file_handle = open_file filename in
-     let* contents = read_file file_handle in
-     bind_from_result (f contents) @@ fun new_contents ->
-     let* () = write_file file_handle new_contents in
-     let* () = close_file file_handle
-     return new_contents
-
-For occasional use, this ersatz of an infix binding operator is
-sufficient. You can help by grouping multiple calls to ``result``-only
-functions into a single expressions; thus reducing the number of calls
-to ``bind_from_result``.
-
-Of course, for occasional use, you can also resort to a plain
-``match``-``with``.
-
-In addition, if your code is not performance-critical (as is the case
-for the example above, because system-calls will dominate the cost of
-this function), you can use ``Lwt.return`` as a simple lifting function.
-
-::
-
-     …
-     let* new_contents = Lwt.return @@ f contents in
-     …
-
-Alternatively, if you mix many ``result``-only expressions in your
-Lwt-``result`` function, you can locally define a dedicated
-binding-operator.
-
-::
-
-   let ( let*? ) = bind_from_result in
-   ..
-   let*? new_contents = f contents in
+   let*! x = Events.emit foo bar in (* Lwt-only: logs can't fail *)
    ..
 
-.. _exercises-4:
 
-Exercises
-^^^^^^^^^
+.. sidebar:: Mnemonic
 
--  Define a binding operator to replace uses of ``lwt_ok``.
+   The ``let*!`` binding operator uses the exclamation mark (``!``) to represent
+   the impossibilty of errors: Thou shall not fail!
+
 
 Wait! there is too much! what module am I supposed to open locally and what operators should I use?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -857,9 +801,8 @@ some simple guidelines.
 
    -  ``let`` for vanilla expressions,
    -  ``let*`` for Lwt-``result`` expressions,
-   -  ``let* .. = lwt_ok @@ .. in`` for Lwt-only expressions,
-   -  ``bind_from_result (..) @@ fun .. ->`` for ``result``-only
-      expressions (or alternatives presented above).
+   -  ``let*!`` for Lwt-only expressions,
+   -  ``let*?`` for ``result``-only expressions.
 
    And you end your function with a call to ``return``.
 
@@ -1512,61 +1455,15 @@ return a simple promise (i.e., within Lwt-only) or a simple ``tzresult``
 (i.e., within ``tzresult``-only).
 
 This situation is similar to that of ``Lwt_result_syntax`` and the
-solutions are the same. Specifically, the functions provided by
-``Lwt_tzresult_syntax`` are identical to those provided by
-``Lwt_result_syntax``.
-
-**From Lwt-only into Lwt-``result``**
-
-``lwt_ok: 'a Lwt.t -> ('a, 'e) result Lwt.t``: the expression
-``lwt_ok p`` is a promise which waits for the promise ``p`` to resolve
-to a value, after which it resolves successfully with the same value.
-
-Note that within the scope of ``Lwt_tzresult_syntax`` (i.e., within a
-function that handles Lwt-``tzresult`` values), the resulting type is
-generally specialised to ``'a tzresult Lwt.t``. However, this is
-transparent: you do not need to do anything. You simply use it within
-the expression you are binding to:
+solutions are the same. Specifically, the additional binding operators provided
+by ``Lwt_result_syntax`` are also available in ``Lwt_tzresult_syntax``.
 
 ::
 
-   let* x = lwt_ok @@ plain_lwt_function foo bar in
+   let*! x = plain_lwt_function foo bar in
+   let*? x = plain_result_function foo bar in
    ..
 
-**From ``result``-only into Lwt-``result``**
-
-``bind_from_result : ('a, 'e) result -> ('a -> ('b, 'e) result Lwt.t) -> ('b, 'e) result Lwt.t``:
-``bind_from_result r (fun x -> e)`` either continues with ``e`` or
-interrupts immediately without evaluating ``e`` if ``r`` is an
-``Error``.
-
-Note that within the scope of ``Lwt_tzresult_syntax`` (i.e., within a
-function that handles Lwt-``tzresult`` values), the ``result`` type is
-generally specialised to ``'a tzresult``. However, this is transparent:
-you do not need to do anything. You can use it with as pseudo-infix
-binding:
-
-::
-
-   bind_from_result (..) @@ fun .. -> ..
-
-Or, if performance do not matter, you can replace it by lifting with
-``Lwt.return``:
-
-::
-
-   let* .. = Lwt.return @@ .. in
-   ..
-
-Or, if you use it repeatedly within a small enough scope, you can define
-a dedicated binding operator:
-
-::
-
-   let ( let*? ) = bind_from_result in
-   ..
-   let*? .. = .. in
-   ..
 
 Are you kidding me?! there is even more! what module am I supposed to open locally and what operators should I use?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1580,9 +1477,8 @@ effectively.
 
    -  ``let`` for vanilla expressions,
    -  ``let*`` for Lwt-``tzresult`` expressions,
-   -  ``let* .. = lwt_ok @@ .. in`` for Lwt-only expressions,
-   -  ``bind_from_result (..) @@ fun .. ->`` for ``tzresult``-only
-      expressions (or alternatives presented above).
+   -  ``let*!`` for Lwt-only expressions,
+   -  ``let*?`` for ``tzresult``-only expressions.
 
    And you end your function with a call to ``return``.
 
@@ -1596,7 +1492,7 @@ effectively.
    And you end your function with a call to ``return``.
 
 The rest of the guidelines (for ``(_, _) result Lwt.t``,
-``(_, _) result``, and ``_ Lwt.t``) are unaffected.
+``(_, _) result``, and ``_ Lwt.t``) remain valid.
 
 Tracing
 ~~~~~~~
@@ -1751,13 +1647,13 @@ for ``List.map``
      (* vanilla map *)
      val map : ('a -> 'b) -> 'a list -> 'b list
 
-     (* `result`-aware map: stops at the first error *)
+     (* [result]-aware map: stops at the first error *)
      val map_e : ('a -> ('b, 'trace) result) -> 'a list -> ('b list, 'trace) result
 
      (* sequential Lwt map: treats each element after the previous one *)
      val map_s : ('a -> 'b Lwt.t) -> 'a list -> 'b list Lwt.t
 
-     (* sequential Lwt-`result` map:
+     (* sequential Lwt-[result] map:
         - treats each element after the previous one
         - stops at the first error *)
      val map_es :
@@ -1768,7 +1664,7 @@ for ``List.map``
      (* concurrent Lwt map: treats all the elements concurrently *)
      val map_p : ('a -> 'b Lwt.t) -> 'a list -> 'b list Lwt.t
 
-     (* concurrent Lwt-`result` map:
+     (* concurrent Lwt-[result] map:
         - treats all the elements concurrently
         - treats the whole list no matter the success/errors *)
      val map_ep :
@@ -1791,7 +1687,7 @@ new modules:
 Whenever you need to traverse a standard data structure with some
 ``result`` or Lwt or Lwt-``result`` function, ``Lwtreslib`` should have
 that function ready for you. **You should never fold over a data
-structure with a promise or ``result`` accumulator.** E.g., you should
+structure with a promise or result accumulator.** E.g., you should
 do
 
 ::
@@ -1802,6 +1698,7 @@ and you shouldn’t do
 
 ::
 
+   let open Lwt_result_syntax in
    List.fold_left
      (fun resources key ->
        let* resources = resources in
@@ -2112,20 +2009,14 @@ full equivalence table follows.
 | ::                                   | ::                            |
 |                                      |                               |
 |    let open Lwt_result_syntax in     |    (e >>= ok) >>=? fun x ->   |
-|    let* x = lwt_ok @@ e in           |    e'                         |
+|    let*! x = e in                    |    e'                         |
 |    e'                                |                               |
 +--------------------------------------+-------------------------------+
 | ::                                   | ::                            |
 |                                      |                               |
 |    let open Lwt_result_syntax in     |    e >>?= fun x ->            |
-|    bind_from_result e @@ fun x ->    |    e'                         |
+|    let*? x = e in                    |    e'                         |
 |    e'                                |                               |
-+--------------------------------------+-------------------------------+
-| ::                                   | ::                            |
-|                                      |                               |
-|    let open Lwt_result_syntax in     |    e >|?= fun x ->            |
-|    bind_from_result e @@ fun x ->    |    e'                         |
-|    lwt_ok @@ e'                      |                               |
 +--------------------------------------+-------------------------------+
 
 In addition, instead of dedicated ``return`` and ``fail`` functions from
@@ -2310,7 +2201,7 @@ This compilation unit gathers multiple low-level modules together. Of
 interest to us is ``include Tezos_error_monad.Error_monad`` (left
 untouched in the ``mli``) and ``include Tezos_error_monad.TzLwtreslib``
 (not present in the ``mli``, used to shadow the Stdlib modules ``List``,
-``Option``, Result`, etc.).
+``Option``, ``Result``, etc.).
 
 The ``Error_monad`` module exports:
 
@@ -2406,7 +2297,7 @@ Within your code, you can go from one use to the other. E.g.,
    let xs =
      List.rev_map
        (fun x ->
-         (* `result` as control-flow *)
+         (* [result] as control-flow *)
          let open Result_syntax in
          let* .. = .. in
          let* .. = .. in
@@ -2414,7 +2305,7 @@ Within your code, you can go from one use to the other. E.g.,
        ys
    in
    let successes xs =
-     (* `result` as data *)
+     (* [result] as data *)
      List.length (List.rev_filter_ok xs)
    in
    ..

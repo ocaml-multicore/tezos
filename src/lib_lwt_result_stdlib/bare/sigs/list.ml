@@ -84,7 +84,7 @@
 module type S = sig
   (** {3 Trivial values} *)
 
-  type 'a t = 'a Stdlib.List.t = [] | ( :: ) of 'a * 'a list
+  type 'a t = 'a list = [] | ( :: ) of 'a * 'a list
 
   (** in-monad, preallocated nil *)
 
@@ -914,7 +914,7 @@ module type S = sig
 
   val compare : ('a -> 'a -> int) -> 'a list -> 'a list -> int
 
-  val compare_lengths : 'a list -> 'a list -> int
+  val compare_lengths : 'a list -> 'b list -> int
 
   val compare_length_with : 'a list -> int -> int
 
@@ -932,7 +932,7 @@ module type S = sig
 
   (** {3 conversion} *)
 
-  val to_seq : 'a t -> 'a Stdlib.Seq.t
+  val to_seq : 'a list -> 'a Stdlib.Seq.t
 
   val of_seq : 'a Stdlib.Seq.t -> 'a list
 end
