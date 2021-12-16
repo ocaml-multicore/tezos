@@ -24,10 +24,10 @@ export full_opam_repository_tag=28242c987fe0ddfe6d17bf4c8a9d4c450b8978a8
 
 ## opam_repository is an additional, tezos-specific opam repository.
 ## This value MUST be the same as `build_deps_image_version` in `.gitlab-ci.yml
-export opam_repository_url=https://github.com/Sudha247/tezos-opam-repository
-export opam_repository_tag=e1049e5477960f19c628d7e3808a6c75a658a9cf
+export opam_repository_url=https://github.com/ocaml-multicore/tezos-opam-repository
+export opam_repository_tag=8c079ce574eb9097edf48c39fecff2aefb960229
 export opam_repository_git=$opam_repository_url.git
-export opam_repository=$opam_repository_git\#updates-14-12
+export opam_repository=$opam_repository_git\#$opam_repository_tag
 
 
 ## for sapling param, fork is on github, url convention not the same in install_sapling_parameters
