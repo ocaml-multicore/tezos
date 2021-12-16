@@ -82,9 +82,11 @@ type ratio = {numerator : int; denominator : int}
 
 let ratio_encoding =
   let open Data_encoding in
-  conv
+  conv_with_guard
     (fun r -> (r.numerator, r.denominator))
-    (fun (numerator, denominator) -> {numerator; denominator})
+    (fun (numerator, denominator) ->
+      if Compare.Int.(denominator > 0) then ok {numerator; denominator}
+      else Error "The denominator must be greater than 0.")
     (obj2 (req "numerator" uint16) (req "denominator" uint16))
 
 let pp_ratio fmt {numerator; denominator} =
@@ -192,7 +194,8 @@ type parametric = {
   liquidity_baking_sunset_level : int32;
   liquidity_baking_escape_ema_threshold : int32;
   max_operations_time_to_live : int;
-  round_durations : Round_repr.Durations.t;
+  minimal_block_delay : Period_repr.t;
+  delay_increment_per_round : Period_repr.t;
   minimal_participation_ratio : ratio;
   consensus_committee_size : int;
   consensus_threshold : int;
@@ -201,6 +204,8 @@ type parametric = {
   double_baking_punishment : Tez_repr.t;
   ratio_of_frozen_deposits_slashed_per_double_endorsement : ratio;
   delegate_selection : delegate_selection;
+  tx_rollup_enable : bool;
+  tx_rollup_origination_size : int;
 }
 
 let parametric_encoding =
@@ -230,15 +235,17 @@ let parametric_encoding =
               c.liquidity_baking_sunset_level,
               c.liquidity_baking_escape_ema_threshold,
               c.max_operations_time_to_live,
-              c.round_durations,
+              c.minimal_block_delay,
+              c.delay_increment_per_round,
               c.consensus_committee_size,
               c.consensus_threshold ),
-            ( c.minimal_participation_ratio,
-              c.max_slashing_period,
-              c.frozen_deposits_percentage,
-              c.double_baking_punishment,
-              c.ratio_of_frozen_deposits_slashed_per_double_endorsement,
-              c.delegate_selection ) ) ) ))
+            ( ( c.minimal_participation_ratio,
+                c.max_slashing_period,
+                c.frozen_deposits_percentage,
+                c.double_baking_punishment,
+                c.ratio_of_frozen_deposits_slashed_per_double_endorsement,
+                c.delegate_selection ),
+              (c.tx_rollup_enable, c.tx_rollup_origination_size) ) ) ) ))
     (fun ( ( preserved_cycles,
              blocks_per_cycle,
              blocks_per_commitment,
@@ -262,15 +269,17 @@ let parametric_encoding =
                  liquidity_baking_sunset_level,
                  liquidity_baking_escape_ema_threshold,
                  max_operations_time_to_live,
-                 round_durations,
+                 minimal_block_delay,
+                 delay_increment_per_round,
                  consensus_committee_size,
                  consensus_threshold ),
-               ( minimal_participation_ratio,
-                 max_slashing_period,
-                 frozen_deposits_percentage,
-                 double_baking_punishment,
-                 ratio_of_frozen_deposits_slashed_per_double_endorsement,
-                 delegate_selection ) ) ) ) ->
+               ( ( minimal_participation_ratio,
+                   max_slashing_period,
+                   frozen_deposits_percentage,
+                   double_baking_punishment,
+                   ratio_of_frozen_deposits_slashed_per_double_endorsement,
+                   delegate_selection ),
+                 (tx_rollup_enable, tx_rollup_origination_size) ) ) ) ) ->
       {
         preserved_cycles;
         blocks_per_cycle;
@@ -295,7 +304,8 @@ let parametric_encoding =
         liquidity_baking_sunset_level;
         liquidity_baking_escape_ema_threshold;
         max_operations_time_to_live;
-        round_durations;
+        minimal_block_delay;
+        delay_increment_per_round;
         minimal_participation_ratio;
         max_slashing_period;
         consensus_committee_size;
@@ -304,6 +314,8 @@ let parametric_encoding =
         double_baking_punishment;
         ratio_of_frozen_deposits_slashed_per_double_endorsement;
         delegate_selection;
+        tx_rollup_enable;
+        tx_rollup_origination_size;
       })
     (merge_objs
        (obj9
@@ -331,25 +343,30 @@ let parametric_encoding =
              (req "hard_storage_limit_per_operation" z)
              (req "quorum_min" int32))
           (merge_objs
-             (obj9
+             (obj10
                 (req "quorum_max" int32)
                 (req "min_proposal_quorum" int32)
                 (req "liquidity_baking_subsidy" Tez_repr.encoding)
                 (req "liquidity_baking_sunset_level" int32)
                 (req "liquidity_baking_escape_ema_threshold" int32)
                 (req "max_operations_time_to_live" int16)
-                (req "round_durations" Round_repr.Durations.encoding)
+                (req "minimal_block_delay" Period_repr.encoding)
+                (req "delay_increment_per_round" Period_repr.encoding)
                 (req "consensus_committee_size" int31)
                 (req "consensus_threshold" int31))
-             (obj6
-                (req "minimal_participation_ratio" ratio_encoding)
-                (req "max_slashing_period" int31)
-                (req "frozen_deposits_percentage" int31)
-                (req "double_baking_punishment" Tez_repr.encoding)
-                (req
-                   "ratio_of_frozen_deposits_slashed_per_double_endorsement"
-                   ratio_encoding)
-                (dft "delegate_selection" delegate_selection_encoding Random)))))
+             (merge_objs
+                (obj6
+                   (req "minimal_participation_ratio" ratio_encoding)
+                   (req "max_slashing_period" int31)
+                   (req "frozen_deposits_percentage" int31)
+                   (req "double_baking_punishment" Tez_repr.encoding)
+                   (req
+                      "ratio_of_frozen_deposits_slashed_per_double_endorsement"
+                      ratio_encoding)
+                   (dft "delegate_selection" delegate_selection_encoding Random))
+                (obj2
+                   (req "tx_rollup_enable" bool)
+                   (req "tx_rollup_origination_size" int31))))))
 
 type t = {fixed : fixed; parametric : parametric}
 
@@ -378,34 +395,45 @@ let () =
 
 let check_constants constants =
   error_unless
-    Compare.Int.(constants.consensus_committee_size > 0)
+    Period_repr.(constants.minimal_block_delay > zero)
     (Invalid_protocol_constants
-       "the consensus committee size must be higher than 0.")
+       "The minimal block delay must be greater than zero")
+  >>? fun () ->
+  error_unless
+    Period_repr.(constants.delay_increment_per_round > zero)
+    (Invalid_protocol_constants
+       "The delay increment per round must be greater than zero")
+  >>? fun () ->
+  error_unless
+    Compare.Int.(constants.consensus_committee_size > 3)
+    (Invalid_protocol_constants
+       "The consensus committee size must be strictly greater than 3.")
   >>? fun () ->
   error_unless
     Compare.Int.(
       constants.consensus_threshold >= 0
       && constants.consensus_threshold <= constants.consensus_committee_size)
     (Invalid_protocol_constants
-       "the consensus threshold must be higher than 0 and less or equal the \
-        consensus commitee size.")
+       "The consensus threshold must be greater than or equal to 0 and less \
+        than or equal to the consensus commitee size.")
   >>? fun () ->
   error_unless
     (let {numerator; denominator} = constants.minimal_participation_ratio in
      Compare.Int.(numerator >= 0 && denominator > 0))
     (Invalid_protocol_constants
-       "The minimal participation ratio must be a positive valid ratio.")
+       "The minimal participation ratio must be a non-negative valid ratio.")
   >>? fun () ->
   error_unless
     Compare.Int.(
       constants.minimal_participation_ratio.numerator
       <= constants.minimal_participation_ratio.denominator)
     (Invalid_protocol_constants
-       "the minimal participation ratio must be less or equal than 100%.")
+       "The minimal participation ratio must be less than or equal to 100%.")
   >>? fun () ->
   error_unless
     Compare.Int.(constants.max_slashing_period > 0)
-    (Invalid_protocol_constants "the unfreeze delay must be higher than 0.")
+    (Invalid_protocol_constants
+       "The unfreeze delay must be strictly greater than 0.")
   >>? fun () ->
   (* The [frozen_deposits_percentage] should be a percentage *)
   error_unless
@@ -413,11 +441,13 @@ let check_constants constants =
       constants.frozen_deposits_percentage > 0
       && constants.frozen_deposits_percentage <= 100)
     (Invalid_protocol_constants
-       "the frozen percentage ratio must be higher than 0 and less than 100.")
+       "The frozen percentage ratio must be strictly greater than 0 and less \
+        or equal than 100.")
   >>? fun () ->
   error_unless
     Tez_repr.(constants.double_baking_punishment >= zero)
-    (Invalid_protocol_constants "the double baking punishment must be positive.")
+    (Invalid_protocol_constants
+       "The double baking punishment must be non-negative.")
   >>? fun () ->
   error_unless
     (let {numerator; denominator} =
@@ -426,7 +456,7 @@ let check_constants constants =
      Compare.Int.(numerator >= 0 && denominator > 0))
     (Invalid_protocol_constants
        "The ratio of frozen deposits ratio slashed per double endorsement must \
-        be a positive valid ratio.")
+        be a non-negative valid ratio.")
   >>? fun () -> Result.return_unit
 
 module Generated = struct
@@ -438,13 +468,15 @@ module Generated = struct
   }
 
   let generate ~consensus_committee_size ~blocks_per_minute =
-    let committee_size_third = consensus_committee_size / 3 in
-    let consensus_threshold = (2 * committee_size_third) + 1 in
+    let consensus_threshold = (consensus_committee_size * 2 / 3) + 1 in
     (* As in previous protocols, we set the maximum total rewards per minute to
        be 80 tez. *)
     let rewards_per_minute = Tez_repr.(mul_exn one 80) in
     let rewards_per_block =
-      Tez_repr.(div_exn rewards_per_minute blocks_per_minute)
+      Tez_repr.(
+        div_exn
+          (mul_exn rewards_per_minute blocks_per_minute.denominator)
+          blocks_per_minute.numerator)
     in
     let rewards_half = Tez_repr.(div_exn rewards_per_block 2) in
     let rewards_quarter = Tez_repr.(div_exn rewards_per_block 4) in
@@ -452,7 +484,9 @@ module Generated = struct
       consensus_threshold;
       baking_reward_fixed_portion = rewards_quarter;
       baking_reward_bonus_per_slot =
-        Tez_repr.div_exn rewards_quarter committee_size_third;
+        Tez_repr.div_exn
+          rewards_quarter
+          (consensus_committee_size - consensus_threshold);
       endorsing_reward_per_slot =
         Tez_repr.div_exn rewards_half consensus_committee_size;
     }

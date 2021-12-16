@@ -115,11 +115,11 @@ Dependencies on other merge requests, other relationships to MRs, to
 issues, etc, should also be mentioned.
 
 While the code is still not ready to be peer reviewed, but it is merely a
-work in progress, the developers prefixes the MR with ``WIP:``. This will tell everybody
+work in progress, the developer prefixes the MR with ``Draft:``. This will tell everybody
 they can look at the code, comment, but there is still work to be done and the
 branch can change and history be rewritten.
 
-Finally, when the code is ready for the :ref:`code review <code_review>`, the developer removes the WIP status of the
+Finally, when the code is ready for the :ref:`code review <code_review>`, the developer removes the Draft status of the
 MR and freezes the branch. From this moment on, the developer will refrain to
 rewrite history, but he/she can add new commits and rebase the branch for
 syncing it with master (this can be done regularly to make sure the branch does
@@ -294,12 +294,23 @@ Therefore, when creating your MR, observe the following rules:
     not developers in your project, to commit to your branch.
     It helps to rebase and propose fixes.
 
-- *Find reviewers*: it is the responsibility of the author to find a
-  suitable reviewer, ideally before opening an MR. The reviewer(s)
-  should be mentioned in the description or in the comments.
+- *Find reviewers*: it is the responsibility of the author to find
+  suitable reviewers. In this context,
+  finding a reviewer means finding someone that agreed to review in the
+  next days after the MR becomes ready.
+  Opting for a reviewer that is not in the capacity to review your MR
+  in the next days when others can is unfortunate, because
+  the merge request will become unnecessarily blocked; which is bad for:
+
+  - the author, as their work gets delayed, and
+  - the health of the repository, as it gives the impression that a new contribution
+    will land soon; while it is not the case.
+
+  To find reviewers that will review promptly, we refer to the documentation
+  of the :ref:`reviewer field <reviewers_field>` below.
 
 - *Check progress*:
-  It is important to maintain to a minimum the number of your MRs that are in WIP state,
+  It is important to maintain to a minimum the number of your MRs that are in Draft state,
   and to constantly check that the discussion is progressing.
 
 Example of an MR with a good, clean history (each bullet is a commit,
@@ -354,6 +365,8 @@ must be mitigated as follows:
   A desirable standalone improvement is for example a refactoring that
   improves the quality of the code, or adds new tests, or fixes typos.
 
+.. _assignee_field:
+
 Merge Request "Assignees" Field
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -373,22 +386,38 @@ or respond to a comment) or one of the merge request authors (if they need
 to update the code or respond to a comment).
 
 If a merge request has no assignee, it is implicitly the role of the
-:ref:`merge dispatcher <merge_dispatcher>` to assign it to someone.
+:ref:`merge coordinator <merge_coordinator>` to assign it to someone.
 
 Even though merge requests could require action from several people
 to be merged, we avoid assigning more than one to avoid diluting responsibility.
 
+.. _reviewers_field:
+
 Merge Request "Reviewers" Field
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The reviewer field of GitLab can be used to suggest reviewers.
-Fill it when creating your merge requests so that the
-:ref:`merge dispatcher <merge_dispatcher>`
-knows who to contact if more reviews are needed.
-Anybody can suggest additional reviewers.
-In particular it is one of the role of the merge dispatcher to suggest reviewers.
-If you don't know who would be a good candidate to review your merge
-request, you can leave the field blank; but it may slow down the reviewing process.
+The reviewer field of GitLab is used to specify reviewers.
+Once the merge request is ready for review,
+:ref:`assign <assignee_field>` one of the reviewers that
+you specified in the reviewers field.
+As mentioned previously, it is the responsibility of authors to find reviewers.
+To find reviewers, either:
+
+  - Advertize your merge request on the ``#mr-advertizing`` channel of
+    the `tezos-dev <https://tezos-dev.slack.com/>`_ Slack. Good advertisement
+    consists of a link to the MR and a one sentence summary.
+  - Look at authors of the code you are modifying using
+    `git blame <https://git-scm.com/docs/git-blame>`_.
+  - Ask help to the :ref:`merge coordinator <merge_coordinator>`, either
+    by asking him/here on Slack or mentioning them in a comment (see next paragraph).
+
+Depending on your `GitLab role <https://docs.gitlab.com/ee/user/permissions.html>`_
+you may or may not be able to use the *Reviewers* field for specifying
+the reviewers. If you don't have the right, mention the reviewers using
+their GitLab handle (username prefixed with ``@``) in a comment.
+It causes GitLab to send a notification to them.
+
+.. _draft_mode:
 
 Merge Request "Draft" Mode
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -470,14 +499,16 @@ Merge Request Approvals
 ~~~~~~~~~~~~~~~~~~~~~~~
 
 Two approvals from different Octez :doc:`Octez merge team <merge_team>` members are required for merge
-requests to be merged. After their review, the second approver will also
-typically merge unless there is another merge in progress.
+requests to be merged. Both approvals must result from independent thorough
+reviews. After both reviews, the second approver will also typically merge.
 
-Both approvals must correspond to different thorough reviews
-but Octez merge team members may trust the reviews of other developers and
-approve without reviewing thoroughly, especially for less critical
-parts of the code. Good comments from reviewers help the Octez merge team to decide
-to approve a merge request without doing a full review.
+However, for less critical parts of the code, an Octez merge team member may
+choose to trust the review of a developer who is not a member of the Octez
+merge team. In that case, the Octez merge team member may choose to count that
+review as their own, effectively "converting" the other developer's passing
+review into an approval. This may be done even when the Octez merge team
+member is the author of the merge request. A second independent review from an
+Octez merge team member is still required, of course.
 
 For this reason, if you make a partial review, for instance if you only
 reviewed part of the code, or only the general design, it is good practice
@@ -615,5 +646,5 @@ little. We welcome specific issues or contributions there too.
 Developer Tools
 ~~~~~~~~~~~~~~~
 
-Somme tools to make protocol development more convenient can be found in the :src:`src/tooling/` folder.
+Some tools to make protocol development more convenient can be found in the :src:`src/tooling/` folder.
 In particular, it contains ``tztop``, a REPL (interactive read-eval-print loop) based on ``utop``.

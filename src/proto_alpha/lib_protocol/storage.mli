@@ -116,6 +116,8 @@ end
 
 type deposits = {initial_amount : Tez_repr.t; current_amount : Tez_repr.t}
 
+type missed_endorsements_info = {remaining_slots : int; missed_levels : int}
+
 module Contract : sig
   (** Storage from this submodule must only be accessed through the
       module `Contract`. *)
@@ -125,6 +127,7 @@ module Contract : sig
   (** The domain of alive contracts *)
   val fold :
     Raw_context.t ->
+    order:[`Sorted | `Undefined] ->
     init:'a ->
     f:(Contract_repr.t -> 'a -> 'a Lwt.t) ->
     'a Lwt.t
@@ -132,20 +135,31 @@ module Contract : sig
   val list : Raw_context.t -> Contract_repr.t list Lwt.t
 
   (** The tez possessed by a contract and that can be used. A contract
-     may also possess tez in frozen deposits. *)
+     may also possess tez in frozen deposits. Empty balances (of zero
+     tez) are only allowed for originated contracts, not for implicit
+     ones. *)
   module Balance :
     Indexed_data_storage
       with type key = Contract_repr.t
        and type value = Tez_repr.t
        and type t := Raw_context.t
 
-  (** If the value is not set, the delegate didn't miss any endorsing opportunity.
-      If it is set, this represents the number of slots that a delegate can still
-      miss before forfeiting its endorsing rewards for the current cycle *)
-  module Remaining_allowed_missed_slots :
+  (** If the value is not set, the delegate didn't miss any endorsing
+     opportunity.  If it is set, this value is a record of type
+     [missed_endorsements_info], where:
+   - [remaining_slots] is the difference between the maximum number of
+     slots that can be missed and the number of missed slots;
+     therefore, when the number is positive, it represents the number
+     of slots that a delegate can still miss before forfeiting its
+     endorsing rewards for the current cycle; when the number is zero
+     it means rewards are not lost, but no further slots can be
+     missed anymore;
+   - [missed_levels] represents the number of missed levels (for
+     endorsing). *)
+  module Missed_endorsements :
     Indexed_data_storage
       with type key = Contract_repr.t
-       and type value = int
+       and type value = missed_endorsements_info
        and type t := Raw_context.t
 
   (** Frozen balance, see 'delegate_storage.mli' for more explanation.
@@ -267,7 +281,12 @@ module Big_map : sig
   end
 
   (** The domain of alive big maps *)
-  val fold : Raw_context.t -> init:'a -> f:(id -> 'a -> 'a Lwt.t) -> 'a Lwt.t
+  val fold :
+    Raw_context.t ->
+    order:[`Sorted | `Undefined] ->
+    init:'a ->
+    f:(id -> 'a -> 'a Lwt.t) ->
+    'a Lwt.t
 
   val list : Raw_context.t -> id list Lwt.t
 
@@ -574,11 +593,16 @@ module Commitments :
 
 (** Ramp up rewards *)
 module Ramp_up : sig
+  type reward = {
+    baking_reward_fixed_portion : Tez_repr.t;
+    baking_reward_bonus_per_slot : Tez_repr.t;
+    endorsing_reward_per_slot : Tez_repr.t;
+  }
+
   module Rewards :
     Indexed_data_storage
       with type key = Cycle_repr.t
-       and type value := Tez_repr.t * Tez_repr.t * Tez_repr.t
-      (* baking rewards fixed portion * baking reward bonus per slot * validator reward per slot *)
+       and type value := reward
        and type t := Raw_context.t
 end
 
@@ -665,5 +689,16 @@ module Tenderbake : sig
   module Grand_parent_branch :
     Single_data_storage
       with type value = Block_hash.t * Block_payload_hash.t
+       and type t := Raw_context.t
+end
+
+module Tx_rollup : sig
+  (** Storage from this submodule must only be accessed through the
+      module `Tx_rollup_storage`. *)
+
+  module State :
+    Indexed_data_storage
+      with type key = Tx_rollup_repr.t
+       and type value = Tx_rollup_repr.state
        and type t := Raw_context.t
 end

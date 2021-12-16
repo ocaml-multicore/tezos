@@ -29,8 +29,8 @@ type balance =
   | Legacy_rewards of Signature.Public_key_hash.t * Cycle_repr.t
   | Block_fees
   | Legacy_deposits of Signature.Public_key_hash.t * Cycle_repr.t
-  | Bonds of Signature.Public_key_hash.t
-  | NonceRevelation_rewards
+  | Deposits of Signature.Public_key_hash.t
+  | Nonce_revelation_rewards
   | Double_signing_evidence_rewards
   | Endorsing_rewards
   | Baking_rewards
@@ -75,7 +75,7 @@ let balance_encoding =
            ~title:"Block_fees"
            (obj2
               (req "kind" (constant "accumulator"))
-              (req "category" (constant "fees")))
+              (req "category" (constant "block fees")))
            (function Block_fees -> Some ((), ()) | _ -> None)
            (fun ((), ()) -> Block_fees);
          case
@@ -91,27 +91,27 @@ let balance_encoding =
            (fun ((), (), d, l) -> Legacy_deposits (d, l));
          case
            (Tag 4)
-           ~title:"Bonds"
+           ~title:"Deposits"
            (obj3
               (req "kind" (constant "freezer"))
               (req "category" (constant "deposits"))
               (req "delegate" Signature.Public_key_hash.encoding))
-           (function Bonds d -> Some ((), (), d) | _ -> None)
-           (fun ((), (), d) -> Bonds d);
+           (function Deposits d -> Some ((), (), d) | _ -> None)
+           (fun ((), (), d) -> Deposits d);
          case
            (Tag 5)
-           ~title:"NonceRevelation_rewards"
+           ~title:"Nonce_revelation_rewards"
            (obj2
               (req "kind" (constant "minted"))
-              (req "category" (constant "rewards")))
-           (function NonceRevelation_rewards -> Some ((), ()) | _ -> None)
-           (fun ((), ()) -> NonceRevelation_rewards);
+              (req "category" (constant "nonce revelation rewards")))
+           (function Nonce_revelation_rewards -> Some ((), ()) | _ -> None)
+           (fun ((), ()) -> Nonce_revelation_rewards);
          case
            (Tag 6)
            ~title:"Double_signing_evidence_rewards"
            (obj2
               (req "kind" (constant "minted"))
-              (req "category" (constant "rewards")))
+              (req "category" (constant "double signing evidence rewards")))
            (function
              | Double_signing_evidence_rewards -> Some ((), ()) | _ -> None)
            (fun ((), ()) -> Double_signing_evidence_rewards);
@@ -120,7 +120,7 @@ let balance_encoding =
            ~title:"Endorsing_rewards"
            (obj2
               (req "kind" (constant "minted"))
-              (req "category" (constant "rewards")))
+              (req "category" (constant "endorsing rewards")))
            (function Endorsing_rewards -> Some ((), ()) | _ -> None)
            (fun ((), ()) -> Endorsing_rewards);
          case
@@ -128,7 +128,7 @@ let balance_encoding =
            ~title:"Baking_rewards"
            (obj2
               (req "kind" (constant "minted"))
-              (req "category" (constant "rewards")))
+              (req "category" (constant "baking rewards")))
            (function Baking_rewards -> Some ((), ()) | _ -> None)
            (fun ((), ()) -> Baking_rewards);
          case
@@ -136,7 +136,7 @@ let balance_encoding =
            ~title:"Baking_bonuses"
            (obj2
               (req "kind" (constant "minted"))
-              (req "category" (constant "rewards")))
+              (req "category" (constant "baking bonuses")))
            (function Baking_bonuses -> Some ((), ()) | _ -> None)
            (fun ((), ()) -> Baking_bonuses);
          case
@@ -154,7 +154,7 @@ let balance_encoding =
            ~title:"Storage_fees"
            (obj2
               (req "kind" (constant "burned"))
-              (req "category" (constant "storage_fees")))
+              (req "category" (constant "storage fees")))
            (function Storage_fees -> Some ((), ()) | _ -> None)
            (fun ((), ()) -> Storage_fees);
          case
@@ -170,7 +170,7 @@ let balance_encoding =
            ~title:"Lost_endorsing_rewards"
            (obj5
               (req "kind" (constant "burned"))
-              (req "category" (constant "rewards"))
+              (req "category" (constant "lost endorsing rewards"))
               (req "delegate" Signature.Public_key_hash.encoding)
               (req "participation" Data_encoding.bool)
               (req "revelation" Data_encoding.bool))
@@ -218,7 +218,7 @@ let balance_encoding =
               (req "kind" (constant "minted"))
               (req "category" (constant "invoice")))
            (function Invoice -> Some ((), ()) | _ -> None)
-           (fun ((), ()) -> Burned);
+           (fun ((), ()) -> Invoice);
          case
            (Tag 19)
            ~title:"Initial_commitments"
@@ -237,50 +237,58 @@ let balance_encoding =
            (fun ((), ()) -> Minted);
        ]
 
-let ( *? ) a b = if Compare.Int.(a = 0) then b else a
+let is_not_zero c = not (Compare.Int.equal c 0)
 
 let compare_balance ba bb =
   match (ba, bb) with
   | (Contract ca, Contract cb) -> Contract_repr.compare ca cb
   | (Legacy_rewards (pkha, ca), Legacy_rewards (pkhb, cb)) ->
-      Signature.Public_key_hash.compare pkha pkhb *? Cycle_repr.compare ca cb
+      let c = Signature.Public_key_hash.compare pkha pkhb in
+      if is_not_zero c then c else Cycle_repr.compare ca cb
   | (Legacy_deposits (pkha, ca), Legacy_deposits (pkhb, cb)) ->
-      Signature.Public_key_hash.compare pkha pkhb *? Cycle_repr.compare ca cb
-  | (Bonds pkha, Bonds pkhb) -> Signature.Public_key_hash.compare pkha pkhb
+      let c = Signature.Public_key_hash.compare pkha pkhb in
+      if is_not_zero c then c else Cycle_repr.compare ca cb
+  | (Deposits pkha, Deposits pkhb) ->
+      Signature.Public_key_hash.compare pkha pkhb
   | ( Lost_endorsing_rewards (pkha, pa, ra),
       Lost_endorsing_rewards (pkhb, pb, rb) ) ->
-      Signature.Public_key_hash.compare pkha pkhb
-      *? Compare.Bool.(compare pa pb *? compare ra rb)
+      let c = Signature.Public_key_hash.compare pkha pkhb in
+      if is_not_zero c then c
+      else
+        let c = Compare.Bool.compare pa pb in
+        if is_not_zero c then c else Compare.Bool.compare ra rb
   | (Commitments bpkha, Commitments bpkhb) ->
       Blinded_public_key_hash.compare bpkha bpkhb
   | (Legacy_fees (pkha, ca), Legacy_fees (pkhb, cb)) ->
-      Signature.Public_key_hash.compare pkha pkhb *? Cycle_repr.compare ca cb
+      let c = Signature.Public_key_hash.compare pkha pkhb in
+      if is_not_zero c then c else Cycle_repr.compare ca cb
   | (_, _) ->
       let index b =
         match b with
-        | Contract _ -> 0l
-        | Legacy_rewards _ -> 1l
-        | Block_fees -> 2l
-        | Legacy_deposits _ -> 3l
-        | Bonds _ -> 4l
-        | NonceRevelation_rewards -> 5l
-        | Double_signing_evidence_rewards -> 6l
-        | Endorsing_rewards -> 7l
-        | Baking_rewards -> 8l
-        | Baking_bonuses -> 9l
-        | Legacy_fees _ -> 10l
-        | Storage_fees -> 11l
-        | Double_signing_punishments -> 12l
-        | Lost_endorsing_rewards _ -> 13l
-        | Liquidity_baking_subsidies -> 14l
-        | Burned -> 15l
-        | Commitments _ -> 16l
-        | Bootstrap -> 17l
-        | Invoice -> 18l
-        | Initial_commitments -> 19l
-        | Minted -> 20l
+        | Contract _ -> 0
+        | Legacy_rewards _ -> 1
+        | Block_fees -> 2
+        | Legacy_deposits _ -> 3
+        | Deposits _ -> 4
+        | Nonce_revelation_rewards -> 5
+        | Double_signing_evidence_rewards -> 6
+        | Endorsing_rewards -> 7
+        | Baking_rewards -> 8
+        | Baking_bonuses -> 9
+        | Legacy_fees _ -> 10
+        | Storage_fees -> 11
+        | Double_signing_punishments -> 12
+        | Lost_endorsing_rewards _ -> 13
+        | Liquidity_baking_subsidies -> 14
+        | Burned -> 15
+        | Commitments _ -> 16
+        | Bootstrap -> 17
+        | Invoice -> 18
+        | Initial_commitments -> 19
+        | Minted -> 20
+        (* don't forget to add parameterized cases in the first part of the function *)
       in
-      Int32.compare (index ba) (index bb)
+      Compare.Int.compare (index ba) (index bb)
 
 type balance_update = Debited of Tez_repr.t | Credited of Tez_repr.t
 
@@ -369,17 +377,12 @@ let balance_updates_encoding =
              (merge_objs balance_encoding balance_update_encoding)
              update_origin_encoding))
 
-let cleanup_balance_updates balance_updates =
-  List.filter
-    (fun (_, (Credited update | Debited update), _) ->
-      not (Tez_repr.equal update Tez_repr.zero))
-    balance_updates
-
 module BalanceMap = Map.Make (struct
   type t = balance * update_origin
 
   let compare (ba, ua) (bb, ub) =
-    compare_balance ba bb *? compare_update_origin ua ub
+    let c = compare_balance ba bb in
+    if is_not_zero c then c else compare_update_origin ua ub
 end)
 
 let group_balance_updates balance_updates =

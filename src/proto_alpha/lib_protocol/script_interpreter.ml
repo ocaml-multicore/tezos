@@ -333,6 +333,7 @@ and next :
       | KLoop_in (ki, ks') ->
           (kloop_in [@ocaml.tailcall]) g gas ks0 ki ks' accu stack
       | KReturn (stack', ks) -> (next [@ocaml.tailcall]) g gas ks accu stack'
+      | KMap_head (f, ks) -> (next [@ocaml.tailcall]) g gas ks (f accu) stack
       | KLoop_in_left (ki, ks') ->
           (kloop_in_left [@ocaml.tailcall]) g gas ks0 ki ks' accu stack
       | KUndip (x, ks) -> (next [@ocaml.tailcall]) g gas ks x (accu, stack)
@@ -512,6 +513,12 @@ and step : type a s b t r f. (a, s, b, t, r, f) step_type =
                 (KCons (k, ks))
                 v
                 stack)
+      | IOpt_map {body; k; kinfo = _} -> (
+          match accu with
+          | None -> (step [@ocaml.tailcall]) g gas k ks None stack
+          | Some v ->
+              let ks' = KMap_head (Option.some, KCons (k, ks)) in
+              (step [@ocaml.tailcall]) g gas body ks' v stack)
       (* pairs *)
       | ICons_pair (_, k) ->
           let (b, stack) = stack in
@@ -1045,9 +1052,8 @@ and step : type a s b t r f. (a, s, b, t, r, f) step_type =
                   in
                   trace_eval
                     (fun () ->
-                      return
-                      @@ Script_tc_errors.Ill_typed_contract
-                           (Micheline.strip_locations view.view_code, []))
+                      Script_tc_errors.Ill_typed_contract
+                        (Micheline.strip_locations view.view_code, []))
                     view_result
                   >>=? fun (Ex_view f, ctxt) ->
                   match f with
@@ -1562,6 +1568,7 @@ and klog :
       let ks' = mk ks' in
       let ks = KReturn (stack', ks') in
       (next [@ocaml.tailcall]) g gas ks accu stack
+  | KMap_head (f, ks) -> (next [@ocaml.tailcall]) g gas ks (f accu) stack
   | KLoop_in_left (ki, ks') ->
       let ks' = mk ks' in
       let ki = enable_log ki in
@@ -1682,7 +1689,10 @@ let execute logger ctxt mode step_constants ~entrypoint ~internal
     (Bad_contract_parameter step_constants.self)
     (parse_data ctxt ~legacy:false ~allow_forged:internal arg_type (box arg))
   >>=? fun (arg, ctxt) ->
-  Script.force_decode_in_context ctxt unparsed_script.code
+  Script.force_decode_in_context
+    ~consume_deserialization_gas:When_needed
+    ctxt
+    unparsed_script.code
   >>?= fun (script_code, ctxt) ->
   Script_ir_translator.collect_lazy_storage ctxt arg_type arg
   >>?= fun (to_duplicate, ctxt) ->

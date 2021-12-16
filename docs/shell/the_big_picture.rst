@@ -17,7 +17,7 @@ The diagram below shows a very coarse-grained architecture of Tezos.
 |Tezos architecture diagram|
 
 The characteristic that makes Tezos unique is its self-amending
-property. The part that amends itself is called the *economic protocol*
+property. The part that amends itself is called :doc:`the economic protocol<../alpha/protocol>`
 (the green eye of the octopus), sometimes abbreviated by protocol or
 even proto in the source code. The rest of a Tezos node is what we call
 the *shell* (the blue octopus).
@@ -180,7 +180,7 @@ protocol in an alternative environment possible.
 
   - :package:`tezos-protocol-environment-sigs` contains the modules
     that are available to the economic protocol. A review of this
-    sandbox is available :ref:`here<protocol_environment>`. These
+    sandbox is available :doc:`here <../developer/protocol_environment>`. These
     modules include a stripped-down standard library, and interfaces
     to the crypto APIs, RPC definitions, and a key-value store.
 

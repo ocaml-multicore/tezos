@@ -57,6 +57,9 @@ type block_info = {
   prequorum : prequorum option;
   quorum : Kind.endorsement operation list;
   payload : Operation_pool.payload;
+  live_blocks : Block_hash.Set.t;
+      (** Set of live blocks for this block that is used to filter
+          old or too recent operations. *)
 }
 
 type cache = {
@@ -71,6 +74,7 @@ type global_state = {
   chain_id : Chain_id.t;
   config : Baking_configuration.t;
   constants : Constants.t;
+  round_durations : Round.round_durations;
   operation_worker : Operation_worker.t;
   validation_mode : validation_mode;
   delegates : delegate list;
@@ -143,12 +147,18 @@ type timeout_kind =
 
 val timeout_kind_encoding : timeout_kind Data_encoding.t
 
+type voting_power = int
+
 type event =
   | New_proposal of proposal
   | Prequorum_reached of
-      Operation_worker.candidate * Kind.preendorsement operation list
+      Operation_worker.candidate
+      * voting_power
+      * Kind.preendorsement operation list
   | Quorum_reached of
-      Operation_worker.candidate * Kind.endorsement operation list
+      Operation_worker.candidate
+      * voting_power
+      * Kind.endorsement operation list
   | Timeout of timeout_kind
 
 val event_encoding : event Data_encoding.t

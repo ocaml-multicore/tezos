@@ -39,7 +39,7 @@ A delegate participates in consensus and in governance with a weight
 proportional with their delegated stake, which includes the balances
 of all the accounts that delegate to it, and also the balance of the
 delegate itself. To participate in consensus or in governance, a
-delegate needs to have at a minimal stake, which is given by the
+delegate needs to have at least a minimal stake, which is given by the
 ``TOKENS_PER_ROLL`` :ref:`protocol constant
 <protocol_constants_alpha>`.
 
@@ -85,7 +85,7 @@ The committed nonce must be revealed by the original block proposer during cycle
 ``n-1`` under penalty of forfeiting the rewards and fees of the block that
 included the commitment. The associated security deposit is not forfeited.
 
-A *nonce revelation* is an operation, and multiple nonce revelations can thus be
+A *nonce revelation* is an operation and multiple nonce revelations can thus be
 included in a block. A reward ``SEED_NONCE_REVELATION_TIP`` is given for
 including a revelation. Revelations are free operations which do not compete
 with transactions for block space. Up to ``MAX_ANON_OPS_PER_BLOCK`` revelations,

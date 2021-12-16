@@ -4,4 +4,5 @@
  (instrumentation (backend bisect_ppx))
  (libraries
   lwt
-  tezos-lwt-result-stdlib.bare.functor-outputs))
+  tezos-lwt-result-stdlib.bare.functor-outputs)
+ (js_of_ocaml))

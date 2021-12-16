@@ -25,8 +25,7 @@
 
 open Lib_test.Qcheck_helpers
 open Plugin.Mempool
-open Tezos_protocol_alpha.Protocol.Alpha_context
-open Tezos_protocol_alpha.Protocol
+open Alpha_context
 
 let config drift_opt =
   {
@@ -38,6 +37,7 @@ let config drift_opt =
       Option.map
         (fun drift -> Period.of_seconds_exn (Int64.of_int drift))
         drift_opt;
+    replace_by_fee_factor = Q.make (Z.of_int 105) (Z.of_int 100);
   }
 
 type Environment.Error_monad.error += Generation_failure
@@ -90,10 +90,6 @@ module Generator = struct
   let small_nat_32 ?prefix ?suffix () =
     decorate ?prefix ?suffix Int32.to_string
     @@ map ~rev:Int32.to_int Int32.of_int small_nat
-
-  let small_signed_64 ?prefix ?suffix () =
-    decorate ?prefix ?suffix Int64.to_string
-    @@ map ~rev:Int64.to_int Int64.of_int small_signed_int
 
   let small_signed_32 ?prefix ?suffix () =
     decorate ?prefix ?suffix Int32.to_string
@@ -172,9 +168,8 @@ let assert_no_error d = match d with Error _ -> assert false | Ok d -> d
 let round_durations : Round.round_durations =
   assert_no_error
   @@ Round.Durations.create
-       ~round0:Period.(of_seconds_exn 4L)
-       ~round1:Period.(of_seconds_exn 14L)
-       ()
+       ~first_round_duration:Period.(of_seconds_exn 4L)
+       ~delay_increment_per_round:Period.(of_seconds_exn 10L)
 
 let round_zero_duration = Round.round_duration round_durations Round.zero
 
@@ -487,7 +482,7 @@ let test_not_acceptable_next_level =
             ~now_timestamp
          >|? not))
 
-let tests =
+let () =
   Alcotest.run
     "Filter"
     [

@@ -130,6 +130,7 @@ end
 module Delegate : sig
   type info = Delegate_services.info = {
     full_balance : Tez.t;
+    current_frozen_deposits : Tez.t;
     frozen_deposits : Tez.t;
     staking_balance : Tez.t;
     frozen_deposits_limit : Tez.t option;
@@ -144,9 +145,11 @@ module Delegate : sig
 
   val full_balance : t -> public_key_hash -> Tez.t tzresult Lwt.t
 
-  (** Returns the deposit which was frozen for [level], that is, the deposit
-     frozen at [level - validators_selection_offset]. *)
-  val frozen_deposits : t -> public_key_hash -> Tez.t tzresult Lwt.t
+  val current_frozen_deposits : t -> public_key_hash -> Tez.t tzresult Lwt.t
+
+  (** calls the RPC [frozen_deposits]: we're using a different name to
+     be more easily distinguishable from [current_frozen_deposits] *)
+  val initial_frozen_deposits : t -> public_key_hash -> Tez.t tzresult Lwt.t
 
   val staking_balance : t -> public_key_hash -> Tez.t tzresult Lwt.t
 
@@ -154,6 +157,13 @@ module Delegate : sig
     t -> public_key_hash -> Tez.t option tzresult Lwt.t
 
   val deactivated : t -> public_key_hash -> bool tzresult Lwt.t
+
+  val participation :
+    t -> public_key_hash -> Delegate.participation_info tzresult Lwt.t
+end
+
+module Tx_rollup : sig
+  val state : t -> Tx_rollup.t -> Tx_rollup.state option tzresult Lwt.t
 end
 
 (** [init n] : returns an initial block with [n] initialized accounts
@@ -173,6 +183,7 @@ val init :
   ?baking_reward_fixed_portion:Tez.t ->
   ?origination_size:int ->
   ?blocks_per_cycle:int32 ->
+  ?tx_rollup_enable:bool ->
   int ->
   (Block.t * Alpha_context.Contract.t list) tzresult Lwt.t
 

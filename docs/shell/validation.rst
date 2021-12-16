@@ -36,6 +36,9 @@ The shell changes the head of the chain to the valid block that has the highest 
 The fitness belongs to the shell part of the block header.
 The shell does not know the exact representation of the fitness, except that it has a total order on it.
 
+
+.. _shell_header:
+
 Shell header
 ~~~~~~~~~~~~
 
@@ -157,6 +160,25 @@ bounded set is also kept for a third kind of non-inclusion: operations
 that could be valid in another branch.
 
 As a complement to the built-in classification mechanism above, which rejects operations that could flood the network with useless messages, there is a filtering mechanism implemented as a :doc:`protocol plugin <../active/plugins>`, that can be customized for each protocol version.
+
+The prevalidator ensures that a given manager can only have one
+Applied manager operation (e.g., transfers, contract calls) per block.
+This restriction only exists in the prevalidator, e.g., a baker can
+include more that one manager operation per manager in a block.
+Operations with a given manager will be temporarily refused
+(Branch Delayed) if the prevalidator has already classified as applied
+an operation with the same manager. This limitation was already
+present implicitely if you were using the `tezos-client` commands.
+Batches of operations can be used to get around this restriction.
+
+To mitigate the limitation itself, a user can inject an operation with the same
+manager and the same counter, but with a higher fee to replace an already existing
+operation in the prevalidator. Only one of the two operations will be eventually
+included in a block. To be able to replace the first operation, the fee and the
+"fee/gas limit" ratio of the second one is supposed to be higher than the first's
+by a factor (currently fixed to 5%). In case of successful replacement, the old
+operation is re-classified as `\`Outdated`.
+
 
 Distributed DB
 --------------

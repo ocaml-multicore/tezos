@@ -36,7 +36,7 @@ open Test_tez
 
 let constants =
   {
-    Tezos_protocol_alpha_parameters.Default_parameters.constants_test with
+    Default_parameters.constants_test with
     endorsing_reward_per_slot = Tez.zero;
     baking_reward_bonus_per_slot = Tez.zero;
     baking_reward_fixed_portion = Tez.zero;
@@ -71,7 +71,7 @@ let get_first_2_accounts_contracts contracts =
 
 - frozen deposits = represents frozen_deposits_percentage of the maximum stake during
    preserved_cycles + max_slashing_period cycles; obtained with
-   Delegate.frozen_deposits
+   Delegate.current_frozen_deposits
 
 - spendable balance = full balance - frozen deposits; obtained with Contract.balance
 
@@ -86,7 +86,7 @@ let test_invariants () =
   >>=? fun staking_balance ->
   Context.Delegate.full_balance (B genesis) account1 >>=? fun full_balance ->
   Context.Contract.balance (B genesis) contract1 >>=? fun spendable_balance ->
-  Context.Delegate.frozen_deposits (B genesis) account1
+  Context.Delegate.current_frozen_deposits (B genesis) account1
   >>=? fun frozen_deposits ->
   (* before delegation *)
   Assert.equal_tez ~loc:__LOC__ full_balance staking_balance >>=? fun () ->
@@ -115,7 +115,7 @@ let test_invariants () =
   >>=? fun new_staking_balance ->
   Context.Delegate.full_balance (B b2) account1 >>=? fun new_full_balance ->
   Context.Contract.balance (B b2) contract1 >>=? fun new_spendable_balance ->
-  Context.Delegate.frozen_deposits (B b2) account1
+  Context.Delegate.current_frozen_deposits (B b2) account1
   >>=? fun new_frozen_deposits ->
   (* after delegation, we see the delegated stake reflected in the new staking
      balance of account1 *)
@@ -144,12 +144,12 @@ let test_set_limit balance_percentage () =
     get_first_2_accounts_contracts contracts
   in
   (Context.Delegate.frozen_deposits_limit (B genesis) account1 >>=? function
-   | Some _ -> Alcotest.fail "unexpected bond limit"
+   | Some _ -> Alcotest.fail "unexpected deposits limit"
    | None -> return_unit)
   >>=? fun () ->
   (* Test deposit consistency before and after first cycle *)
   Context.Delegate.full_balance (B genesis) account1 >>=? fun full_balance ->
-  Context.Delegate.frozen_deposits (B genesis) account1
+  Context.Delegate.current_frozen_deposits (B genesis) account1
   >>=? fun frozen_deposits ->
   let expected_deposits =
     full_balance *! Int64.of_int constants.frozen_deposits_percentage /! 100L
@@ -158,7 +158,7 @@ let test_set_limit balance_percentage () =
   (* Bake until end of first cycle *)
   Block.bake_until_cycle_end genesis >>=? fun b ->
   Context.Delegate.full_balance (B genesis) account1 >>=? fun full_balance ->
-  Context.Delegate.frozen_deposits (B genesis) account1
+  Context.Delegate.current_frozen_deposits (B genesis) account1
   >>=? fun frozen_deposits ->
   let expected_deposits =
     full_balance *! Int64.of_int constants.frozen_deposits_percentage /! 100L
@@ -172,26 +172,28 @@ let test_set_limit balance_percentage () =
   Block.bake ~policy:(By_account account2) ~operation b >>=? fun b ->
   (Context.Delegate.frozen_deposits_limit (B b) account1 >>=? function
    | Some set_limit -> Assert.equal_tez ~loc:__LOC__ set_limit limit
-   | None -> Alcotest.fail "unexpected absence of bond limit")
+   | None -> Alcotest.fail "unexpected absence of deposits limit")
   >>=? fun () ->
-  (* the frozen bond limit affects the active stake for cycles starting with c +
+  (* the frozen deposits limit affects the active stake for cycles starting with c +
      preserved_cycles + 1; the new active stake is taken into account when
      computing the frozen deposits for cycle c+1 already, however the user may see
      an update to its frozen deposits at cycle c + preserved_cycles +
      max_slashing_period at the latest (because up to that cycle the frozen
      deposits also depend on the active stake at cycles before cycle c+1). *)
-  let expected_number_of_cycles_with_previous_bond =
+  let expected_number_of_cycles_with_previous_deposit =
     constants.preserved_cycles + constants.max_slashing_period
   in
   Block.bake_until_n_cycle_end
     ~policy:(By_account account2)
-    (expected_number_of_cycles_with_previous_bond - 1)
+    (expected_number_of_cycles_with_previous_deposit - 1)
     b
   >>=? fun b ->
-  Context.Delegate.frozen_deposits (B b) account1 >>=? fun frozen_deposits ->
+  Context.Delegate.current_frozen_deposits (B b) account1
+  >>=? fun frozen_deposits ->
   Assert.not_equal_tez ~loc:__LOC__ frozen_deposits Tez.zero >>=? fun () ->
   Block.bake_until_cycle_end ~policy:(By_account account2) b >>=? fun b ->
-  Context.Delegate.frozen_deposits (B b) account1 >>=? fun frozen_deposits ->
+  Context.Delegate.current_frozen_deposits (B b) account1
+  >>=? fun frozen_deposits ->
   Assert.equal_tez ~loc:__LOC__ frozen_deposits limit
 
 let test_cannot_bake_with_zero_deposits () =
@@ -199,25 +201,25 @@ let test_cannot_bake_with_zero_deposits () =
   let ((contract1, account1), (_contract2, account2)) =
     get_first_2_accounts_contracts contracts
   in
-  (* N.B. there is no non zero frozen deposits value for which one cannot bake:
-     even with a small bond one can still bake though with a smaller probability
-     (because the frozen deposits value impact the active stake and the active
+  (* N.B. there is no non-zero frozen deposits value for which one cannot bake:
+     even with a small deposit one can still bake, though with a smaller probability
+     (because the frozen deposits value impacts the active stake and the active
      stake is the one used to determine baking/endorsing rights. *)
   Op.set_deposits_limit (B genesis) contract1 (Some Tez.zero)
   >>=? fun operation ->
   Block.bake ~policy:(By_account account2) ~operation genesis >>=? fun b ->
-  let expected_number_of_cycles_with_previous_bond =
+  let expected_number_of_cycles_with_previous_deposit =
     constants.preserved_cycles + constants.max_slashing_period - 1
   in
   Block.bake_until_n_cycle_end
     ~policy:(By_account account2)
-    expected_number_of_cycles_with_previous_bond
+    expected_number_of_cycles_with_previous_deposit
     b
   >>=? fun b ->
   Block.bake ~policy:(By_account account1) b >>= fun b1 ->
   (* by now, the active stake of account1 is 0 so it no longer has slots, thus it
-       cannot be a proposer, thus it cannot bake. Precisely, bake fails because
-       get_next_baker_by_account fails with "No slots found" *)
+     cannot be a proposer, thus it cannot bake. Precisely, bake fails because
+     get_next_baker_by_account fails with "No slots found" *)
   Assert.error ~loc:__LOC__ b1 (fun _ -> true)
 
 let test_deposits_after_stake_removal () =
@@ -225,9 +227,9 @@ let test_deposits_after_stake_removal () =
   let ((contract1, account1), (contract2, account2)) =
     get_first_2_accounts_contracts contracts
   in
-  Context.Delegate.frozen_deposits (B genesis) account1
+  Context.Delegate.current_frozen_deposits (B genesis) account1
   >>=? fun initial_frozen_deposits_1 ->
-  Context.Delegate.frozen_deposits (B genesis) account2
+  Context.Delegate.current_frozen_deposits (B genesis) account2
   >>=? fun initial_frozen_deposits_2 ->
   let expected_new_frozen_deposits_2 =
     Test_tez.(initial_frozen_deposits_2 *! 3L /! 2L)
@@ -238,29 +240,31 @@ let test_deposits_after_stake_removal () =
   Op.transaction (B genesis) contract1 contract2 half_balance
   >>=? fun operation ->
   Block.bake ~operation genesis >>=? fun b ->
-  Context.Delegate.frozen_deposits (B b) account1 >>=? fun frozen_deposits_1 ->
+  Context.Delegate.current_frozen_deposits (B b) account1
+  >>=? fun frozen_deposits_1 ->
   Assert.equal_tez ~loc:__LOC__ frozen_deposits_1 initial_frozen_deposits_1
   >>=? fun () ->
-  Context.Delegate.frozen_deposits (B b) account2 >>=? fun frozen_deposits_2 ->
+  Context.Delegate.current_frozen_deposits (B b) account2
+  >>=? fun frozen_deposits_2 ->
   Assert.equal_tez ~loc:__LOC__ frozen_deposits_2 initial_frozen_deposits_2
   >>=? fun () ->
-  (* Bake a cycle to act account2's new frozen bond *)
+  (* Bake a cycle to act account2's new frozen deposits *)
   Block.bake_until_cycle_end b >>=? fun b ->
   let rec loop b n =
     if n = 0 then return b
     else
-      Context.Delegate.frozen_deposits (B b) account1
+      Context.Delegate.current_frozen_deposits (B b) account1
       >>=? fun frozen_deposits_1 ->
-      (* the frozen_bond is frozen_bond_percentage of the maximum active stake
+      (* the frozen_deposits is frozen_deposits_percentage of the maximum active stake
          during the last preserved_cycles + max_slashing_period cycles;
          consequently, though the active stake of account1 has decreased at
-         cycle c, this decrease makes the frozen bond smaller only after
+         cycle c, this decrease makes the frozen deposits smaller only after
          preserved cycles + max_slashing_period. *)
       Assert.equal_tez ~loc:__LOC__ frozen_deposits_1 initial_frozen_deposits_1
       >>=? fun () ->
       (* the active stake of account2 has increased and this increase affects
-         the frozen_bond from this cycle as it is greater than previous ones. *)
-      Context.Delegate.frozen_deposits (B b) account2
+         the frozen_deposits from this cycle as it is greater than previous ones. *)
+      Context.Delegate.current_frozen_deposits (B b) account2
       >>=? fun frozen_deposits_2 ->
       Assert.equal_tez
         ~loc:__LOC__
@@ -273,15 +277,17 @@ let test_deposits_after_stake_removal () =
      max_slashing_period] are baked (-1 because we already baked a cycle) *)
   loop b (constants.preserved_cycles + constants.max_slashing_period - 1)
   >>=? fun b ->
-  (* after preserved cycles + max_slashing_period, the frozen_bond for account1
+  (* after preserved cycles + max_slashing_period, the frozen_deposits for account1
      reflects the decrease in account1's active stake. *)
-  Context.Delegate.frozen_deposits (B b) account1 >>=? fun frozen_deposits_1 ->
+  Context.Delegate.current_frozen_deposits (B b) account1
+  >>=? fun frozen_deposits_1 ->
   Assert.equal_tez
     ~loc:__LOC__
     frozen_deposits_1
     Test_tez.(initial_frozen_deposits_1 /! 2L)
   >>=? fun () ->
-  Context.Delegate.frozen_deposits (B b) account2 >>=? fun frozen_deposits_2 ->
+  Context.Delegate.current_frozen_deposits (B b) account2
+  >>=? fun frozen_deposits_2 ->
   Assert.equal_tez ~loc:__LOC__ frozen_deposits_2 expected_new_frozen_deposits_2
 
 let test_unfreeze_deposits_after_deactivation () =
@@ -308,7 +314,7 @@ let test_unfreeze_deposits_after_deactivation () =
     else
       Block.bake_until_cycle_end ~policy:(By_account account2) b >>=? fun b ->
       Context.Delegate.deactivated (B b) account1 >>=? fun is_deactivated ->
-      Context.Delegate.frozen_deposits (B b) account1
+      Context.Delegate.current_frozen_deposits (B b) account1
       >>=? fun frozen_deposits ->
       (* the spendable balance *)
       Context.Contract.balance (B b) contract1 >>=? fun balance ->
@@ -337,7 +343,7 @@ let test_frozen_deposits_with_delegation () =
   in
   Context.Delegate.staking_balance (B genesis) account1
   >>=? fun initial_staking_balance ->
-  Context.Delegate.frozen_deposits (B genesis) account1
+  Context.Delegate.current_frozen_deposits (B genesis) account1
   >>=? fun initial_frozen_deposits ->
   Context.Contract.balance (B genesis) contract2 >>=? fun delegated_amount ->
   let new_account = Account.new_account () in
@@ -370,7 +376,7 @@ let test_frozen_deposits_with_delegation () =
          *! Int64.of_int constants.frozen_deposits_percentage
          /! 100L)
   in
-  Context.Delegate.frozen_deposits (B b) account1
+  Context.Delegate.current_frozen_deposits (B b) account1
   >>=? fun new_frozen_deposits ->
   Assert.equal_tez ~loc:__LOC__ new_frozen_deposits expected_new_frozen_deposits
   >>=? fun () ->
@@ -381,7 +387,7 @@ let test_frozen_deposits_with_delegation () =
     if n = 0 then return b
     else
       Block.bake_until_cycle_end ~policy:(By_account account1) b >>=? fun b ->
-      Context.Delegate.frozen_deposits (B b) account1
+      Context.Delegate.current_frozen_deposits (B b) account1
       >>=? fun frozen_deposits ->
       Assert.equal_tez ~loc:__LOC__ frozen_deposits expected_new_frozen_deposits
       >>=? fun () -> loop b (pred n)
@@ -401,7 +407,7 @@ let test_frozen_deposits_with_overdelegation () =
   >>=? fun initial_staking_balance ->
   Context.Delegate.staking_balance (B genesis) account2
   >>=? fun initial_staking_balance' ->
-  Context.Delegate.frozen_deposits (B genesis) account1
+  Context.Delegate.current_frozen_deposits (B genesis) account1
   >>=? fun initial_frozen_deposits ->
   Context.Contract.balance (B genesis) contract1 >>=? fun amount ->
   Context.Contract.balance (B genesis) contract2 >>=? fun amount' ->
@@ -444,21 +450,22 @@ let test_frozen_deposits_with_overdelegation () =
   (* the equality follows from the definition of active stake in
      [Delegate.select_distribution_for_cycle]. *)
   assert (initial_frozen_deposits = expected_new_frozen_deposits) ;
-  Context.Delegate.frozen_deposits (B b) account1
+  Context.Delegate.current_frozen_deposits (B b) account1
   >>=? fun new_frozen_deposits ->
   Assert.equal_tez ~loc:__LOC__ new_frozen_deposits expected_new_frozen_deposits
   >>=? fun () ->
   let cycles_to_bake =
     2 * (constants.preserved_cycles + constants.max_slashing_period)
   in
-  Context.Delegate.frozen_deposits (B b) account1 >>=? fun frozen_deposits ->
+  Context.Delegate.current_frozen_deposits (B b) account1
+  >>=? fun frozen_deposits ->
   Assert.equal_tez ~loc:__LOC__ frozen_deposits expected_new_frozen_deposits
   >>=? fun () ->
   let rec loop b n =
     if n = 0 then return b
     else
       Block.bake_until_cycle_end ~policy:(By_account account1) b >>=? fun b ->
-      Context.Delegate.frozen_deposits (B b) account1
+      Context.Delegate.current_frozen_deposits (B b) account1
       >>=? fun frozen_deposits ->
       Assert.equal_tez ~loc:__LOC__ frozen_deposits expected_new_frozen_deposits
       >>=? fun () -> loop b (pred n)
@@ -476,7 +483,7 @@ let test_set_limit_with_overdelegation () =
   (* - [account1] and [account2] will give 80% of their balance to
        [new_account]
      - [new_account] will overdelegate to [account1] but [account1] will set
-       its bond limit to 15% of its stake *)
+       its frozen deposits limit to 15% of its stake *)
   Context.Delegate.staking_balance (B genesis) account1
   >>=? fun initial_staking_balance ->
   Context.Delegate.staking_balance (B genesis) account2
@@ -514,7 +521,8 @@ let test_set_limit_with_overdelegation () =
   (* Finish the cycle to update the frozen deposits *)
   Block.bake_until_cycle_end b >>=? fun b ->
   let expected_new_frozen_deposits = limit in
-  Context.Delegate.frozen_deposits (B b) account1 >>=? fun frozen_deposits ->
+  Context.Delegate.current_frozen_deposits (B b) account1
+  >>=? fun frozen_deposits ->
   Assert.equal_tez ~loc:__LOC__ frozen_deposits expected_new_frozen_deposits
   >>=? fun () ->
   let cycles_to_bake =
@@ -524,7 +532,7 @@ let test_set_limit_with_overdelegation () =
     if n = 0 then return b
     else
       Block.bake_until_cycle_end ~policy:(By_account account1) b >>=? fun b ->
-      Context.Delegate.frozen_deposits (B b) account1
+      Context.Delegate.current_frozen_deposits (B b) account1
       >>=? fun frozen_deposits ->
       Assert.equal_tez ~loc:__LOC__ frozen_deposits expected_new_frozen_deposits
       >>=? fun () -> loop b (pred n)
@@ -553,8 +561,8 @@ let test_error_is_thrown_when_smaller_upper_bound_for_frozen_window () =
   (* [account2] delegates (through [new_account]) to [account1] its spendable
      balance. The point is to make [account1] have a lot of staking balance so
      that, after [preserved_cycles] when the active stake reflects this increase
-     in staking balance, its [maximum_bondable_stake] is bigger than the frozen
-     bond which is computed on a smaller window because [to_cycle] is smaller
+     in staking balance, its [maximum_stake_to_be_deposited] is bigger than the frozen
+     deposit which is computed on a smaller window because [to_cycle] is smaller
      than [new_cycle + preserved_cycles]. *)
   Context.Contract.balance (B genesis) contract2 >>=? fun delegated_amount ->
   let new_account = Account.new_account () in
@@ -574,15 +582,15 @@ let test_error_is_thrown_when_smaller_upper_bound_for_frozen_window () =
   (* By this time, after [preserved_cycles] passed after [account1] has emptied
         its spendable balance, because [account1] had a big staking balance at
         cycle 0, at this cycle it has a big active stake, and so its
-        [maximum_bondable_stake] too is bigger than [frozen_deposits.current_amount],
+        [maximum_stake_to_be_deposited] too is bigger than [frozen_deposits.current_amount],
         so the variable [to_freeze] in [freeze_deposits] is positive.
      Because the spendable balance of [account1] is 0, an error "Underflowing
         subtraction" is raised at the end of the cycle when updating the balance by
         subtracting [to_freeze] in [freeze_deposits].
      Note that by taking [to_cycle] is [new_cycle + preserved_cycles],
         [frozen_deposits.current_amount] can no longer be smaller
-        than [maximum_bondable_stake], that is, the invariant
-        maximum_bondable_stake <= frozen_deposits + balance is preserved.
+        than [maximum_stake_to_be_deposited], that is, the invariant
+        maximum_stake_to_be_deposited <= frozen_deposits + balance is preserved.
   *)
   return_unit
 

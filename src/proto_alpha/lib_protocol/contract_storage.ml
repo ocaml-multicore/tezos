@@ -25,24 +25,24 @@
 (*****************************************************************************)
 
 type error +=
-  | Balance_too_low of Contract_repr.contract * Tez_repr.t * Tez_repr.t
+  | (* `Temporary *)
+      Balance_too_low of
+      Contract_repr.contract * Tez_repr.t * Tez_repr.t
   | (* `Temporary *)
       Counter_in_the_past of Contract_repr.contract * Z.t * Z.t
   | (* `Branch *)
       Counter_in_the_future of Contract_repr.contract * Z.t * Z.t
   | (* `Temporary *)
       Non_existing_contract of Contract_repr.contract
-  | (* `Temporary *)
+  | (* `Branch *)
       Empty_implicit_contract of Signature.Public_key_hash.t
-  | (* `Temporary *)
+  | (* `Branch *)
       Empty_implicit_delegated_contract of
       Signature.Public_key_hash.t
-  | (* `Temporary *)
-      Empty_transaction of Contract_repr.t (* `Temporary *)
-  | Inconsistent_public_key of Signature.Public_key.t * Signature.Public_key.t
   | (* `Permanent *)
-      Failure of string
-(* `Permanent *)
+      Inconsistent_public_key of
+      Signature.Public_key.t * Signature.Public_key.t
+  | (* `Permanent *) Failure of string
 
 let () =
   register_error_kind
@@ -179,22 +179,7 @@ let () =
         implicit)
     Data_encoding.(obj1 (req "implicit" Signature.Public_key_hash.encoding))
     (function Empty_implicit_delegated_contract c -> Some c | _ -> None)
-    (fun c -> Empty_implicit_delegated_contract c) ;
-  register_error_kind
-    `Branch
-    ~id:"contract.empty_transaction"
-    ~title:"Empty transaction"
-    ~description:"Forbidden to credit 0ꜩ to a contract without code."
-    ~pp:(fun ppf contract ->
-      Format.fprintf
-        ppf
-        "Transaction of 0ꜩ towards a contract without code are forbidden \
-         (%a)."
-        Contract_repr.pp
-        contract)
-    Data_encoding.(obj1 (req "contract" Contract_repr.encoding))
-    (function Empty_transaction c -> Some c | _ -> None)
-    (fun c -> Empty_transaction c)
+    (fun c -> Empty_implicit_delegated_contract c)
 
 let failwith msg = fail (Failure msg)
 
@@ -574,7 +559,8 @@ let update_script_storage c contract storage lazy_storage_diff =
   Storage.Contract.Used_storage_space.update c contract new_size
 
 let spend_only_call_from_token c contract amount =
-  Storage.Contract.Balance.get c contract >>=? fun balance ->
+  Storage.Contract.Balance.find c contract >>=? fun balance ->
+  let balance = Option.value balance ~default:Tez_repr.zero in
   match Tez_repr.(balance -? amount) with
   | Error _ -> fail (Balance_too_low (contract, balance, amount))
   | Ok new_balance -> (
@@ -596,14 +582,10 @@ let spend_only_call_from_token c contract amount =
                 (* Delete empty implicit contract *)
                 delete c contract))
 
+(* [Tez_repr.(amount <> zero)] is a precondition of this function. It ensures that
+   no entry associating a null balance to an implicit contract exists in the map
+   [Storage.Contract.Balance]. *)
 let credit_only_call_from_token c contract amount =
-  (if Tez_repr.(amount <> Tez_repr.zero) then return_unit
-  else
-    error_unless
-      (Option.is_some (Contract_repr.is_originated contract))
-      (Empty_transaction contract)
-    >>?= fun () -> must_exist c contract)
-  >>=? fun () ->
   Storage.Contract.Balance.find c contract >>=? function
   | None -> (
       match Contract_repr.is_implicit contract with

@@ -5,10 +5,12 @@
  (libraries
   uutf
   zarith
+  zarith_stubs_js
   tezos-stdlib
   tezos-error-monad
   data-encoding)
  (inline_tests)
  (preprocess (pps ppx_inline_test))
+ (js_of_ocaml)
  (flags
   (:standard -open Tezos_stdlib -open Tezos_error_monad -open Data_encoding)))

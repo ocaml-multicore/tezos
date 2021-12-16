@@ -23,7 +23,44 @@
 (*                                                                           *)
 (*****************************************************************************)
 
+(* Overview:
+
+This mli is organized into roughly three parts:
+
+1. A set of new types prefixed with "ex_"
+Michelson is encoded in a GADT that preserves certain properties about its
+type system. If you haven't read about GADT's, check out the relevant section
+in the Tezos docs:
+https://tezos.gitlab.io/developer/gadt.html#generalized-algebraic-data-types-gadts 
+
+The idea is that type representing a Michelson type, ['a ty], is parameterized
+by a type 'a. But that 'a can't be just _any_ type; it must be valid according
+to the definition of ['a ty]. Thus, if I give you a value of type ['a ty],
+all you know is that "there exists some 'a such that 'a ty exists". You must be
+careful not to accidentally quantify 'a universally, that is "for all 'a,
+'a ty exists", otherwise you'll get an annoying error about 'a trying to escape
+it's scope. We do this by hiding 'a in an existential type. This is what
+ex_comparable_ty, ex_ty, ex_stack_ty, etc. do.
+
+2. A set of functions dealing with high-level Michelson types: 
+This module also provides functions for interacting with the list, map,
+set, and big_map Michelson types. 
+
+3. A set of functions for parsing and typechecking Michelson.
+Finally, and what you likely came for, the module provides many functions prefixed
+with "parse_" that convert untyped Micheline (which is essentially S-expressions
+with a few primitive atom types) into the GADT encoding well-typed Michelson. Likewise
+there is a number of functions prefixed "unparse_" that do the reverse. These functions
+consume gas, and thus are parameterized by an [Alpha_context.t].
+
+The variety of functions reflects the variety of things one might want to parse,
+from [parse_data] for arbitrary Micheline expressions to [parse_contract] for
+well-formed Michelson contracts.
+*)
+
+(** {1 Michelson Existential Witness types} *)
 open Alpha_context
+
 open Script_tc_errors
 
 type ('ta, 'tb) eq = Eq : ('same, 'same) eq
@@ -43,7 +80,7 @@ type toplevel = {
   arg_type : Script.node;
   storage_type : Script.node;
   views : Script_typed_ir.view Script_typed_ir.SMap.t;
-  root_name : Script_typed_ir.field_annot option;
+  root_name : Script_ir_annot.field_annot option;
 }
 
 type ('arg, 'storage) code = {
@@ -56,7 +93,7 @@ type ('arg, 'storage) code = {
   arg_type : 'arg Script_typed_ir.ty;
   storage_type : 'storage Script_typed_ir.ty;
   views : Script_typed_ir.view Script_typed_ir.SMap.t;
-  root_name : Script_typed_ir.field_annot option;
+  root_name : Script_ir_annot.field_annot option;
   code_size : Cache_memory_helpers.sint;
       (** This is an over-approximation of the value size in memory, in
          bytes, of the contract's static part, that is its source
@@ -93,7 +130,7 @@ type tc_context =
   | Toplevel : {
       storage_type : 'sto Script_typed_ir.ty;
       param_type : 'param Script_typed_ir.ty;
-      root_name : Script_typed_ir.field_annot option;
+      root_name : Script_ir_annot.field_annot option;
     }
       -> tc_context
 
@@ -117,54 +154,11 @@ type unparsing_mode = Optimized | Readable | Optimized_legacy
 
 type merge_type_error_flag = Default_merge_type_error | Fast_merge_type_error
 
-module Gas_monad : sig
-  (** This monad combines:
-     - a state monad where the state is the context
-     - two levels of error monad to distinguish gas exhaustion from other errors
+(* ---- Lists, Sets and Maps ----------------------------------------------- *)
 
-     It is useful for backtracking on type checking errors without backtracking
-     the consumed gas.
-  *)
-  type ('a, 'trace) t
-
-  (** Alias of [('a, 'trace) t] to avoid confusion when the module is open *)
-  type ('a, 'trace) gas_monad = ('a, 'trace) t
-
-  (** monadic return operator of the gas monad *)
-  val return : 'a -> ('a, 'trace) t
-
-  (** Binding operator for the gas monad *)
-  val ( >>$ ) : ('a, 'trace) t -> ('a -> ('b, 'trace) t) -> ('b, 'trace) t
-
-  (** Mapping operator for the gas monad, [m >|$ f] is equivalent to
-     [m >>$ fun x -> return (f x)] *)
-  val ( >|$ ) : ('a, 'trace) t -> ('a -> 'b) -> ('b, 'trace) t
-
-  (** Variant of [( >>$ )] to bind uncarbonated functions *)
-  val ( >?$ ) : ('a, 'trace) t -> ('a -> ('b, 'trace) result) -> ('b, 'trace) t
-
-  (** Another variant of [( >>$ )] that lets recover from inner errors *)
-  val ( >??$ ) :
-    ('a, 'trace) t -> (('a, 'trace) result -> ('b, 'trace) t) -> ('b, 'trace) t
-
-  (** gas-free embedding of tzresult values. [of_result x] is equivalent to [return () >?$ fun () -> x] *)
-  val of_result : ('a, 'trace) result -> ('a, 'trace) t
-
-  (** Gas consumption *)
-  val gas_consume : Gas.cost -> (unit, 'trace) t
-
-  (** Escaping the gas monad *)
-  val run :
-    context -> ('a, 'trace) t -> (('a, 'trace) result * context) tzresult
-
-  (** re-export of [Error_monad.record_trace_eval]. This function has no
-      effect in the case of a gas-exhaustion error. *)
-  val record_trace_eval :
-    (unit -> 'err) -> ('a, 'err trace) t -> ('a, 'err trace) t
-end
-
+(** {2 High-level Michelson Data Types} *)
 type type_logger =
-  int ->
+  Script.location ->
   (Script.expr * Script.annot) list ->
   (Script.expr * Script.annot) list ->
   unit
@@ -224,6 +218,7 @@ val merge_types :
     error trace )
   Gas_monad.t
 
+(** {3 Parsing and Typechecking Michelson} *)
 val parse_comparable_data :
   ?type_logger:type_logger ->
   context ->
@@ -248,11 +243,12 @@ val unparse_data :
   (Script.node * context) tzresult Lwt.t
 
 val unparse_comparable_data :
+  loc:'loc ->
   context ->
   unparsing_mode ->
   'a Script_typed_ir.comparable_ty ->
   'a ->
-  (Script.node * context) tzresult Lwt.t
+  ('loc Script.michelson_node * context) tzresult Lwt.t
 
 val unparse_code :
   context ->
@@ -335,12 +331,16 @@ val parse_ty :
   (ex_ty * context) tzresult
 
 val unparse_ty :
-  context -> 'a Script_typed_ir.ty -> (Script.node * context) tzresult
+  loc:'loc ->
+  context ->
+  'a Script_typed_ir.ty ->
+  ('loc Script.michelson_node * context) tzresult
 
 val unparse_comparable_ty :
+  loc:'loc ->
   context ->
   'a Script_typed_ir.comparable_ty ->
-  (Script.node * context) tzresult
+  ('loc Script.michelson_node * context) tzresult
 
 val ty_of_comparable_ty :
   'a Script_typed_ir.comparable_ty -> 'a Script_typed_ir.ty
@@ -349,13 +349,22 @@ val parse_toplevel :
   context -> legacy:bool -> Script.expr -> (toplevel * context) tzresult Lwt.t
 
 val add_field_annot :
-  Script_typed_ir.field_annot option ->
-  Script_typed_ir.var_annot option ->
-  Script.node ->
-  Script.node
+  Script_ir_annot.field_annot option ->
+  Script_ir_annot.var_annot option ->
+  ('loc, 'prim) Micheline.node ->
+  ('loc, 'prim) Micheline.node
 
+(** High-level function to typecheck a Michelson script. This function is not
+    used for validating operations but only for the [typecheck_code] RPC.
+
+    If [show_types] is set to [true], details of the typechecking are returned
+    in the [type_map], otherwise the returned [type_map] is empty. *)
 val typecheck_code :
-  legacy:bool -> context -> Script.expr -> (type_map * context) tzresult Lwt.t
+  legacy:bool ->
+  show_types:bool ->
+  context ->
+  Script.expr ->
+  (type_map * context) tzresult Lwt.t
 
 val serialize_ty_for_error : 'a Script_typed_ir.ty -> Script.expr
 
@@ -410,7 +419,7 @@ val parse_contract_for_script :
 
 val find_entrypoint :
   't Script_typed_ir.ty ->
-  root_name:Script_typed_ir.field_annot option ->
+  root_name:Script_ir_annot.field_annot option ->
   string ->
   ((Script.node -> Script.node) * ex_ty) tzresult
 
@@ -419,9 +428,10 @@ module Entrypoints_map : Map.S with type key = string
 val list_entrypoints :
   't Script_typed_ir.ty ->
   context ->
-  root_name:Script_typed_ir.field_annot option ->
+  root_name:Script_ir_annot.field_annot option ->
   (Michelson_v1_primitives.prim list list
-  * (Michelson_v1_primitives.prim list * Script.node) Entrypoints_map.t)
+  * (Michelson_v1_primitives.prim list * Script.unlocated_michelson_node)
+    Entrypoints_map.t)
   tzresult
 
 val pack_data :

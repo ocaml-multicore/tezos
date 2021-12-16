@@ -33,11 +33,11 @@ let script_string_size s = Script_string.to_string s |> string_size
    Micheline representation and that the strings are always
    shared. (One can check that they are never copied.) Besides, the
    following types are unboxed so that they have no tags. *)
-let type_annot_size (Type_annot _) = !!0
+let type_annot_size (Script_ir_annot.Type_annot _) = !!0
 
-let field_annot_size (Field_annot _) = !!0
+let field_annot_size (Script_ir_annot.Field_annot _) = !!0
 
-let var_annot_size (Var_annot _) = !!0
+let var_annot_size (Script_ir_annot.Var_annot _) = !!0
 
 (* Memo-sizes are 16-bit integers *)
 let sapling_memo_size_size = !!0
@@ -309,9 +309,19 @@ let rec value_size :
     | Operation_t _ -> ret_succ (accu ++ operation_size x)
     | Chain_id_t _ -> ret_succ_adding accu chain_id_size
     | Never_t _ -> ( match x with _ -> .)
-    | Bls12_381_g1_t _ -> ret_succ_adding accu !!Bls12_381.G1.size_in_bytes
-    | Bls12_381_g2_t _ -> ret_succ_adding accu !!Bls12_381.G2.size_in_bytes
-    | Bls12_381_fr_t _ -> ret_succ_adding accu !!Bls12_381.Fr.size_in_bytes
+    (* Related to https://gitlab.com/dannywillems/ocaml-bls12-381/-/issues/56.
+       Since the update to blst as a backend for bls12-381, size_in_bytes is not
+       the correct value for the allocated memory.
+       There is 1 word for the OCaml block header, 1 word for the C pointer and
+       a certain number of words for the actual value of the algebraic object
+       whose size is fixed and defined by the object itself.
+       For G1, it allocates 3 C values of type blst_fp which is 48 bytes.
+       For G2, it allocates 3 C values of type blst_fp2 which is 48 * 2 bytes.
+       For Fr, it allocates 1 C value of type blst_fr which is 32 bytes.
+    *)
+    | Bls12_381_g1_t _ -> ret_succ_adding accu !!((2 * 8) + (3 * 48))
+    | Bls12_381_g2_t _ -> ret_succ_adding accu !!((2 * 8) + (3 * 48 * 2))
+    | Bls12_381_fr_t _ -> ret_succ_adding accu !!((2 * 8) + 32)
     | Ticket_t (_, _) -> ret_succ_adding accu (ticket_size x)
     | Chest_key_t _ -> ret_succ_adding accu (chest_key_size x)
     | Chest_t _ -> ret_succ_adding accu (chest_size x)
@@ -434,6 +444,7 @@ and kinstr_size :
     | ICons_some (kinfo, _) -> ret_succ_adding accu (base kinfo)
     | ICons_none (kinfo, _) -> ret_succ_adding accu (base kinfo)
     | IIf_none {kinfo; _} -> ret_succ_adding accu (base kinfo)
+    | IOpt_map {kinfo; _} -> ret_succ_adding accu (base kinfo)
     | ICons_left (kinfo, _) -> ret_succ_adding accu (base kinfo)
     | ICons_right (kinfo, _) -> ret_succ_adding accu (base kinfo)
     | IIf_left {kinfo; _} -> ret_succ_adding accu (base kinfo)

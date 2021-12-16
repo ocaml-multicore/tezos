@@ -57,7 +57,8 @@ module Protocol_constants_overrides = struct
     liquidity_baking_sunset_level : int32 option;
     liquidity_baking_escape_ema_threshold : int32 option;
     max_operations_time_to_live : int option;
-    round_durations : Round.round_durations option;
+    minimal_block_delay : Period.t option;
+    delay_increment_per_round : Period.t option;
     minimal_participation_ratio : Constants.ratio option;
     consensus_committee_size : int option;
     consensus_threshold : int option;
@@ -67,6 +68,8 @@ module Protocol_constants_overrides = struct
     double_baking_punishment : Tez.t option;
     ratio_of_frozen_deposits_slashed_per_double_endorsement :
       Constants.ratio option;
+    tx_rollup_enable : bool option;
+    tx_rollup_origination_size : int option;
     (* Additional, "bastard" parameters (they are not protocol constants but partially treated the same way). *)
     chain_id : Chain_id.t option;
     timestamp : Time.Protocol.t option;
@@ -100,17 +103,19 @@ module Protocol_constants_overrides = struct
                 c.liquidity_baking_sunset_level,
                 c.liquidity_baking_escape_ema_threshold,
                 c.max_operations_time_to_live,
-                c.round_durations,
+                c.minimal_block_delay,
+                c.delay_increment_per_round,
                 c.consensus_committee_size,
-                c.consensus_threshold,
-                c.delegate_selection ),
-              ( c.minimal_participation_ratio,
-                c.max_slashing_period,
-                c.frozen_deposits_percentage,
-                c.double_baking_punishment,
-                c.ratio_of_frozen_deposits_slashed_per_double_endorsement,
-                c.chain_id,
-                c.timestamp ) ) ) ))
+                c.consensus_threshold ),
+              ( ( c.delegate_selection,
+                  c.minimal_participation_ratio,
+                  c.max_slashing_period,
+                  c.frozen_deposits_percentage,
+                  c.double_baking_punishment,
+                  c.ratio_of_frozen_deposits_slashed_per_double_endorsement,
+                  c.chain_id,
+                  c.timestamp ),
+                (c.tx_rollup_enable, c.tx_rollup_origination_size) ) ) ) ))
       (fun ( ( preserved_cycles,
                blocks_per_cycle,
                blocks_per_commitment,
@@ -134,17 +139,19 @@ module Protocol_constants_overrides = struct
                    liquidity_baking_sunset_level,
                    liquidity_baking_escape_ema_threshold,
                    max_operations_time_to_live,
-                   round_durations,
+                   minimal_block_delay,
+                   delay_increment_per_round,
                    consensus_committee_size,
-                   consensus_threshold,
-                   delegate_selection ),
-                 ( minimal_participation_ratio,
-                   max_slashing_period,
-                   frozen_deposits_percentage,
-                   double_baking_punishment,
-                   ratio_of_frozen_deposits_slashed_per_double_endorsement,
-                   chain_id,
-                   timestamp ) ) ) ) ->
+                   consensus_threshold ),
+                 ( ( delegate_selection,
+                     minimal_participation_ratio,
+                     max_slashing_period,
+                     frozen_deposits_percentage,
+                     double_baking_punishment,
+                     ratio_of_frozen_deposits_slashed_per_double_endorsement,
+                     chain_id,
+                     timestamp ),
+                   (tx_rollup_enable, tx_rollup_origination_size) ) ) ) ) ->
         {
           preserved_cycles;
           blocks_per_cycle;
@@ -169,7 +176,8 @@ module Protocol_constants_overrides = struct
           liquidity_baking_sunset_level;
           liquidity_baking_escape_ema_threshold;
           max_operations_time_to_live;
-          round_durations;
+          minimal_block_delay;
+          delay_increment_per_round;
           minimal_participation_ratio;
           max_slashing_period;
           frozen_deposits_percentage;
@@ -180,6 +188,8 @@ module Protocol_constants_overrides = struct
           ratio_of_frozen_deposits_slashed_per_double_endorsement;
           chain_id;
           timestamp;
+          tx_rollup_enable;
+          tx_rollup_origination_size;
         })
       (merge_objs
          (obj9
@@ -210,22 +220,29 @@ module Protocol_constants_overrides = struct
                   (opt "liquidity_baking_sunset_level" int32)
                   (opt "liquidity_baking_escape_ema_threshold" int32)
                   (opt "max_operations_time_to_live" int16)
-                  (opt "round_durations" Round.round_durations_encoding)
+                  (opt "minimal_block_delay" Period.encoding)
+                  (opt "delay_increment_per_round" Period.encoding)
                   (opt "consensus_committee_size" int31)
-                  (opt "consensus_threshold" int31)
-                  (opt
-                     "delegate_selection"
-                     Constants.delegate_selection_encoding))
-               (obj7
-                  (opt "minimal_participation_ratio" Constants.ratio_encoding)
-                  (opt "max_slashing_period" int31)
-                  (opt "frozen_deposits_percentage" int31)
-                  (opt "double_baking_punishment" Tez.encoding)
-                  (opt
-                     "ratio_of_frozen_deposits_slashed_per_double_endorsement"
-                     Constants.ratio_encoding)
-                  (opt "chain_id" Chain_id.encoding)
-                  (opt "initial_timestamp" Time.Protocol.encoding)))))
+                  (opt "consensus_threshold" int31))
+               (merge_objs
+                  (obj8
+                     (opt
+                        "delegate_selection"
+                        Constants.delegate_selection_encoding)
+                     (opt
+                        "minimal_participation_ratio"
+                        Constants.ratio_encoding)
+                     (opt "max_slashing_period" int31)
+                     (opt "frozen_deposits_percentage" int31)
+                     (opt "double_baking_punishment" Tez.encoding)
+                     (opt
+                        "ratio_of_frozen_deposits_slashed_per_double_endorsement"
+                        Constants.ratio_encoding)
+                     (opt "chain_id" Chain_id.encoding)
+                     (opt "initial_timestamp" Time.Protocol.encoding))
+                  (obj2
+                     (opt "tx_rollup_enable" Data_encoding.bool)
+                     (opt "tx_rollup_origination_size" int31))))))
 
   let default_value (cctxt : Tezos_client_base.Client_context.full) :
       t tzresult Lwt.t =
@@ -271,7 +288,8 @@ module Protocol_constants_overrides = struct
           Some parametric.liquidity_baking_escape_ema_threshold;
         max_operations_time_to_live =
           Some parametric.max_operations_time_to_live;
-        round_durations = Some parametric.round_durations;
+        minimal_block_delay = Some parametric.minimal_block_delay;
+        delay_increment_per_round = Some parametric.delay_increment_per_round;
         minimal_participation_ratio =
           Some parametric.minimal_participation_ratio;
         consensus_committee_size = Some parametric.consensus_committee_size;
@@ -284,6 +302,8 @@ module Protocol_constants_overrides = struct
         ratio_of_frozen_deposits_slashed_per_double_endorsement =
           Some
             parametric.ratio_of_frozen_deposits_slashed_per_double_endorsement;
+        tx_rollup_enable = Some parametric.tx_rollup_enable;
+        tx_rollup_origination_size = Some parametric.tx_rollup_origination_size;
         (* Bastard additional parameters. *)
         chain_id = to_chain_id_opt cpctxt#chain;
         timestamp = Some header.timestamp;
@@ -314,7 +334,8 @@ module Protocol_constants_overrides = struct
       liquidity_baking_sunset_level = None;
       liquidity_baking_escape_ema_threshold = None;
       max_operations_time_to_live = None;
-      round_durations = None;
+      minimal_block_delay = None;
+      delay_increment_per_round = None;
       minimal_participation_ratio = None;
       consensus_committee_size = None;
       (* Let consensus threshold be overridable for Tenderbake mockup
@@ -325,6 +346,8 @@ module Protocol_constants_overrides = struct
       frozen_deposits_percentage = None;
       double_baking_punishment = None;
       ratio_of_frozen_deposits_slashed_per_double_endorsement = None;
+      tx_rollup_enable = None;
+      tx_rollup_origination_size = None;
       chain_id = None;
       timestamp = None;
     }
@@ -484,9 +507,15 @@ module Protocol_constants_overrides = struct
           };
         O
           {
-            name = "round_durations";
-            override_value = o.round_durations;
-            pp = Round.pp_round_durations;
+            name = "minimal_block_delay";
+            override_value = o.minimal_block_delay;
+            pp = Period.pp;
+          };
+        O
+          {
+            name = "delay_increment_per_round";
+            override_value = o.delay_increment_per_round;
+            pp = Period.pp;
           };
         O
           {
@@ -538,6 +567,18 @@ module Protocol_constants_overrides = struct
             override_value = o.timestamp;
             pp = Time.Protocol.pp_hum;
           };
+        O
+          {
+            name = "tx_rollup_enable";
+            override_value = o.tx_rollup_enable;
+            pp = pp_print_bool;
+          };
+        O
+          {
+            name = "tx_rollup_origination_size";
+            override_value = o.tx_rollup_origination_size;
+            pp = pp_print_int;
+          };
       ]
     in
     let fields_with_override =
@@ -554,8 +595,12 @@ module Protocol_constants_overrides = struct
     >>= fun () ->
     return
       ({
-         round_durations =
-           Option.value ~default:c.round_durations o.round_durations;
+         minimal_block_delay =
+           Option.value ~default:c.minimal_block_delay o.minimal_block_delay;
+         delay_increment_per_round =
+           Option.value
+             ~default:c.delay_increment_per_round
+             o.delay_increment_per_round;
          consensus_committee_size =
            Option.value
              ~default:c.consensus_committee_size
@@ -655,6 +700,12 @@ module Protocol_constants_overrides = struct
              o.ratio_of_frozen_deposits_slashed_per_double_endorsement
            (* Notice that the chain_id and the timestamp are not used here
               as they are not protocol constants... *);
+         tx_rollup_enable =
+           Option.value ~default:c.tx_rollup_enable o.tx_rollup_enable;
+         tx_rollup_origination_size =
+           Option.value
+             ~default:c.tx_rollup_origination_size
+             o.tx_rollup_origination_size;
        }
         : Constants.parametric)
 end
@@ -934,8 +985,11 @@ let initial_context chain_id (header : Block_header.shell_header)
       reason, the mockup mode loads the cache lazily.
       See {!Environment_context.source_of_cache}.
   *)
-  Tezos_protocol_environment.Context.load_cache context `Lazy (fun key ->
-      value_of_key key >|= Protocol.Environment.wrap_tzresult)
+  Tezos_protocol_environment.Context.load_cache
+    predecessor
+    context
+    `Lazy
+    (fun key -> value_of_key key >|= Protocol.Environment.wrap_tzresult)
   >>=? fun context -> return context
 
 let mem_init :

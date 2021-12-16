@@ -1,11 +1,13 @@
-(executables
+(tests
  (names
   test_shell
   test_locator
   test_synchronisation_heuristic_fuzzy
   test_prevalidation
+  test_prevalidation_t
   test_prevalidator_classification
-  test_prevalidator_classification_handle_operations)
+  test_prevalidator_classification_operations)
+ (package tezos-shell)
  (libraries
   tezos-base
   tezos-base-test-helpers
@@ -41,36 +43,6 @@
    -open Tezos_event_logging_test_helpers)))
 
 (rule
- (alias runtest)
+ (alias runtest_locator_bench)
  (package tezos-shell)
- (action (run %{exe:test_shell.exe})))
-
-(rule
- (alias runtest)
- (package tezos-shell)
- (action (run %{exe:test_prevalidation.exe})))
-
-(rule
- (alias runtest)
- (package tezos-shell)
- (action (run %{exe:test_prevalidator_classification_handle_operations.exe})))
-
-(rule
- (alias runtest)
- (package tezos-shell)
- (action (run %{exe:test_prevalidator_classification.exe})))
-
-(rule
- (alias runtest)
- (package tezos-shell)
- (action (run %{exe:test_locator.exe} --no-bench)))
-
-(rule
- (alias runtest)
- (package tezos-shell)
- (action (run %{exe:test_synchronisation_heuristic_fuzzy.exe})))
-
-(rule
- (alias runtest)
- (package tezos-shell)
- (action (run %{exe:test_locator.exe})))
+ (action (run %{exe:test_locator.exe} --bench)))

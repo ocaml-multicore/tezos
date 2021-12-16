@@ -30,6 +30,8 @@ let section = [Protocol.name; "baker"]
 
 let pp_int32 fmt n = Format.fprintf fmt "%ld" n
 
+let pp_int64 fmt n = Format.fprintf fmt "%Ld" n
+
 module State_transitions = struct
   include Internal_event.Simple
 
@@ -249,15 +251,6 @@ module State_transitions = struct
       ~pp2:Block_hash.pp
       ("expected_hash", Block_hash.encoding)
 
-  let prequorum_reached =
-    declare_1
-      ~section
-      ~name:"prequorum_reached"
-      ~level:Info
-      ~msg:"prequorum reached for {block_hash}"
-      ~pp1:Block_hash.pp
-      ("block_hash", Block_hash.encoding)
-
   let unexpected_quorum_received =
     declare_2
       ~section
@@ -270,15 +263,6 @@ module State_transitions = struct
       ("received_hash", Block_hash.encoding)
       ~pp2:Block_hash.pp
       ("expected_hash", Block_hash.encoding)
-
-  let quorum_reached =
-    declare_1
-      ~section
-      ~name:"quorum_reached"
-      ~level:Info
-      ~msg:"quorum reached for {block_hash}"
-      ~pp1:Block_hash.pp
-      ("block_hash", Block_hash.encoding)
 
   let step_current_phase =
     declare_2
@@ -390,6 +374,23 @@ module Scheduling = struct
       ("round", Data_encoding.int32)
       ~pp3:Timestamp.pp
       ("timestamp", Timestamp.encoding)
+
+  let waiting_delayed_end_of_round =
+    declare_4
+      ~section
+      ~name:"waiting_delayed_end_of_round"
+      ~level:Info
+      ~msg:
+        "waiting {timespan} until {timestamp} (end of round {round} plus \
+         {delay}s delay)"
+      ~pp1:Ptime.Span.pp
+      ("timespan", Time.System.Span.encoding)
+      ~pp2:pp_int32
+      ("round", Data_encoding.int32)
+      ~pp3:Timestamp.pp
+      ("timestamp", Timestamp.encoding)
+      ~pp4:pp_int64
+      ("delay", Data_encoding.int64)
 
   let waiting_time_to_bake =
     declare_2

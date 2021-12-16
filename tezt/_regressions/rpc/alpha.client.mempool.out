@@ -1,20 +1,22 @@
 tezt/_regressions/rpc/alpha.client.mempool.out
 
 curl -s 'http://localhost:16385/chains/main/mempool/monitor_operations?applied=true&outdated=true&branch_delayed=true&refused=true&branch_refused=true'
-[]
-[{"hash":"[OPERATION_HASH]","protocol":"ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK","branch":"[BRANCH_HASH]","contents":[{"kind":"transaction","source":"[PUBLIC_KEY_HASH]","fee":"10","counter":"1","gas_limit":"1040","storage_limit":"0","amount":"1000","destination":"[PUBLIC_KEY_HASH]"}],"signature":"[SIGNATURE]"}]
-[{"hash":"[OPERATION_HASH]","protocol":"ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK","branch":"[BRANCH_HASH]","contents":[{"kind":"transaction","source":"[PUBLIC_KEY_HASH]","fee":"402","counter":"1","gas_limit":"1520","storage_limit":"0","amount":"2000000","destination":"[PUBLIC_KEY_HASH]"}],"signature":"[SIGNATURE]"}]
-[{"hash":"[OPERATION_HASH]","protocol":"ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK","branch":"[BRANCH_HASH]","contents":[{"kind":"endorsement","slot":4,"level":3,"round":4,"block_payload_hash":"[BLOCK_PAYLOAD_HASH]"}],"signature":"[SIGNATURE]"}]
-[{"hash":"[OPERATION_HASH]","protocol":"ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK","branch":"[BRANCH_HASH]","contents":[{"kind":"transaction","source":"[PUBLIC_KEY_HASH]","fee":"402","counter":"1","gas_limit":"1520","storage_limit":"0","amount":"2000000","destination":"[PUBLIC_KEY_HASH]"}],"signature":"[SIGNATURE]","error":[{"kind":"branch","id":"proto.alpha.contract.counter_in_the_past","contract":"[PUBLIC_KEY_HASH]","expected":"2","found":"1"}]}]
+[{"hash":"[OPERATION_HASH]","protocol":"ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK","branch":"[BRANCH_HASH]","contents":[{"kind":"endorsement","slot":10,"level":2,"round":10,"block_payload_hash":"[BLOCK_PAYLOAD_HASH]"}],"signature":"[SIGNATURE]"}]
+[{"hash":"[OPERATION_HASH]","protocol":"ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK","branch":"[BRANCH_HASH]","contents":[{"kind":"transaction","source":"[PUBLIC_KEY_HASH]","fee":"1000","counter":"1","gas_limit":"1040","storage_limit":"257","amount":"1000000","destination":"[PUBLIC_KEY_HASH]"}],"signature":"[SIGNATURE]","error":[{"kind":"branch","id":"proto.alpha.contract.counter_in_the_past","contract":"[PUBLIC_KEY_HASH]","expected":"2","found":"1"}]}]
+[{"hash":"[OPERATION_HASH]","protocol":"ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK","branch":"[BRANCH_HASH]","contents":[{"kind":"transaction","source":"[PUBLIC_KEY_HASH]","fee":"1000","counter":"5","gas_limit":"1040","storage_limit":"257","amount":"1000000","destination":"[PUBLIC_KEY_HASH]"}],"signature":"[SIGNATURE]","error":[{"kind":"temporary","id":"proto.alpha.contract.counter_in_the_future","contract":"[PUBLIC_KEY_HASH]","expected":"1","found":"5"}]}]
+[{"hash":"[OPERATION_HASH]","protocol":"ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK","branch":"[BRANCH_HASH]","contents":[{"kind":"transaction","source":"[PUBLIC_KEY_HASH]","fee":"0","counter":"1","gas_limit":"1040","storage_limit":"257","amount":"1000000","destination":"[PUBLIC_KEY_HASH]"}],"signature":"[SIGNATURE]"}]
+[{"hash":"[OPERATION_HASH]","protocol":"ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK","branch":"[BRANCH_HASH]","contents":[{"kind":"transaction","source":"[PUBLIC_KEY_HASH]","fee":"1000","counter":"1","gas_limit":"1040","storage_limit":"257","amount":"1000000","destination":"[PUBLIC_KEY_HASH]"}],"signature":"[SIGNATURE]"}]
 
 ./tezos-client rpc get /chains/main/mempool/pending_operations
 { "applied":
     [ { "hash": "[OPERATION_HASH]",
         "branch": "[BRANCH_HASH]",
         "contents":
-          [ { "kind": "endorsement", "slot": 4, "level": 3, "round": 4,
-              "block_payload_hash":
-                "[BLOCK_PAYLOAD_HASH]" } ],
+          [ { "kind": "transaction",
+              "source": "[PUBLIC_KEY_HASH]",
+              "fee": "1000", "counter": "1", "gas_limit": "1040",
+              "storage_limit": "257", "amount": "1000000",
+              "destination": "[PUBLIC_KEY_HASH]" } ],
         "signature":
           "[SIGNATURE]" } ],
   "refused":
@@ -23,16 +25,29 @@ curl -s 'http://localhost:16385/chains/main/mempool/monitor_operations?applied=t
           "branch": "[BRANCH_HASH]",
           "contents":
             [ { "kind": "transaction",
-                "source": "[PUBLIC_KEY_HASH]",
-                "fee": "10", "counter": "1", "gas_limit": "1040",
-                "storage_limit": "0", "amount": "1000",
+                "source": "[PUBLIC_KEY_HASH]", "fee": "0",
+                "counter": "1", "gas_limit": "1040", "storage_limit": "257",
+                "amount": "1000000",
                 "destination": "[PUBLIC_KEY_HASH]" } ],
           "signature":
             "[SIGNATURE]",
           "error":
             [ { "kind": "permanent",
                 "id": "proto.alpha.prefilter.fees_too_low" } ] } ] ],
-  "outdated": [],
+  "outdated":
+    [ [ "[OPERATION_HASH]",
+        { "protocol": "ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK",
+          "branch": "[BRANCH_HASH]",
+          "contents":
+            [ { "kind": "endorsement", "slot": 10, "level": 2, "round": 10,
+                "block_payload_hash":
+                  "[BLOCK_PAYLOAD_HASH]" } ],
+          "signature":
+            "[SIGNATURE]",
+          "error":
+            [ { "kind": "outdated",
+                "id": "proto.alpha.consensus_operation_for_old_level",
+                "expected": 4, "provided": 2 } ] } ] ],
   "branch_refused":
     [ [ "[OPERATION_HASH]",
         { "protocol": "ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK",
@@ -40,24 +55,8 @@ curl -s 'http://localhost:16385/chains/main/mempool/monitor_operations?applied=t
           "contents":
             [ { "kind": "transaction",
                 "source": "[PUBLIC_KEY_HASH]",
-                "fee": "402", "counter": "1", "gas_limit": "1520",
-                "storage_limit": "0", "amount": "2000000",
-                "destination": "[PUBLIC_KEY_HASH]" } ],
-          "signature":
-            "[SIGNATURE]",
-          "error":
-            [ { "kind": "branch",
-                "id": "proto.alpha.contract.counter_in_the_past",
-                "contract": "[PUBLIC_KEY_HASH]",
-                "expected": "2", "found": "1" } ] } ],
-      [ "[OPERATION_HASH]",
-        { "protocol": "ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK",
-          "branch": "[BRANCH_HASH]",
-          "contents":
-            [ { "kind": "transaction",
-                "source": "[PUBLIC_KEY_HASH]",
-                "fee": "402", "counter": "1", "gas_limit": "1520",
-                "storage_limit": "0", "amount": "2000000",
+                "fee": "1000", "counter": "1", "gas_limit": "1040",
+                "storage_limit": "257", "amount": "1000000",
                 "destination": "[PUBLIC_KEY_HASH]" } ],
           "signature":
             "[SIGNATURE]",
@@ -66,18 +65,36 @@ curl -s 'http://localhost:16385/chains/main/mempool/monitor_operations?applied=t
                 "id": "proto.alpha.contract.counter_in_the_past",
                 "contract": "[PUBLIC_KEY_HASH]",
                 "expected": "2", "found": "1" } ] } ] ],
-  "branch_delayed": [], "unprocessed": [] }
+  "branch_delayed":
+    [ [ "[OPERATION_HASH]",
+        { "protocol": "ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK",
+          "branch": "[BRANCH_HASH]",
+          "contents":
+            [ { "kind": "transaction",
+                "source": "[PUBLIC_KEY_HASH]",
+                "fee": "1000", "counter": "5", "gas_limit": "1040",
+                "storage_limit": "257", "amount": "1000000",
+                "destination": "[PUBLIC_KEY_HASH]" } ],
+          "signature":
+            "[SIGNATURE]",
+          "error":
+            [ { "kind": "temporary",
+                "id": "proto.alpha.contract.counter_in_the_future",
+                "contract": "[PUBLIC_KEY_HASH]",
+                "expected": "1", "found": "5" } ] } ] ], "unprocessed": [] }
 
 curl -s 'http://localhost:16385/chains/main/mempool/monitor_operations?applied=true&outdated=true&branch_delayed=true&refused=true&branch_refused=true'
-[{"hash":"[OPERATION_HASH]","protocol":"ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK","branch":"[BRANCH_HASH]","contents":[{"kind":"endorsement","slot":4,"level":3,"round":4,"block_payload_hash":"[BLOCK_PAYLOAD_HASH]"}],"signature":"[SIGNATURE]"},{"hash":"[OPERATION_HASH]","protocol":"ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK","branch":"[BRANCH_HASH]","contents":[{"kind":"transaction","source":"[PUBLIC_KEY_HASH]","fee":"10","counter":"1","gas_limit":"1040","storage_limit":"0","amount":"1000","destination":"[PUBLIC_KEY_HASH]"}],"signature":"[SIGNATURE]","error":[{"kind":"permanent","id":"proto.alpha.prefilter.fees_too_low"}]},{"hash":"[OPERATION_HASH]","protocol":"ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK","branch":"[BRANCH_HASH]","contents":[{"kind":"transaction","source":"[PUBLIC_KEY_HASH]","fee":"402","counter":"1","gas_limit":"1520","storage_limit":"0","amount":"2000000","destination":"[PUBLIC_KEY_HASH]"}],"signature":"[SIGNATURE]","error":[{"kind":"branch","id":"proto.alpha.contract.counter_in_the_past","contract":"[PUBLIC_KEY_HASH]","expected":"2","found":"1"}]},{"hash":"[OPERATION_HASH]","protocol":"ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK","branch":"[BRANCH_HASH]","contents":[{"kind":"transaction","source":"[PUBLIC_KEY_HASH]","fee":"402","counter":"1","gas_limit":"1520","storage_limit":"0","amount":"2000000","destination":"[PUBLIC_KEY_HASH]"}],"signature":"[SIGNATURE]","error":[{"kind":"branch","id":"proto.alpha.contract.counter_in_the_past","contract":"[PUBLIC_KEY_HASH]","expected":"2","found":"1"}]}]
+[{"hash":"[OPERATION_HASH]","protocol":"ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK","branch":"[BRANCH_HASH]","contents":[{"kind":"transaction","source":"[PUBLIC_KEY_HASH]","fee":"1000","counter":"1","gas_limit":"1040","storage_limit":"257","amount":"1000000","destination":"[PUBLIC_KEY_HASH]"}],"signature":"[SIGNATURE]"},{"hash":"[OPERATION_HASH]","protocol":"ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK","branch":"[BRANCH_HASH]","contents":[{"kind":"transaction","source":"[PUBLIC_KEY_HASH]","fee":"0","counter":"1","gas_limit":"1040","storage_limit":"257","amount":"1000000","destination":"[PUBLIC_KEY_HASH]"}],"signature":"[SIGNATURE]","error":[{"kind":"permanent","id":"proto.alpha.prefilter.fees_too_low"}]},{"hash":"[OPERATION_HASH]","protocol":"ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK","branch":"[BRANCH_HASH]","contents":[{"kind":"transaction","source":"[PUBLIC_KEY_HASH]","fee":"1000","counter":"1","gas_limit":"1040","storage_limit":"257","amount":"1000000","destination":"[PUBLIC_KEY_HASH]"}],"signature":"[SIGNATURE]","error":[{"kind":"branch","id":"proto.alpha.contract.counter_in_the_past","contract":"[PUBLIC_KEY_HASH]","expected":"2","found":"1"}]},{"hash":"[OPERATION_HASH]","protocol":"ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK","branch":"[BRANCH_HASH]","contents":[{"kind":"transaction","source":"[PUBLIC_KEY_HASH]","fee":"1000","counter":"5","gas_limit":"1040","storage_limit":"257","amount":"1000000","destination":"[PUBLIC_KEY_HASH]"}],"signature":"[SIGNATURE]","error":[{"kind":"temporary","id":"proto.alpha.contract.counter_in_the_future","contract":"[PUBLIC_KEY_HASH]","expected":"1","found":"5"}]}]
 
 ./tezos-client rpc get /chains/main/mempool/filter
 { "minimal_fees": "100", "minimal_nanotez_per_gas_unit": [ "100", "1" ],
-  "minimal_nanotez_per_byte": [ "1000", "1" ], "allow_script_failure": true }
+  "minimal_nanotez_per_byte": [ "1000", "1" ], "allow_script_failure": true,
+  "replace_by_fee_factor": [ "21", "20" ] }
 
 ./tezos-client rpc get '/chains/main/mempool/filter?include_default=true'
 { "minimal_fees": "100", "minimal_nanotez_per_gas_unit": [ "100", "1" ],
-  "minimal_nanotez_per_byte": [ "1000", "1" ], "allow_script_failure": true }
+  "minimal_nanotez_per_byte": [ "1000", "1" ], "allow_script_failure": true,
+  "replace_by_fee_factor": [ "21", "20" ] }
 
 ./tezos-client rpc get '/chains/main/mempool/filter?include_default=false'
 {}
@@ -95,15 +112,18 @@ curl -s 'http://localhost:16385/chains/main/mempool/monitor_operations?applied=t
   "allow_script_failure": false
 }'
 { "minimal_fees": "50", "minimal_nanotez_per_gas_unit": [ "201", "5" ],
-  "minimal_nanotez_per_byte": [ "56", "3" ], "allow_script_failure": false }
+  "minimal_nanotez_per_byte": [ "56", "3" ], "allow_script_failure": false,
+  "replace_by_fee_factor": [ "21", "20" ] }
 
 ./tezos-client rpc get /chains/main/mempool/filter
 { "minimal_fees": "50", "minimal_nanotez_per_gas_unit": [ "201", "5" ],
-  "minimal_nanotez_per_byte": [ "56", "3" ], "allow_script_failure": false }
+  "minimal_nanotez_per_byte": [ "56", "3" ], "allow_script_failure": false,
+  "replace_by_fee_factor": [ "21", "20" ] }
 
 ./tezos-client rpc get '/chains/main/mempool/filter?include_default=true'
 { "minimal_fees": "50", "minimal_nanotez_per_gas_unit": [ "201", "5" ],
-  "minimal_nanotez_per_byte": [ "56", "3" ], "allow_script_failure": false }
+  "minimal_nanotez_per_byte": [ "56", "3" ], "allow_script_failure": false,
+  "replace_by_fee_factor": [ "21", "20" ] }
 
 ./tezos-client rpc get '/chains/main/mempool/filter?include_default=false'
 { "minimal_fees": "50", "minimal_nanotez_per_gas_unit": [ "201", "5" ],
@@ -114,30 +134,36 @@ curl -s 'http://localhost:16385/chains/main/mempool/monitor_operations?applied=t
   "allow_script_failure": true
 }'
 { "minimal_fees": "200", "minimal_nanotez_per_gas_unit": [ "100", "1" ],
-  "minimal_nanotez_per_byte": [ "1000", "1" ], "allow_script_failure": true }
+  "minimal_nanotez_per_byte": [ "1000", "1" ], "allow_script_failure": true,
+  "replace_by_fee_factor": [ "21", "20" ] }
 
 ./tezos-client rpc get /chains/main/mempool/filter
 { "minimal_fees": "200", "minimal_nanotez_per_gas_unit": [ "100", "1" ],
-  "minimal_nanotez_per_byte": [ "1000", "1" ], "allow_script_failure": true }
+  "minimal_nanotez_per_byte": [ "1000", "1" ], "allow_script_failure": true,
+  "replace_by_fee_factor": [ "21", "20" ] }
 
 ./tezos-client rpc get '/chains/main/mempool/filter?include_default=true'
 { "minimal_fees": "200", "minimal_nanotez_per_gas_unit": [ "100", "1" ],
-  "minimal_nanotez_per_byte": [ "1000", "1" ], "allow_script_failure": true }
+  "minimal_nanotez_per_byte": [ "1000", "1" ], "allow_script_failure": true,
+  "replace_by_fee_factor": [ "21", "20" ] }
 
 ./tezos-client rpc get '/chains/main/mempool/filter?include_default=false'
 { "minimal_fees": "200" }
 
 ./tezos-client rpc post /chains/main/mempool/filter with '{}'
 { "minimal_fees": "100", "minimal_nanotez_per_gas_unit": [ "100", "1" ],
-  "minimal_nanotez_per_byte": [ "1000", "1" ], "allow_script_failure": true }
+  "minimal_nanotez_per_byte": [ "1000", "1" ], "allow_script_failure": true,
+  "replace_by_fee_factor": [ "21", "20" ] }
 
 ./tezos-client rpc get /chains/main/mempool/filter
 { "minimal_fees": "100", "minimal_nanotez_per_gas_unit": [ "100", "1" ],
-  "minimal_nanotez_per_byte": [ "1000", "1" ], "allow_script_failure": true }
+  "minimal_nanotez_per_byte": [ "1000", "1" ], "allow_script_failure": true,
+  "replace_by_fee_factor": [ "21", "20" ] }
 
 ./tezos-client rpc get '/chains/main/mempool/filter?include_default=true'
 { "minimal_fees": "100", "minimal_nanotez_per_gas_unit": [ "100", "1" ],
-  "minimal_nanotez_per_byte": [ "1000", "1" ], "allow_script_failure": true }
+  "minimal_nanotez_per_byte": [ "1000", "1" ], "allow_script_failure": true,
+  "replace_by_fee_factor": [ "21", "20" ] }
 
 ./tezos-client rpc get '/chains/main/mempool/filter?include_default=false'
 {}
@@ -1390,7 +1416,8 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                                         }
                                       },
                                       {
-                                        "title": "Generic prim (any number of args with or without annot)",
+                                        "title": "Prim__generic",
+                                        "description": "Generic primitive (any number of args with or without annotations)",
                                         "type": "object",
                                         "properties": {
                                           "prim": {
@@ -1656,7 +1683,8 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                                     }
                                   },
                                   {
-                                    "title": "Generic prim (any number of args with or without annot)",
+                                    "title": "Prim__generic",
+                                    "description": "Generic primitive (any number of args with or without annotations)",
                                     "type": "object",
                                     "properties": {
                                       "prim": {
@@ -1685,6 +1713,44 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                             },
                             "required": [
                               "value",
+                              "storage_limit",
+                              "gas_limit",
+                              "counter",
+                              "fee",
+                              "source",
+                              "kind"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "title": "Tx_rollup_origination",
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "tx_rollup_origination"
+                                ]
+                              },
+                              "source": {
+                                "$ref": "#/definitions/Signature.Public_key_hash"
+                              },
+                              "fee": {
+                                "$ref": "#/definitions/alpha.mutez"
+                              },
+                              "counter": {
+                                "$ref": "#/definitions/positive_bignum"
+                              },
+                              "gas_limit": {
+                                "$ref": "#/definitions/positive_bignum"
+                              },
+                              "storage_limit": {
+                                "$ref": "#/definitions/positive_bignum"
+                              },
+                              "tx_rollup_origination": {}
+                            },
+                            "required": [
+                              "tx_rollup_origination",
                               "storage_limit",
                               "gas_limit",
                               "counter",
@@ -1749,7 +1815,8 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                                 }
                               },
                               {
-                                "title": "Generic prim (any number of args with or without annot)",
+                                "title": "Prim__generic",
+                                "description": "Generic primitive (any number of args with or without annotations)",
                                 "type": "object",
                                 "properties": {
                                   "prim": {
@@ -1825,7 +1892,8 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                                 }
                               },
                               {
-                                "title": "Generic prim (any number of args with or without annot)",
+                                "title": "Prim__generic",
+                                "description": "Generic primitive (any number of args with or without annotations)",
                                 "type": "object",
                                 "properties": {
                                   "prim": {
@@ -1933,7 +2001,8 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                             }
                           },
                           {
-                            "title": "Generic prim (any number of args with or without annot)",
+                            "title": "Prim__generic",
+                            "description": "Generic primitive (any number of args with or without annotations)",
                             "type": "object",
                             "properties": {
                               "prim": {
@@ -4139,6 +4208,80 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                                 }
                               ],
                               "name": "Set_deposits_limit"
+                            },
+                            {
+                              "tag": 150,
+                              "fields": [
+                                {
+                                  "name": "Tag",
+                                  "layout": {
+                                    "size": "Uint8",
+                                    "kind": "Int"
+                                  },
+                                  "data_kind": {
+                                    "size": 1,
+                                    "kind": "Float"
+                                  },
+                                  "kind": "named"
+                                },
+                                {
+                                  "name": "source",
+                                  "layout": {
+                                    "name": "public_key_hash",
+                                    "kind": "Ref"
+                                  },
+                                  "data_kind": {
+                                    "size": 21,
+                                    "kind": "Float"
+                                  },
+                                  "kind": "named"
+                                },
+                                {
+                                  "name": "fee",
+                                  "layout": {
+                                    "name": "N.t",
+                                    "kind": "Ref"
+                                  },
+                                  "data_kind": {
+                                    "kind": "Dynamic"
+                                  },
+                                  "kind": "named"
+                                },
+                                {
+                                  "name": "counter",
+                                  "layout": {
+                                    "name": "N.t",
+                                    "kind": "Ref"
+                                  },
+                                  "data_kind": {
+                                    "kind": "Dynamic"
+                                  },
+                                  "kind": "named"
+                                },
+                                {
+                                  "name": "gas_limit",
+                                  "layout": {
+                                    "name": "N.t",
+                                    "kind": "Ref"
+                                  },
+                                  "data_kind": {
+                                    "kind": "Dynamic"
+                                  },
+                                  "kind": "named"
+                                },
+                                {
+                                  "name": "storage_limit",
+                                  "layout": {
+                                    "name": "N.t",
+                                    "kind": "Ref"
+                                  },
+                                  "data_kind": {
+                                    "kind": "Dynamic"
+                                  },
+                                  "kind": "named"
+                                }
+                              ],
+                              "name": "Tx_rollup_origination"
                             }
                           ]
                         }
@@ -5629,7 +5772,8 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                                         }
                                       },
                                       {
-                                        "title": "Generic prim (any number of args with or without annot)",
+                                        "title": "Prim__generic",
+                                        "description": "Generic primitive (any number of args with or without annotations)",
                                         "type": "object",
                                         "properties": {
                                           "prim": {
@@ -5895,7 +6039,8 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                                     }
                                   },
                                   {
-                                    "title": "Generic prim (any number of args with or without annot)",
+                                    "title": "Prim__generic",
+                                    "description": "Generic primitive (any number of args with or without annotations)",
                                     "type": "object",
                                     "properties": {
                                       "prim": {
@@ -5924,6 +6069,44 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                             },
                             "required": [
                               "value",
+                              "storage_limit",
+                              "gas_limit",
+                              "counter",
+                              "fee",
+                              "source",
+                              "kind"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "title": "Tx_rollup_origination",
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "tx_rollup_origination"
+                                ]
+                              },
+                              "source": {
+                                "$ref": "#/definitions/Signature.Public_key_hash"
+                              },
+                              "fee": {
+                                "$ref": "#/definitions/alpha.mutez"
+                              },
+                              "counter": {
+                                "$ref": "#/definitions/positive_bignum"
+                              },
+                              "gas_limit": {
+                                "$ref": "#/definitions/positive_bignum"
+                              },
+                              "storage_limit": {
+                                "$ref": "#/definitions/positive_bignum"
+                              },
+                              "tx_rollup_origination": {}
+                            },
+                            "required": [
+                              "tx_rollup_origination",
                               "storage_limit",
                               "gas_limit",
                               "counter",
@@ -5988,7 +6171,8 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                                 }
                               },
                               {
-                                "title": "Generic prim (any number of args with or without annot)",
+                                "title": "Prim__generic",
+                                "description": "Generic primitive (any number of args with or without annotations)",
                                 "type": "object",
                                 "properties": {
                                   "prim": {
@@ -6064,7 +6248,8 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                                 }
                               },
                               {
-                                "title": "Generic prim (any number of args with or without annot)",
+                                "title": "Prim__generic",
+                                "description": "Generic primitive (any number of args with or without annotations)",
                                 "type": "object",
                                 "properties": {
                                   "prim": {
@@ -6172,7 +6357,8 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                             }
                           },
                           {
-                            "title": "Generic prim (any number of args with or without annot)",
+                            "title": "Prim__generic",
+                            "description": "Generic primitive (any number of args with or without annotations)",
                             "type": "object",
                             "properties": {
                               "prim": {

@@ -88,6 +88,8 @@ val constants : t -> Constants_repr.parametric
 val patch_constants :
   t -> (Constants_repr.parametric -> Constants_repr.parametric) -> t Lwt.t
 
+val round_durations : t -> Round_repr.Durations.t
+
 (** Retrieve the cycle eras. *)
 val cycle_eras : t -> Level_repr.cycle_eras
 
@@ -123,15 +125,21 @@ val update_remaining_operation_gas : t -> Gas_limit_repr.Arith.fp -> t
 
 val block_gas_level : t -> Gas_limit_repr.Arith.fp
 
+val update_remaining_block_gas : t -> Gas_limit_repr.Arith.fp -> t
+
 type error += Undefined_operation_nonce (* `Permanent *)
 
+(** [init_origination_nonce ctxt hash] initialise the origination nonce in
+    memory from [hash]. See [Origination_nonce.t] for more information. *)
 val init_origination_nonce : t -> Operation_hash.t -> t
 
-val get_origination_nonce : t -> Contract_repr.origination_nonce tzresult
+val get_origination_nonce : t -> Origination_nonce.t tzresult
 
-val increment_origination_nonce :
-  t -> (t * Contract_repr.origination_nonce) tzresult
+val increment_origination_nonce : t -> (t * Origination_nonce.t) tzresult
 
+(** [unset_origination_nonce ctxt] unset the origination nonce in memory. To be
+    used only when no more origination can be done in that operation. See
+    [Origination_nonce.t] for more information. *)
 val unset_origination_nonce : t -> t
 
 (** {1 Generic accessors} *)
@@ -245,7 +253,7 @@ module type CONSENSUS = sig
   val current_endorsement_power : t -> int
 
   (** Initializes the map of allowed endorsements and preendorsements,
-     this function must only be called only once and before applying
+     this function must be called only once and before applying
      any consensus operation.  *)
   val initialize_consensus_operation :
     t ->
@@ -294,9 +302,8 @@ module type CONSENSUS = sig
       This function is only used in [Full_construction] mode.  *)
   val set_preendorsements_quorum_round : t -> round -> t
 
-  (** [locked_round_evidence ctx payload_hash] returns the
-     preendorsement power recorded for this hash as long as the round
-     of the proposal. *)
+  (** [locked_round_evidence ctx] returns the round of the recorded
+     preendorsements as well as their power. *)
   val locked_round_evidence : t -> (round * int) option
 
   val set_endorsement_branch : t -> Block_hash.t * Block_payload_hash.t -> t

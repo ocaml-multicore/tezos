@@ -6,14 +6,15 @@ bug-reports: "https://gitlab.com/tezos/tezos/issues"
 dev-repo: "git+https://gitlab.com/tezos/tezos.git"
 license: "MIT"
 depends: [
-  "dune" { >= "2.0" }
+  "dune" { >= "2.9" }
   "zarith" { >= "1.12" & < "1.13" }
+  "zarith_stubs_js"
   "tezos-stdlib"
   "tezos-error-monad"
   "tezos-micheline"
   "tezos-protocol-alpha" {with-test}
   "tezos-client-alpha" {with-test}
-  "alcotest-lwt" { with-test & >= "1.1.0" }
+  "alcotest-lwt" { with-test & >= "1.5.0" }
 ]
 build: [
   ["dune" "build" "-p" name "-j" jobs]

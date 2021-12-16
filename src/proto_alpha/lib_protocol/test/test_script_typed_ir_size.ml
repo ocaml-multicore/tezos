@@ -168,7 +168,7 @@ module Printers = struct
     string_of_something @@ fun ctxt ->
     Lwt.return
     @@ Script_ir_translator.(
-         unparse_ty ctxt ty >>? fun (node, _) ->
+         unparse_ty ~loc:() ctxt ty >>? fun (node, _) ->
          Ok (Micheline.strip_locations node))
 
   let string_of_code code = string_of_something @@ fun _ -> return code
@@ -327,13 +327,19 @@ module Tests = struct
     (* Stddev set to 0.5, used to be 0.2 but leads to flaky tests.
        Revert when determinism is restored and the protocol is more
        precise about value sizes.
+
        FIXME: https://gitlab.com/tezos/tezos/-/issues/1784
-       FIXME: https://gitlab.com/tezos/tezos/-/issues/1834 *)
+       FIXME: https://gitlab.com/tezos/tezos/-/issues/1834
+
+       Expected_ratios set to 9, used to be 3.
+       Revert when the following issue is implemented:
+       FIXME: https://gitlab.com/dannywillems/ocaml-bls12-381/-/issues/55
+    *)
     check_stats
       "value_size"
       ~expected_mean:(1., 0.2)
-      ~expected_stddev:(0., 0.5)
-      ~expected_ratios:(1., 3.)
+      ~expected_stddev:(0., 0.7)
+      ~expected_ratios:(1., 9.)
 
   let lambda_size nsamples =
     iter_n_es nsamples @@ fun i ->

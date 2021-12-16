@@ -23,22 +23,35 @@
 (*                                                                           *)
 (*****************************************************************************)
 
+(** This type is used to construct values for secret keys.
+
+    Note: The tests only use unencrypted keys for the moment, please
+    add new constructors for other keys here, as needed. *)
+type secret_key =
+  | Unencrypted of string
+      (** The string does NOT contain the 'unencrypted:' prefix *)
+
 (** Keys associated to an account. For example:
     {|{
       alias = "bootstrap1";
       public_key_hash = "tz1KqTpEZ7Yob7QbPE4Hy4Wo8fHG8LhKxZSx";
-      public_key = Some "edpkuBknW28nW72KG6RoHtYW7p12T6GKc7nAbwYX5m8Wd9sDVC9yav";
+      public_key = "edpkuBknW28nW72KG6RoHtYW7p12T6GKc7nAbwYX5m8Wd9sDVC9yav";
       secret_key =
-        Some "unencrypted:edsk3gUfUPyBSfrS9CCgmCiQsTCHGkviBDusMxDJstFtojtc1zcpsh";
+        Unencrypted "edsk3gUfUPyBSfrS9CCgmCiQsTCHGkviBDusMxDJstFtojtc1zcpsh";
     }|} *)
 type key = {
   alias : string;
   public_key_hash : string;
   public_key : string;
-  secret_key : string;
+  secret_key : secret_key;
 }
 
-(** [write_stresstest_sources_file accounts] returns the name of a
-    file containing the [accounts] in JSON format, as expected by
-    the [stresstest] client command. *)
-val write_stresstest_sources_file : key list -> string Lwt.t
+(** [sign_bytes ~watermark ~signer message] signs the bytes [message] with
+    [signer]'s secret key. Returns the corresponding Tezos signature. This
+    function can be used to sign transactions, blocks, etc. depending on
+    the given [watermark]. *)
+val sign_bytes :
+  watermark:Tezos_crypto.Signature.watermark ->
+  signer:key ->
+  bytes ->
+  Tezos_crypto.Signature.t

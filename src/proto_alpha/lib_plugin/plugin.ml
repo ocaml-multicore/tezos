@@ -81,12 +81,34 @@ module Mempool = struct
          (fun (num, den) -> {Q.num; den})
          (tup2 z z))
 
+  let manager_op_replacement_factor_enc : Q.t Data_encoding.t =
+    let open Data_encoding in
+    def
+      "manager operation replacement factor"
+      ~title:"A manager operation's replacement factor"
+      ~description:
+        "The fee and fee/gas ratio of an operation to replace another"
+      (conv
+         (fun q -> (q.Q.num, q.Q.den))
+         (fun (num, den) -> {Q.num; den})
+         (tup2 z z))
+
   type config = {
     minimal_fees : Tez.t;
     minimal_nanotez_per_gas_unit : nanotez;
     minimal_nanotez_per_byte : nanotez;
     allow_script_failure : bool;
+        (** If [true], this makes [post_filter_manager] unconditionally return
+            [`Passed_postfilter filter_state], no matter the operation's
+            success. *)
     clock_drift : Period.t option;
+    replace_by_fee_factor : Q.t;
+        (** This field determines the amount of additional fees (given as a
+            factor of the declared fees) a manager should add to an operation
+            in order to (eventually) replace an existing (prechecked) one
+            in the mempool. Note that other criteria, such as the gas ratio,
+            are also taken into account to decide whether to accept the
+            replacement or not. *)
   }
 
   let default_minimal_fees =
@@ -105,6 +127,9 @@ module Mempool = struct
 
   let config_encoding : config Data_encoding.t =
     let open Data_encoding in
+    (* 105/100 = 1.05%: This is the minumum fee increase ratio required between
+       an operation and another one it'd replace in the prevalidator. *)
+    let replace_factor = Q.make (Z.of_int 105) (Z.of_int 100) in
     conv
       (fun {
              minimal_fees;
@@ -112,25 +137,29 @@ module Mempool = struct
              minimal_nanotez_per_byte;
              allow_script_failure;
              clock_drift;
+             replace_by_fee_factor;
            } ->
         ( minimal_fees,
           minimal_nanotez_per_gas_unit,
           minimal_nanotez_per_byte,
           allow_script_failure,
-          clock_drift ))
+          clock_drift,
+          replace_by_fee_factor ))
       (fun ( minimal_fees,
              minimal_nanotez_per_gas_unit,
              minimal_nanotez_per_byte,
              allow_script_failure,
-             clock_drift ) ->
+             clock_drift,
+             replace_by_fee_factor ) ->
         {
           minimal_fees;
           minimal_nanotez_per_gas_unit;
           minimal_nanotez_per_byte;
           allow_script_failure;
           clock_drift;
+          replace_by_fee_factor;
         })
-      (obj5
+      (obj6
          (dft "minimal_fees" Tez.encoding default_minimal_fees)
          (dft
             "minimal_nanotez_per_gas_unit"
@@ -141,7 +170,11 @@ module Mempool = struct
             nanotez_enc
             default_minimal_nanotez_per_byte)
          (dft "allow_script_failure" bool true)
-         (opt "clock_drift" Period.encoding))
+         (opt "clock_drift" Period.encoding)
+         (dft
+            "replace_by_fee_factor"
+            manager_op_replacement_factor_enc
+            replace_factor))
 
   let default_config =
     {
@@ -150,19 +183,55 @@ module Mempool = struct
       minimal_nanotez_per_byte = default_minimal_nanotez_per_byte;
       allow_script_failure = true;
       clock_drift = None;
+      replace_by_fee_factor =
+        Q.make (Z.of_int 105) (Z.of_int 100)
+        (* Default value of [replace_by_fee_factor] is set to 5% *);
     }
+
+  type manager_gas_witness
+
+  (* For each Prechecked manager operation (batched or not), we associate the
+     following information to its source:
+     - the operation's hash, needed in case the operation is replaced
+       afterwards,
+     - the total fee and gas_limit, needed to compare operations of the same
+       manager to decide which one has more fees w.r.t. announced gas limit
+       (modulo replace_by_fee_factor)
+  *)
+  type manager_op_info = {
+    operation_hash : Operation_hash.t;
+    gas_limit : manager_gas_witness Gas.Arith.t;
+    fee : Tez.t;
+  }
 
   type state = {
     grandparent_level_start : Alpha_context.Timestamp.t option;
     round_zero_duration : Period.t option;
+    op_prechecked_managers : manager_op_info Signature.Public_key_hash.Map.t;
+        (** All managers that are the source of manager operations
+            prechecked in the mempool. Each manager in the map is associated to
+            a record of type [manager_op_info] (See for record details above).
+            Each manager in the map should be accessible
+            with an operation hash in [operation_hash_to_manager]. *)
+    operation_hash_to_manager : Signature.Public_key_hash.t Operation_hash.Map.t;
+        (** Map of operation hash to manager used to remove a manager from
+            [op_prechecked_managers] with an operation hash. Each manager in the
+            map should also be in [op_prechecked_managers]. *)
   }
+
+  let empty : state =
+    {
+      grandparent_level_start = None;
+      round_zero_duration = None;
+      op_prechecked_managers = Signature.Public_key_hash.Map.empty;
+      operation_hash_to_manager = Operation_hash.Map.empty;
+    }
 
   let init config ?(validation_state : validation_state option) ~predecessor ()
       =
     ignore config ;
     (match validation_state with
-    | None ->
-        return {grandparent_level_start = None; round_zero_duration = None}
+    | None -> return empty
     | Some {ctxt; _} ->
         let {
           Tezos_base.Block_header.fitness = predecessor_fitness;
@@ -190,6 +259,7 @@ module Mempool = struct
           >>?= fun proposal_offset ->
           return
             {
+              empty with
               grandparent_level_start =
                 Some Timestamp.(predecessor_timestamp - proposal_offset);
               round_zero_duration = Some round_zero_duration;
@@ -200,6 +270,22 @@ module Mempool = struct
       ~predecessor () =
     ignore filter_state ;
     init config ?validation_state ~predecessor ()
+
+  let remove ~(filter_state : state) oph =
+    match
+      Operation_hash.Map.find oph filter_state.operation_hash_to_manager
+    with
+    | None -> filter_state
+    | Some source ->
+        {
+          filter_state with
+          op_prechecked_managers =
+            Signature.Public_key_hash.Map.remove
+              source
+              filter_state.op_prechecked_managers;
+          operation_hash_to_manager =
+            Operation_hash.Map.remove oph filter_state.operation_hash_to_manager;
+        }
 
   let get_manager_operation_gas_and_fee contents =
     let open Operation in
@@ -231,47 +317,105 @@ module Mempool = struct
       (function Fees_too_low -> Some () | _ -> None)
       (fun () -> Fees_too_low)
 
+  type Environment.Error_monad.error += Manager_restriction
+
+  let () =
+    Environment.Error_monad.register_error_kind
+      `Temporary
+      ~id:"plugin_filter.manager_restriction"
+      ~title:"Only one manager operation per manager per block allowed"
+      ~description:"Only one manager operation per manager per block allowed"
+      ~pp:(fun ppf () ->
+        Format.fprintf
+          ppf
+          "Only one manager operation per manager per block allowed")
+      Data_encoding.unit
+      (function Manager_restriction -> Some () | _ -> None)
+      (fun () -> Manager_restriction)
+
+  (* TODO: https://gitlab.com/tezos/tezos/-/issues/2238
+     Write unit tests for the feature 'replace-by-fee' and for other changes
+     introduced by other MRs in the plugin. *)
+  (* In order to decide if the new operation can replace an old one from the
+     same manager, we check if its fees (resp. fees/gas ratio) are greater than
+     (or equal to) the old operations's fees (resp. fees/gas ratio), bumped by
+     the factor [config.replace_by_fee_factor].
+  *)
+  let better_fees_and_ratio =
+    let bump config q = Q.mul q config.replace_by_fee_factor in
+    fun config old_gas old_fee new_gas new_fee ->
+      let old_fee = Tez.to_mutez old_fee |> Z.of_int64 |> Q.of_bigint in
+      let old_gas = Gas.Arith.integral_to_z old_gas |> Q.of_bigint in
+      let new_fee = Tez.to_mutez new_fee |> Z.of_int64 |> Q.of_bigint in
+      let new_gas = Gas.Arith.integral_to_z new_gas |> Q.of_bigint in
+      let old_ratio = Q.div old_fee old_gas in
+      let new_ratio = Q.div new_fee new_gas in
+      Q.compare new_ratio (bump config old_ratio) >= 0
+      && Q.compare new_fee (bump config old_fee) >= 0
+
+  let check_manager_restriction config filter_state source ~fee ~gas_limit =
+    match
+      Signature.Public_key_hash.Map.find
+        source
+        filter_state.op_prechecked_managers
+    with
+    | None -> `Fresh
+    | Some {operation_hash = old_hash; gas_limit = old_gas; fee = old_fee} ->
+        (* Manager already seen: one manager per block limitation triggered.
+           Can replace old operation if new operation's fees are better *)
+        if better_fees_and_ratio config old_gas old_fee gas_limit fee then
+          `Replace old_hash
+        else
+          `Fail (`Branch_delayed [Environment.wrap_tzerror Manager_restriction])
+
   let pre_filter_manager :
       type t.
       config ->
-      t Kind.manager contents_list ->
+      state ->
+      public_key_hash ->
       int ->
-      [ `Undecided
+      t Kind.manager contents_list ->
+      [ `Passed_prefilter
       | `Branch_refused of tztrace
       | `Branch_delayed of tztrace
       | `Refused of tztrace
       | `Outdated of tztrace ] =
-   fun config op size ->
+   fun config filter_state source size op ->
+    let check_gas_and_fee fee gas_limit =
+      let fees_in_nanotez =
+        Q.mul (Q.of_int64 (Tez.to_mutez fee)) (Q.of_int 1000)
+      in
+      let minimal_fees_in_nanotez =
+        Q.mul (Q.of_int64 (Tez.to_mutez config.minimal_fees)) (Q.of_int 1000)
+      in
+      let minimal_fees_for_gas_in_nanotez =
+        Q.mul
+          config.minimal_nanotez_per_gas_unit
+          (Q.of_bigint @@ Gas.Arith.integral_to_z gas_limit)
+      in
+      let minimal_fees_for_size_in_nanotez =
+        Q.mul config.minimal_nanotez_per_byte (Q.of_int size)
+      in
+      if
+        Q.compare
+          fees_in_nanotez
+          (Q.add
+             minimal_fees_in_nanotez
+             (Q.add
+                minimal_fees_for_gas_in_nanotez
+                minimal_fees_for_size_in_nanotez))
+        >= 0
+      then `Passed_prefilter
+      else `Refused [Environment.wrap_tzerror Fees_too_low]
+    in
     match get_manager_operation_gas_and_fee op with
-    | Error err ->
-        let err = Environment.wrap_tztrace err in
-        `Refused err
-    | Ok (fee, gas) ->
-        let fees_in_nanotez =
-          Q.mul (Q.of_int64 (Tez.to_mutez fee)) (Q.of_int 1000)
-        in
-        let minimal_fees_in_nanotez =
-          Q.mul (Q.of_int64 (Tez.to_mutez config.minimal_fees)) (Q.of_int 1000)
-        in
-        let minimal_fees_for_gas_in_nanotez =
-          Q.mul
-            config.minimal_nanotez_per_gas_unit
-            (Q.of_bigint @@ Gas.Arith.integral_to_z gas)
-        in
-        let minimal_fees_for_size_in_nanotez =
-          Q.mul config.minimal_nanotez_per_byte (Q.of_int size)
-        in
-        if
-          Q.compare
-            fees_in_nanotez
-            (Q.add
-               minimal_fees_in_nanotez
-               (Q.add
-                  minimal_fees_for_gas_in_nanotez
-                  minimal_fees_for_size_in_nanotez))
-          >= 0
-        then `Undecided
-        else `Refused [Environment.wrap_tzerror Fees_too_low]
+    | Error err -> `Refused (Environment.wrap_tztrace err)
+    | Ok (fee, gas_limit) -> (
+        match
+          check_manager_restriction config filter_state source ~fee ~gas_limit
+        with
+        | `Fail errs -> errs
+        | `Fresh | `Replace _ -> check_gas_and_fee fee gas_limit)
 
   type Environment.Error_monad.error += Outdated_endorsement
 
@@ -454,7 +598,7 @@ module Mempool = struct
       acceptable ~drift ~op_earliest_ts ~now_timestamp
 
   let pre_filter_far_future_consensus_ops config
-      ~filter_state:({grandparent_level_start; round_zero_duration} : state)
+      ~filter_state:({grandparent_level_start; round_zero_duration; _} : state)
       ?validation_state_before
       ({level = op_level; round = op_round; _} : consensus_content) : bool Lwt.t
       =
@@ -484,7 +628,9 @@ module Mempool = struct
                    assert false
                | Some proposal_level -> proposal_level
              in
-             let round_durations = Constants.round_durations ctxt in
+             let round_durations =
+               Alpha_context.Constants.round_durations ctxt
+             in
              Lwt.return
              @@ acceptable_op
                   ~config
@@ -518,9 +664,9 @@ module Mempool = struct
            Tezos_base.Operation.shell_header_encoding)
       + Data_encoding.Binary.length Operation.protocol_data_encoding op
     in
-    (match contents with
+    match contents with
     | Single (Failing_noop _) ->
-        Lwt.return @@ `Refused [Environment.wrap_tzerror Wrong_operation]
+        Lwt.return (`Refused [Environment.wrap_tzerror Wrong_operation])
     | Single (Preendorsement consensus_content)
     | Single (Endorsement consensus_content) ->
         pre_filter_far_future_consensus_ops
@@ -529,11 +675,11 @@ module Mempool = struct
           ?validation_state_before
           consensus_content
         >>= fun keep ->
-        if keep then Lwt.return `Undecided
+        if keep then Lwt.return `Passed_prefilter
         else
           Lwt.return
-          @@ `Branch_refused
-               [Environment.wrap_tzerror Consensus_operation_in_far_future]
+            (`Branch_refused
+              [Environment.wrap_tzerror Consensus_operation_in_far_future])
     | Single (Seed_nonce_revelation _)
     | Single (Double_preendorsement_evidence _)
     | Single (Double_endorsement_evidence _)
@@ -541,59 +687,221 @@ module Mempool = struct
     | Single (Activate_account _)
     | Single (Proposals _)
     | Single (Ballot _) ->
-        Lwt.return @@ `Undecided
-    | Single (Manager_operation _) as op ->
-        Lwt.return @@ pre_filter_manager config op bytes
-    | Cons (Manager_operation _, _) as op ->
-        Lwt.return @@ pre_filter_manager config op bytes)
-    >>= fun res -> Lwt.return (res, filter_state)
+        Lwt.return @@ `Passed_prefilter
+    | Single (Manager_operation {source; _}) as op ->
+        Lwt.return @@ pre_filter_manager config filter_state source bytes op
+    | Cons (Manager_operation {source; _}, _) as op ->
+        Lwt.return @@ pre_filter_manager config filter_state source bytes op
+
+  let precheck_manager :
+      type t.
+      config ->
+      state ->
+      validation_state ->
+      Tezos_base.Operation.shell_header ->
+      t Kind.manager protocol_data ->
+      fee:Tez.t ->
+      gas_limit:manager_gas_witness Gas.Arith.t ->
+      public_key_hash ->
+      [> `Prechecked_manager
+      | `Prechecked_manager_with_replace of Operation_hash.t
+      | `Branch_delayed of tztrace
+      | `Branch_refused of tztrace
+      | `Refused of tztrace
+      | `Outdated of tztrace ]
+      Lwt.t =
+   fun config
+       filter_state
+       validation_state
+       shell
+       ({contents; _} as protocol_data : t Kind.manager protocol_data)
+       ~fee
+       ~gas_limit
+       source ->
+    let precheck_manager_and_check_signature ~on_success =
+      ( Main.precheck_manager validation_state contents >>=? fun () ->
+        let (raw_operation : t Kind.manager operation) =
+          Alpha_context.{shell; protocol_data}
+        in
+        Main.check_manager_signature validation_state contents raw_operation )
+      >|= function
+      | Ok () -> on_success
+      | Error err -> (
+          let err = Environment.wrap_tztrace err in
+          match classify_trace err with
+          | Branch -> `Branch_refused err
+          | Permanent -> `Refused err
+          | Temporary -> `Branch_delayed err
+          | Outdated -> `Outdated err)
+    in
+    match
+      check_manager_restriction config filter_state source ~fee ~gas_limit
+    with
+    | `Fail err -> Lwt.return err
+    | `Fresh ->
+        precheck_manager_and_check_signature ~on_success:`Prechecked_manager
+    | `Replace old_oph ->
+        precheck_manager_and_check_signature
+          ~on_success:(`Prechecked_manager_with_replace old_oph)
+
+  let add_manager_restriction filter_state oph info source =
+    {
+      filter_state with
+      op_prechecked_managers =
+        (* Manager not seen yet, record it for next ops *)
+        Signature.Public_key_hash.Map.add
+          source
+          info
+          filter_state.op_prechecked_managers;
+      operation_hash_to_manager =
+        Operation_hash.Map.add oph source filter_state.operation_hash_to_manager
+        (* Record which manager is used for the operation hash. *);
+    }
+
+  let precheck :
+      config ->
+      filter_state:state ->
+      validation_state:validation_state ->
+      Tezos_base.Operation.shell_header ->
+      Operation_hash.t ->
+      Main.operation_data ->
+      [ `Passed_precheck of state
+      | `Passed_precheck_with_replace of Operation_hash.t * state
+      | `Branch_delayed of tztrace
+      | `Branch_refused of tztrace
+      | `Refused of tztrace
+      | `Outdated of tztrace
+      | `Undecided ]
+      Lwt.t =
+   fun config
+       ~filter_state
+       ~validation_state
+       shell_header
+       oph
+       (Operation_data protocol_data) ->
+    let precheck_manager protocol_data source op =
+      match get_manager_operation_gas_and_fee op with
+      | Error err -> Lwt.return (`Refused (Environment.wrap_tztrace err))
+      | Ok (fee, gas_limit) -> (
+          let info = {operation_hash = oph; gas_limit; fee} in
+          precheck_manager
+            config
+            filter_state
+            validation_state
+            shell_header
+            protocol_data
+            source
+            ~fee
+            ~gas_limit
+          >|= function
+          | `Prechecked_manager ->
+              `Passed_precheck
+                (add_manager_restriction filter_state oph info source)
+          | `Prechecked_manager_with_replace old_oph ->
+              `Passed_precheck_with_replace
+                (old_oph, add_manager_restriction filter_state oph info source)
+          | (`Refused _ | `Branch_delayed _ | `Branch_refused _ | `Outdated _)
+            as errs ->
+              errs)
+    in
+    match protocol_data.contents with
+    | Single (Manager_operation {source; _}) as op ->
+        precheck_manager protocol_data source op
+    | Cons (Manager_operation {source; _}, _) as op ->
+        precheck_manager protocol_data source op
+    | Single _ -> Lwt.return `Undecided
 
   open Apply_results
+
+  type Environment.Error_monad.error += Skipped_operation
+
+  let () =
+    Environment.Error_monad.register_error_kind
+      `Temporary
+      ~id:"postfilter.skipped_operation"
+      ~title:"The operation has been skipped by the protocol"
+      ~description:"The operation has been skipped by the protocol"
+      ~pp:(fun ppf () ->
+        Format.fprintf ppf "The operation has been skipped by the protocol")
+      Data_encoding.unit
+      (function Skipped_operation -> Some () | _ -> None)
+      (fun () -> Skipped_operation)
+
+  type Environment.Error_monad.error += Backtracked_operation
+
+  let () =
+    Environment.Error_monad.register_error_kind
+      `Temporary
+      ~id:"postfilter.backtracked_operation"
+      ~title:"The operation has been backtracked by the protocol"
+      ~description:"The operation has been backtracked by the protocol"
+      ~pp:(fun ppf () ->
+        Format.fprintf ppf "The operation has been backtracked by the protocol")
+      Data_encoding.unit
+      (function Backtracked_operation -> Some () | _ -> None)
+      (fun () -> Backtracked_operation)
 
   let rec post_filter_manager :
       type t.
       Alpha_context.t ->
+      state ->
       t Kind.manager contents_result_list ->
       config ->
-      bool Lwt.t =
-   fun ctxt op config ->
-    match op with
+      [`Passed_postfilter of state | `Refused of tztrace] =
+   fun ctxt filter_state result config ->
+    (* TODO: https://gitlab.com/tezos/tezos/-/issues/2181
+       This function should be unit tested.
+       The errors that can be raised if allow_script_failure is enable should
+       be tested. *)
+    match result with
     | Single_result (Manager_operation_result {operation_result; _}) -> (
+        let check_allow_script_failure errs =
+          if config.allow_script_failure then `Passed_postfilter filter_state
+          else `Refused errs
+        in
         match operation_result with
-        | Applied _ -> Lwt.return_true
-        | Skipped _ | Failed _ | Backtracked _ ->
-            Lwt.return config.allow_script_failure)
+        | Applied _ -> `Passed_postfilter filter_state
+        | Skipped _ ->
+            check_allow_script_failure
+              [Environment.wrap_tzerror Skipped_operation]
+        | Failed (_, errors) ->
+            check_allow_script_failure (Environment.wrap_tztrace errors)
+        | Backtracked (_, errors) ->
+            check_allow_script_failure
+              (match errors with
+              | Some e -> Environment.wrap_tztrace e
+              | None -> [Environment.wrap_tzerror Backtracked_operation]))
     | Cons_result (Manager_operation_result res, rest) -> (
         post_filter_manager
           ctxt
+          filter_state
           (Single_result (Manager_operation_result res))
           config
-        >>= function
-        | false -> Lwt.return_false
-        | true -> post_filter_manager ctxt rest config)
+        |> function
+        | `Passed_postfilter filter_state ->
+            post_filter_manager ctxt filter_state rest config
+        | `Refused _ as errs -> errs)
 
   let post_filter config ~(filter_state : state) ~validation_state_before:_
       ~validation_state_after:({ctxt; _} : validation_state) (_op, receipt) =
-    (match receipt with
+    match receipt with
     | No_operation_metadata -> assert false (* only for multipass validator *)
     | Operation_metadata {contents} -> (
         match contents with
-        | Single_result (Preendorsement_result _) -> Lwt.return_true
-        | Single_result (Endorsement_result _) -> Lwt.return_true
-        | Single_result (Seed_nonce_revelation_result _) -> Lwt.return_true
-        | Single_result (Double_preendorsement_evidence_result _) ->
-            Lwt.return_true
-        | Single_result (Double_endorsement_evidence_result _) ->
-            Lwt.return_true
-        | Single_result (Double_baking_evidence_result _) -> Lwt.return_true
-        | Single_result (Activate_account_result _) -> Lwt.return_true
-        | Single_result Proposals_result -> Lwt.return_true
-        | Single_result Ballot_result -> Lwt.return_true
-        | Single_result (Manager_operation_result _) as op ->
-            post_filter_manager ctxt op config
-        | Cons_result (Manager_operation_result _, _) as op ->
-            post_filter_manager ctxt op config))
-    >>= fun res -> Lwt.return (res, filter_state)
+        | Single_result (Preendorsement_result _)
+        | Single_result (Endorsement_result _)
+        | Single_result (Seed_nonce_revelation_result _)
+        | Single_result (Double_preendorsement_evidence_result _)
+        | Single_result (Double_endorsement_evidence_result _)
+        | Single_result (Double_baking_evidence_result _)
+        | Single_result (Activate_account_result _)
+        | Single_result Proposals_result
+        | Single_result Ballot_result ->
+            Lwt.return (`Passed_postfilter filter_state)
+        | Single_result (Manager_operation_result _) as result ->
+            Lwt.return (post_filter_manager ctxt filter_state result config)
+        | Cons_result (Manager_operation_result _, _) as result ->
+            Lwt.return (post_filter_manager ctxt filter_state result config))
 end
 
 module View_helpers = struct
@@ -979,10 +1287,11 @@ module RPC = struct
           ~description:"Typecheck a piece of code in the current context"
           ~query:RPC_query.empty
           ~input:
-            (obj3
+            (obj4
                (req "program" Script.expr_encoding)
                (opt "gas" Gas.Arith.z_integral_encoding)
-               (opt "legacy" bool))
+               (opt "legacy" bool)
+               (opt "show_types" bool))
           ~output:
             (obj2
                (req "type_map" Script_tc_errors_registration.type_map_enc)
@@ -1216,7 +1525,7 @@ module RPC = struct
       trace_eval
         (fun () ->
           let exp_ty = Script_ir_translator.serialize_ty_for_error exp_ty in
-          return @@ Script_tc_errors.Ill_typed_data (None, data, exp_ty))
+          Script_tc_errors.Ill_typed_data (None, data, exp_ty))
         (let allow_forged =
            true
            (* Safe since we ignore the value afterwards. *)
@@ -1239,50 +1548,56 @@ module RPC = struct
       open Script_ir_annot
       open Script_typed_ir
 
-      let rec unparse_comparable_ty : type a. a comparable_ty -> Script.node =
-        function
-        | Unit_key meta -> Prim (-1, T_unit, [], unparse_type_annot meta.annot)
-        | Never_key meta -> Prim (-1, T_never, [], unparse_type_annot meta.annot)
-        | Int_key meta -> Prim (-1, T_int, [], unparse_type_annot meta.annot)
-        | Nat_key meta -> Prim (-1, T_nat, [], unparse_type_annot meta.annot)
+      let rec unparse_comparable_ty :
+          type a loc.
+          loc:loc -> a comparable_ty -> (loc, Script.prim) Micheline.node =
+       fun ~loc -> function
+        | Unit_key meta -> Prim (loc, T_unit, [], unparse_type_annot meta.annot)
+        | Never_key meta ->
+            Prim (loc, T_never, [], unparse_type_annot meta.annot)
+        | Int_key meta -> Prim (loc, T_int, [], unparse_type_annot meta.annot)
+        | Nat_key meta -> Prim (loc, T_nat, [], unparse_type_annot meta.annot)
         | Signature_key meta ->
-            Prim (-1, T_signature, [], unparse_type_annot meta.annot)
+            Prim (loc, T_signature, [], unparse_type_annot meta.annot)
         | String_key meta ->
-            Prim (-1, T_string, [], unparse_type_annot meta.annot)
-        | Bytes_key meta -> Prim (-1, T_bytes, [], unparse_type_annot meta.annot)
-        | Mutez_key meta -> Prim (-1, T_mutez, [], unparse_type_annot meta.annot)
-        | Bool_key meta -> Prim (-1, T_bool, [], unparse_type_annot meta.annot)
+            Prim (loc, T_string, [], unparse_type_annot meta.annot)
+        | Bytes_key meta ->
+            Prim (loc, T_bytes, [], unparse_type_annot meta.annot)
+        | Mutez_key meta ->
+            Prim (loc, T_mutez, [], unparse_type_annot meta.annot)
+        | Bool_key meta -> Prim (loc, T_bool, [], unparse_type_annot meta.annot)
         | Key_hash_key meta ->
-            Prim (-1, T_key_hash, [], unparse_type_annot meta.annot)
-        | Key_key meta -> Prim (-1, T_key, [], unparse_type_annot meta.annot)
+            Prim (loc, T_key_hash, [], unparse_type_annot meta.annot)
+        | Key_key meta -> Prim (loc, T_key, [], unparse_type_annot meta.annot)
         | Timestamp_key meta ->
-            Prim (-1, T_timestamp, [], unparse_type_annot meta.annot)
+            Prim (loc, T_timestamp, [], unparse_type_annot meta.annot)
         | Address_key meta ->
-            Prim (-1, T_address, [], unparse_type_annot meta.annot)
+            Prim (loc, T_address, [], unparse_type_annot meta.annot)
         | Chain_id_key meta ->
-            Prim (-1, T_chain_id, [], unparse_type_annot meta.annot)
+            Prim (loc, T_chain_id, [], unparse_type_annot meta.annot)
         | Pair_key ((l, al), (r, ar), meta) ->
-            let tl = add_field_annot al None (unparse_comparable_ty l) in
-            let tr = add_field_annot ar None (unparse_comparable_ty r) in
-            Prim (-1, T_pair, [tl; tr], unparse_type_annot meta.annot)
+            let tl = add_field_annot al None (unparse_comparable_ty ~loc l) in
+            let tr = add_field_annot ar None (unparse_comparable_ty ~loc r) in
+            Prim (loc, T_pair, [tl; tr], unparse_type_annot meta.annot)
         | Union_key ((l, al), (r, ar), meta) ->
-            let tl = add_field_annot al None (unparse_comparable_ty l) in
-            let tr = add_field_annot ar None (unparse_comparable_ty r) in
-            Prim (-1, T_or, [tl; tr], unparse_type_annot meta.annot)
+            let tl = add_field_annot al None (unparse_comparable_ty ~loc l) in
+            let tr = add_field_annot ar None (unparse_comparable_ty ~loc r) in
+            Prim (loc, T_or, [tl; tr], unparse_type_annot meta.annot)
         | Option_key (t, meta) ->
             Prim
-              ( -1,
+              ( loc,
                 T_option,
-                [unparse_comparable_ty t],
+                [unparse_comparable_ty ~loc t],
                 unparse_type_annot meta.annot )
 
-      let unparse_memo_size memo_size =
+      let unparse_memo_size ~loc memo_size =
         let z = Alpha_context.Sapling.Memo_size.unparse_to_z memo_size in
-        Int (-1, z)
+        Int (loc, z)
 
-      let rec unparse_ty : type a. a ty -> Script.node =
-       fun ty ->
-        let return (name, args, annot) = Prim (-1, name, args, annot) in
+      let rec unparse_ty :
+          type a loc. loc:loc -> a ty -> (loc, Script.prim) Micheline.node =
+       fun ~loc ty ->
+        let return (name, args, annot) = Prim (loc, name, args, annot) in
         match ty with
         | Unit_t meta -> return (T_unit, [], unparse_type_annot meta.annot)
         | Int_t meta -> return (T_int, [], unparse_type_annot meta.annot)
@@ -1311,56 +1626,56 @@ module RPC = struct
         | Bls12_381_fr_t meta ->
             return (T_bls12_381_fr, [], unparse_type_annot meta.annot)
         | Contract_t (ut, meta) ->
-            let t = unparse_ty ut in
+            let t = unparse_ty ~loc ut in
             return (T_contract, [t], unparse_type_annot meta.annot)
         | Pair_t ((utl, l_field, l_var), (utr, r_field, r_var), meta) ->
             let annot = unparse_type_annot meta.annot in
-            let utl = unparse_ty utl in
+            let utl = unparse_ty ~loc utl in
             let tl = add_field_annot l_field l_var utl in
-            let utr = unparse_ty utr in
+            let utr = unparse_ty ~loc utr in
             let tr = add_field_annot r_field r_var utr in
             return (T_pair, [tl; tr], annot)
         | Union_t ((utl, l_field), (utr, r_field), meta) ->
             let annot = unparse_type_annot meta.annot in
-            let utl = unparse_ty utl in
+            let utl = unparse_ty ~loc utl in
             let tl = add_field_annot l_field None utl in
-            let utr = unparse_ty utr in
+            let utr = unparse_ty ~loc utr in
             let tr = add_field_annot r_field None utr in
             return (T_or, [tl; tr], annot)
         | Lambda_t (uta, utr, meta) ->
-            let ta = unparse_ty uta in
-            let tr = unparse_ty utr in
+            let ta = unparse_ty ~loc uta in
+            let tr = unparse_ty ~loc utr in
             return (T_lambda, [ta; tr], unparse_type_annot meta.annot)
         | Option_t (ut, meta) ->
             let annot = unparse_type_annot meta.annot in
-            let ut = unparse_ty ut in
+            let ut = unparse_ty ~loc ut in
             return (T_option, [ut], annot)
         | List_t (ut, meta) ->
-            let t = unparse_ty ut in
+            let t = unparse_ty ~loc ut in
             return (T_list, [t], unparse_type_annot meta.annot)
         | Ticket_t (ut, meta) ->
-            let t = unparse_comparable_ty ut in
+            let t = unparse_comparable_ty ~loc ut in
             return (T_ticket, [t], unparse_type_annot meta.annot)
         | Set_t (ut, meta) ->
-            let t = unparse_comparable_ty ut in
+            let t = unparse_comparable_ty ~loc ut in
             return (T_set, [t], unparse_type_annot meta.annot)
         | Map_t (uta, utr, meta) ->
-            let ta = unparse_comparable_ty uta in
-            let tr = unparse_ty utr in
+            let ta = unparse_comparable_ty ~loc uta in
+            let tr = unparse_ty ~loc utr in
             return (T_map, [ta; tr], unparse_type_annot meta.annot)
         | Big_map_t (uta, utr, meta) ->
-            let ta = unparse_comparable_ty uta in
-            let tr = unparse_ty utr in
+            let ta = unparse_comparable_ty ~loc uta in
+            let tr = unparse_ty ~loc utr in
             return (T_big_map, [ta; tr], unparse_type_annot meta.annot)
         | Sapling_transaction_t (memo_size, meta) ->
             return
               ( T_sapling_transaction,
-                [unparse_memo_size memo_size],
+                [unparse_memo_size ~loc memo_size],
                 unparse_type_annot meta.annot )
         | Sapling_state_t (memo_size, meta) ->
             return
               ( T_sapling_state,
-                [unparse_memo_size memo_size],
+                [unparse_memo_size ~loc memo_size],
                 unparse_type_annot meta.annot )
         | Chest_t meta -> return (T_chest, [], unparse_type_annot meta.annot)
         | Chest_key_t meta ->
@@ -1370,110 +1685,19 @@ module RPC = struct
     let run_operation_service ctxt ()
         ({shell; protocol_data = Operation_data protocol_data}, chain_id) =
       (* this code is a duplicate of Apply without signature check *)
-      let partial_precheck_manager_contents (type kind) ctxt
-          (op : kind Kind.manager contents) :
-          (context * Receipt.balance_updates) tzresult Lwt.t =
-        let (Manager_operation
-              {source; fee; counter; operation; gas_limit; storage_limit}) =
-          op
-        in
-        Gas.consume_limit_in_block ctxt gas_limit >>?= fun ctxt ->
-        let ctxt = Gas.set_limit ctxt gas_limit in
-        Fees.check_storage_limit ctxt ~storage_limit >>?= fun () ->
-        Contract.must_be_allocated ctxt (Contract.implicit_contract source)
-        >>=? fun () ->
-        Contract.check_counter_increment ctxt source counter >>=? fun () ->
-        (match operation with
-        | Reveal pk -> Contract.reveal_manager_key ctxt source pk
-        | Transaction {parameters; _} ->
-            (* Here the data comes already deserialized, so we need to fake the deserialization to mimic apply *)
-            let arg_bytes =
-              Data_encoding.Binary.to_bytes_exn
-                Script.lazy_expr_encoding
-                parameters
-            in
-            let arg =
-              match
-                Data_encoding.Binary.of_bytes_opt
-                  Script.lazy_expr_encoding
-                  arg_bytes
-              with
-              | Some arg -> arg
-              | None -> assert false
-            in
-            Lwt.return
-            @@ record_trace Apply.Gas_quota_exceeded_init_deserialize
-            @@ (* Fail if not enough gas for complete deserialization cost *)
-            ( Script.force_decode_in_context ctxt arg >|? fun (_arg, ctxt) ->
-              ctxt )
-        | Origination {script; _} ->
-            (* Here the data comes already deserialized, so we need to fake the deserialization to mimic apply *)
-            let script_bytes =
-              Data_encoding.Binary.to_bytes_exn Script.encoding script
-            in
-            let script =
-              match
-                Data_encoding.Binary.of_bytes_opt Script.encoding script_bytes
-              with
-              | Some script -> script
-              | None -> assert false
-            in
-            Lwt.return
-            @@ record_trace Apply.Gas_quota_exceeded_init_deserialize
-            @@ (* Fail if not enough gas for complete deserialization cost *)
-            ( Script.force_decode_in_context ctxt script.code
-            >>? fun (_code, ctxt) ->
-              Script.force_decode_in_context ctxt script.storage
-              >|? fun (_storage, ctxt) -> ctxt )
-        | _ -> return ctxt)
-        >>=? fun ctxt ->
-        Contract.get_manager_key ctxt source >>=? fun _public_key ->
-        (* signature check unplugged from here *)
-        Contract.increment_counter ctxt source >>=? fun ctxt ->
-        let source_contract = Contract.implicit_contract source in
-        Token.transfer ctxt (`Contract source_contract) `Block_fees fee
-      in
-      let open Apply_results in
-      let rec partial_precheck_manager_contents_list :
-          type kind.
-          Alpha_context.t ->
-          kind Kind.manager contents_list ->
-          payload_producer:Signature.Public_key_hash.t ->
-          (context
-          * ( kind Kind.manager,
-              Receipt.balance_updates )
-            prechecked_contents_list)
-          tzresult
-          Lwt.t =
-       fun ctxt contents_list ~payload_producer ->
-        match contents_list with
-        | Single contents ->
-            partial_precheck_manager_contents ctxt contents
-            >>=? fun (ctxt, balance_updates) ->
-            return (ctxt, PrecheckedSingle {contents; result = balance_updates})
-        | Cons (contents, rest) ->
-            partial_precheck_manager_contents ctxt contents
-            >>=? fun (ctxt, balance_updates) ->
-            partial_precheck_manager_contents_list ctxt rest ~payload_producer
-            >>=? fun (ctxt, prechecked_contents_list) ->
-            return
-              ( ctxt,
-                PrecheckedCons
-                  ( {contents; result = balance_updates},
-                    prechecked_contents_list ) )
-      in
       let ret contents =
         ( Operation_data protocol_data,
           Apply_results.Operation_metadata {contents} )
       in
       let operation : _ operation = {shell; protocol_data} in
       let hash = Operation.hash {shell; protocol_data} in
-      let ctxt = Contract.init_origination_nonce ctxt hash in
+      let ctxt = Origination_nonce.init ctxt hash in
       let payload_producer = Signature.Public_key_hash.zero in
       match protocol_data.contents with
       | Single (Manager_operation _) as op ->
-          partial_precheck_manager_contents_list ctxt op ~payload_producer
+          Apply.precheck_manager_contents_list ctxt op ~mempool_mode:true
           >>=? fun (ctxt, prechecked_contents_list) ->
+          (* removed signature check here *)
           Apply.apply_manager_contents_list
             ctxt
             Optimized
@@ -1482,8 +1706,9 @@ module RPC = struct
             prechecked_contents_list
           >|= fun (_ctxt, result) -> ok @@ ret result
       | Cons (Manager_operation _, _) as op ->
-          partial_precheck_manager_contents_list ctxt op ~payload_producer
+          Apply.precheck_manager_contents_list ctxt op ~mempool_mode:true
           >>=? fun (ctxt, prechecked_contents_list) ->
+          (* removed signature check here *)
           Apply.apply_manager_contents_list
             ctxt
             Optimized
@@ -1536,7 +1761,7 @@ module RPC = struct
 
     let register () =
       let originate_dummy_contract ctxt script balance =
-        let ctxt = Contract.init_origination_nonce ctxt Operation_hash.zero in
+        let ctxt = Origination_nonce.init ctxt Operation_hash.zero in
         Lwt.return (Contract.fresh_contract_from_current_nonce ctxt)
         >>=? fun (ctxt, dummy_contract) ->
         Contract.raw_originate
@@ -1567,7 +1792,7 @@ module RPC = struct
                 arg_type
                 entrypoint )
           >>? fun (_f, Ex_ty ty) ->
-            unparse_ty ctxt ty >|? fun (ty_node, _) ->
+            unparse_ty ~loc:() ctxt ty >|? fun (ty_node, _) ->
             Micheline.strip_locations ty_node )
       in
       Registration.register0
@@ -1795,14 +2020,15 @@ module RPC = struct
       Registration.register0
         ~chunked:false
         S.typecheck_code
-        (fun ctxt () (expr, maybe_gas, legacy) ->
+        (fun ctxt () (expr, maybe_gas, legacy, show_types) ->
           let legacy = Option.value ~default:false legacy in
+          let show_types = Option.value ~default:true show_types in
           let ctxt =
             match maybe_gas with
             | None -> Gas.set_unlimited ctxt
             | Some gas -> Gas.set_limit ctxt gas
           in
-          Script_ir_translator.typecheck_code ~legacy ctxt expr
+          Script_ir_translator.typecheck_code ~legacy ~show_types ctxt expr
           >|=? fun (res, ctxt) -> (res, Gas.level ctxt)) ;
       Registration.register0
         ~chunked:false
@@ -1916,7 +2142,7 @@ module RPC = struct
             ~allow_ticket:true
             (Micheline.root typ)
           >>?= fun (Ex_ty typ, _ctxt) ->
-          let normalized = Unparse_types.unparse_ty typ in
+          let normalized = Unparse_types.unparse_ty ~loc:() typ in
           return @@ Micheline.strip_locations normalized) ;
       Registration.register0 ~chunked:true S.run_operation run_operation_service ;
       Registration.register0
@@ -2007,8 +2233,13 @@ module RPC = struct
           now,
           level )
 
-    let typecheck_code ?gas ?legacy ~script ctxt block =
-      RPC_context.make_call0 S.typecheck_code ctxt block () (script, gas, legacy)
+    let typecheck_code ?gas ?legacy ~script ?show_types ctxt block =
+      RPC_context.make_call0
+        S.typecheck_code
+        ctxt
+        block
+        ()
+        (script, gas, legacy, show_types)
 
     let script_size ?gas ?legacy ~script ~storage ctxt block =
       RPC_context.make_call0
@@ -2115,7 +2346,10 @@ module RPC = struct
               >>=? fun (Ex_script script, ctxt) ->
               unparse_script ctxt unparsing_mode script
               >>=? fun (script, ctxt) ->
-              Script.force_decode_in_context ctxt script.storage
+              Script.force_decode_in_context
+                ~consume_deserialization_gas:When_needed
+                ctxt
+                script.storage
               >>?= fun (storage, _ctxt) -> return_some storage) ;
       (* Patched RPC: get_script *)
       Registration.register1
@@ -2593,7 +2827,7 @@ module RPC = struct
         |+ opt_field "cycle" Cycle.rpc_arg (fun t -> t.cycle)
         |+ multi_field "delegate" Signature.Public_key_hash.rpc_arg (fun t ->
                t.delegates)
-        |+ opt_field "max_round" RPC_arg.int (fun t -> t.max_round)
+        |+ opt_field "max_round" RPC_arg.uint (fun t -> t.max_round)
         |+ flag "all" (fun t -> t.all)
         |> seal
 
@@ -2630,7 +2864,7 @@ module RPC = struct
       Round.get ctxt >>=? fun current_round ->
       let current_level = Level.current ctxt in
       let current_timestamp = Timestamp.current ctxt in
-      let round_durations = Constants.round_durations ctxt in
+      let round_durations = Alpha_context.Constants.round_durations ctxt in
       let rec loop l acc round =
         if Compare.Int.(round > max_round) then return (List.rev acc)
         else
@@ -2794,7 +3028,7 @@ module RPC = struct
       Round.get ctxt >>=? fun current_round ->
       let current_level = Level.current ctxt in
       let current_timestamp = Timestamp.current ctxt in
-      let round_durations = Constants.round_durations ctxt in
+      let round_durations = Alpha_context.Constants.round_durations ctxt in
       estimated_time
         round_durations
         ~current_level
@@ -2956,8 +3190,8 @@ module RPC = struct
       RPC_service.get_service
         ~description:
           "Returns the level of the interrogated block, or the one of a block \
-           located `offset` blocks after in the chain (or before when \
-           negative). For instance, the next block if `offset` is 1."
+           located `offset` blocks after it in the chain. For instance, the \
+           next block if `offset` is 1. The offset cannot be negative."
         ~query:level_query
         ~output:Level.encoding
         RPC_path.(path / "current_level")
@@ -2983,6 +3217,20 @@ module RPC = struct
         RPC_path.(path / "round")
   end
 
+  type Environment.Error_monad.error += Negative_level_offset
+
+  let () =
+    Environment.Error_monad.register_error_kind
+      `Permanent
+      ~id:"negative_level_offset"
+      ~title:"The specified level offset is negative"
+      ~description:"The specified level offset is negative"
+      ~pp:(fun ppf () ->
+        Format.fprintf ppf "The specified level offset should be positive.")
+      Data_encoding.unit
+      (function Negative_level_offset -> Some () | _ -> None)
+      (fun () -> Negative_level_offset)
+
   let register () =
     Scripts.register () ;
     Forge.register () ;
@@ -2993,11 +3241,13 @@ module RPC = struct
     Endorsing_rights.register () ;
     Validators.register () ;
     Registration.register0 ~chunked:false S.current_level (fun ctxt q () ->
-        Lwt.return
-          (Level.from_raw_with_offset
-             ctxt
-             ~offset:q.offset
-             (Level.current ctxt).level)) ;
+        if q.offset < 0l then fail Negative_level_offset
+        else
+          Lwt.return
+            (Level.from_raw_with_offset
+               ctxt
+               ~offset:q.offset
+               (Level.current ctxt).level)) ;
     Registration.opt_register0
       ~chunked:true
       S.levels_in_current_cycle

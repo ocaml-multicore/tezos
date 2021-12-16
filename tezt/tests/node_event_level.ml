@@ -101,9 +101,9 @@ let transfer_and_wait_for_injection node client amount_int giver_key
    be the node associated to this client). If [level] is provided, also
    wait for the node to reach this level. A specific [mempool] can be provided.
 *)
-let bake_wait_log ?level ?protocol ?mempool ?monitor_node_mempool node client =
+let bake_wait_log ?level ?protocol ?mempool ?ignore_node_mempool node client =
   let baked = wait_for_flush node in
-  let* () = Client.bake_for ?protocol ?mempool ?monitor_node_mempool client in
+  let* () = Client.bake_for ?protocol ?mempool ?ignore_node_mempool client in
   let* _ = baked in
   Log.info "Baked." ;
   match level with
@@ -160,7 +160,7 @@ let test_debug_level_misc =
     ~tags:["node"; "event"]
   @@ fun protocol ->
   Log.info "Step 1: Start a node with event_level:debug, activate the protocol." ;
-  let* node_1 = Node.init ~event_level:"debug" [Synchronisation_threshold 0] in
+  let* node_1 = Node.init ~event_level:`Debug [Synchronisation_threshold 0] in
   let endpoint_1 = Client.(Node node_1) in
   let* client_1 = Client.init ~endpoint:endpoint_1 () in
   let* () = Client.activate_protocol ~protocol client_1 in
@@ -245,6 +245,7 @@ let check_no_set_head event =
    node initialized with [config_level].
 *)
 let check_event_level ~config_level ~incoming_level =
+  let config_level = Daemon.Level.to_string config_level in
   let to_int level =
     match String.lowercase_ascii level with
     | "debug" -> 0
@@ -311,9 +312,9 @@ let test_event_levels =
   Log.info
     "Step 1: Start three nodes with respective event levels debug, info, and \
      notice." ;
-  let node_1_event_level = "debug" in
-  let node_2_event_level = "info" in
-  let node_3_event_level = "notice" in
+  let node_1_event_level = `Debug in
+  let node_2_event_level = `Info in
+  let node_3_event_level = `Notice in
   let* node_1 =
     Node.init ~event_level:node_1_event_level [Synchronisation_threshold 0]
   and* node_2 =

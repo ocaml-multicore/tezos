@@ -11,7 +11,6 @@ ALPHA_PROTO_HASH=ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK
 
 .PHONY: all
 all: accusations_simple_double_endorsing \
-	voting_demo_noops \
 	user_activated_upgrade_next \
 	user_activated_upgrade_alpha \
 	daemons_upgrade_next \
@@ -67,23 +66,9 @@ accusations_simple_double_endorsing: tezos-sandbox tezos-client tezos-node
 	  --with-timestamp \
 	  --base-port 11_000 \
 	  --tezos-client-binary ./tezos-client \
-	  --tezos-node-binary ./tezos-node
-
-.PHONY: voting_demo_noops
-voting_demo_noops: tezos-sandbox tezos-client tezos-admin-client tezos-node
-	./tezos-sandbox voting \
-	  src/proto_demo_noops/lib_protocol/TEZOS_PROTOCOL \
-	  src/proto_demo_noops/lib_protocol/TEZOS_PROTOCOL \
-	  --root-path ${TMP}/flextesa-voting-demo-noops/ \
-	  --base-port 12_000 \
-	  --size 3 \
-	  --with-timestamp \
-	  --winning-client-is-clueless \
-	  --winner-client-binary ./tezos-client \
-	  --current-client-binary ./tezos-client \
-	  --current-admin-client-binary ./tezos-admin-client \
-	  --current-node-binary ./tezos-node \
-	  --timestamp-delay=-600
+	  --tezos-node-binary ./tezos-node \
+	  --protocol-hash ${CURRENT_PROTO_HASH} \
+	  --protocol-kind ${CURRENT_PROTO_NAME}
 
 .PHONY: user_activated_upgrade_next
 user_activated_upgrade_next: tezos-sandbox tezos-client tezos-node \
@@ -108,13 +93,13 @@ user_activated_upgrade_next: tezos-sandbox tezos-client tezos-node \
 	  --hard-fork-endorser ./tezos-endorser-${NEXT_PROTO} \
 	  --hard-fork-accuser ./tezos-accuser-${NEXT_PROTO}
 
-# The use --second-endorser ./tezos-baker-${ALPHA_PROTO} is a hack since there
-# is no endorser binary when Alpha is based on Tenderbake Since
-# user_activated_upgrade_* tests do not really use the endorsers but nonetheless
-# check the presence of the file, we can substitute it by another file that we
-# know to exist
-# The same hack is applied for the daemons_upgrade_alpha target
-# below
+# The use of --second-endorser ./tezos-baker-${ALPHA_PROTO} is a hack since
+# there is no endorser binary when Alpha is based on Tenderbake.
+#
+# Since user_activated_upgrade_* tests do not really use the endorsers but
+# nonetheless check the presence of the file, we can substitute it by another
+# file that we know to exist The same hack is applied for the
+# daemons_upgrade_alpha target below
 .PHONY: user_activated_upgrade_alpha
 user_activated_upgrade_alpha: tezos-sandbox tezos-client tezos-node \
 	tezos-baker-${NEXT_PROTO} tezos-endorser-${NEXT_PROTO} tezos-accuser-${NEXT_PROTO} \

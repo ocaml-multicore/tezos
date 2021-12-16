@@ -26,7 +26,7 @@
 (** Testing
     -------
     Component:    Shell
-    Invocation:   dune exec src/lib_shell/test/test_locator.exe test_locator
+    Invocation:   dune exec src/lib_shell/test/test_locator.exe
     Subject:      Checks operations on locators.
 *)
 
@@ -216,6 +216,7 @@ let rec repeat f n =
 
 (* ----------------------------------------------------- *)
 
+(*
 let print_block b =
   Printf.printf
     "%6i %s\n"
@@ -225,7 +226,7 @@ let print_block b =
 let print_block_h chain bh =
   Store.Block.read_block_opt chain bh >|= WithExceptions.Option.get ~loc:__LOC__
   >|= fun b -> print_block b
-
+*)
 (* returns the predecessor at distance one, reading the header *)
 let linear_predecessor chain_store (bh : Block_hash.t) :
     Block_hash.t option Lwt.t =
@@ -334,11 +335,11 @@ let compute_size_chain size_locator =
 (** Test if the linear and exponential locator are the same and outputs
     their timing.
     Run the test with:
-    $ dune build @runbench_locator
+    $ dune build @runtest_locator
     Copy the output to a file timing.dat and plot it with:
     $ generate_locator_plot.sh timing.dat
 *)
-let test_locator base_dir =
+let bench_locator base_dir =
   let size_chain = 80000 in
   (* timing locators with average over [runs] times *)
   let runs = 10 in
@@ -463,7 +464,7 @@ let test_protocol_locator base_dir =
        let (block_header, hash_list) =
          (locator :> Block_header.t * Block_hash.t list)
        in
-       Assert.is_true ~msg:"no block in locator" (List.length hash_list = 0) ;
+       Assert.is_true ~msg:"no block in locator" (hash_list = []) ;
        Store.Block.read_block chain_store genesis_hash >>=? fun b ->
        Assert.is_true
          ~msg:"single header is genesis"
@@ -555,11 +556,14 @@ let tests =
     wrap "test protocol locator" test_protocol_locator;
   ]
 
-let bench = [wrap "locator" test_locator]
+let bench = [wrap "bench locator" bench_locator]
 
 let tests =
-  try if Sys.argv.(1) = "--no-bench" then tests else tests @ bench
-  with _ -> tests @ bench
+  tests
+  @
+  if Array.length Sys.argv > 1 then
+    match Sys.argv.(1) with "--bench" -> bench | _ -> []
+  else []
 
 let () =
   Alcotest_lwt.run ~argv:[|""|] "tezos-shell" [("locator", tests)]

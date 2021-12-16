@@ -205,7 +205,8 @@ let unparse_comparable_ty ty =
   Micheline.strip_locations
     (fst
        (assert_ok
-          Script_ir_translator.(unparse_ty ctxt (ty_of_comparable_ty ty))))
+          Script_ir_translator.(
+            unparse_ty ~loc:() ctxt (ty_of_comparable_ty ty))))
 
 let unparse_comparable_data ty x =
   Micheline.strip_locations
@@ -355,7 +356,7 @@ let test_pack_unpack =
         (Some x)
         (unpack_comparable_data ty (pack_comparable_data ty x)))
 
-let tests =
+let () =
   Alcotest.run
     "Script_comparison"
     [

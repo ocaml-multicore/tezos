@@ -2,7 +2,8 @@
 ; the alternative dependency mechanism of dune to implement optional
 ; dependencies.
 
-(env (static (flags (:standard -ccopt -static))))
+(env
+ (static (flags (:standard -ccopt -static))))
 
 (executable
  (name main_proxy_server)

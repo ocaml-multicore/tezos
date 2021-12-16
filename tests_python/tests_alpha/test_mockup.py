@@ -632,7 +632,8 @@ def _test_create_mockup_init_show_roundtrip(
                     'denominator': 5,
                     'numerator': 1,
                 },
-                'round_durations': ['0', '1'],
+                'minimal_block_delay': '1',
+                'delay_increment_per_round': '1',
                 'max_slashing_period': 12,
                 "blocks_per_voting_period": 65,
                 "blocks_per_stake_snapshot": 5,
@@ -649,6 +650,9 @@ def _test_create_mockup_init_show_roundtrip(
                     'denominator': 2,
                 },
                 "double_baking_punishment": "640000001",
+                "tx_rollup_enable": False,
+                # TODO: https://gitlab.com/tezos/tezos/-/issues/2152
+                "tx_rollup_origination_size": 60_000,
             }
         ),
     ],

@@ -291,13 +291,15 @@ let failing_noop ctxt source arbitrary =
   Account.find source >>=? fun account -> return @@ sign account.sk ctxt op
 
 let originated_contract op =
-  let nonce = Contract.initial_origination_nonce (Operation.hash_packed op) in
-  Contract.originated_contract nonce
+  let nonce =
+    Origination_nonce.Internal_for_tests.initial (Operation.hash_packed op)
+  in
+  Contract.Internal_for_tests.originated_contract nonce
 
 exception Impossible
 
-let origination ?counter ?delegate ~script ?(preorigination = None) ?public_key
-    ?credit ?fee ?gas_limit ?storage_limit ctxt source =
+let contract_origination ?counter ?delegate ~script ?(preorigination = None)
+    ?public_key ?credit ?fee ?gas_limit ?storage_limit ctxt source =
   Context.Contract.manager ctxt source >>=? fun account ->
   let default_credit = Tez.of_mutez @@ Int64.of_int 1000001 in
   let default_credit =
@@ -448,26 +450,50 @@ let dummy_script =
         lazy_expr
           (strip_locations
              (Seq
-                ( 0,
+                ( (),
                   [
-                    Prim (0, K_parameter, [Prim (0, T_unit, [], [])], []);
-                    Prim (0, K_storage, [Prim (0, T_unit, [], [])], []);
+                    Prim ((), K_parameter, [Prim ((), T_unit, [], [])], []);
+                    Prim ((), K_storage, [Prim ((), T_unit, [], [])], []);
                     Prim
-                      ( 0,
+                      ( (),
                         K_code,
                         [
                           Seq
-                            ( 0,
+                            ( (),
                               [
-                                Prim (0, I_CDR, [], []);
+                                Prim ((), I_CDR, [], []);
                                 Prim
-                                  (0, I_NIL, [Prim (0, T_operation, [], [])], []);
-                                Prim (0, I_PAIR, [], []);
+                                  ( (),
+                                    I_NIL,
+                                    [Prim ((), T_operation, [], [])],
+                                    [] );
+                                Prim ((), I_PAIR, [], []);
                               ] );
                         ],
                         [] );
                   ] )));
-      storage = lazy_expr (strip_locations (Prim (0, D_Unit, [], [])));
+      storage = lazy_expr (strip_locations (Prim ((), D_Unit, [], [])));
     }
 
 let dummy_script_cost = Test_tez.of_mutez_exn 9_500L
+
+let originated_tx_rollup op =
+  let nonce =
+    Origination_nonce.Internal_for_tests.initial (Operation.hash_packed op)
+  in
+  (nonce, Tx_rollup.Internal_for_tests.originated_tx_rollup nonce)
+
+let tx_rollup_origination ?counter ?fee ?gas_limit ?storage_limit ctxt
+    (src : Contract.t) =
+  manager_operation
+    ?counter
+    ?fee
+    ?gas_limit
+    ?storage_limit
+    ~source:src
+    ctxt
+    Tx_rollup_origination
+  >>=? fun to_sign_op ->
+  Context.Contract.manager ctxt src >|=? fun account ->
+  let op = sign account.sk ctxt to_sign_op in
+  (op, originated_tx_rollup op |> snd)

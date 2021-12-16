@@ -54,6 +54,18 @@ let equal ~loc (cmp : 'a -> 'a -> bool) msg pp a b =
     failwith "@[@[[%s]@] - @[%s : %a is not equal to %a@]@]" loc msg pp a pp b
   else return_unit
 
+let leq ~loc (cmp : 'a -> 'a -> int) msg pp a b =
+  if cmp a b > 0 then
+    failwith
+      "@[@[[%s]@] - @[%s : %a is not less or equal to %a@]@]"
+      loc
+      msg
+      pp
+      a
+      pp
+      b
+  else return_unit
+
 let not_equal ~loc (cmp : 'a -> 'a -> bool) msg pp a b =
   if cmp a b then
     failwith "@[@[[%s]@] - @[%s : %a is equal to %a@]@]" loc msg pp a pp b
@@ -73,52 +85,34 @@ end
 
 (* int *)
 let equal_int ~loc (a : int) (b : int) =
-  equal ~loc ( = ) "Integers aren't equal" Format.pp_print_int a b
+  equal ~loc Int.equal "Integers aren't equal" Format.pp_print_int a b
+
+let not_equal_int ~loc (a : int) (b : int) =
+  not_equal ~loc Int.equal "Integers are equal" Format.pp_print_int a b
+
+let leq_int ~loc (a : int) (b : int) =
+  leq ~loc Compare.Int.compare "Integer comparison" Format.pp_print_int a b
 
 (* int32 *)
 let equal_int32 ~loc (a : int32) (b : int32) =
   equal ~loc Int32.equal "Int32 aren't equal" Int32.pp a b
 
-let not_equal_int ~loc (a : int) (b : int) =
-  not_equal ~loc ( = ) "Integers are equal" Format.pp_print_int a b
-
-let leq_int ~loc (a : int) (b : int) =
-  if a > b then
-    failwith
-      "@[@[[%s]@] - @[Integers aren't less than or equal : %a is greater than  \
-       %a@]@]"
-      loc
-      Format.pp_print_int
-      a
-      Format.pp_print_int
-      b
-  else return_unit
-
 (* int64 *)
 let equal_int64 ~loc (a : int64) (b : int64) =
-  equal
-    ~loc
-    ( = )
-    "Integers aren't equal"
-    Format.pp_print_string
-    (Int64.to_string a)
-    (Int64.to_string b)
+  equal ~loc Compare.Int64.( = ) "Int64 aren't equal" Int64.pp a b
 
 let not_equal_int64 ~loc (a : int64) (b : int64) =
-  not_equal
-    ~loc
-    ( = )
-    "Integers are equal"
-    Format.pp_print_string
-    (Int64.to_string a)
-    (Int64.to_string b)
+  not_equal ~loc Int64.equal "Int64 are equal" Int64.pp a b
+
+let leq_int64 ~loc (a : int64) (b : int64) =
+  leq ~loc Compare.Int64.compare "Int64 comparison" Int64.pp a b
 
 (* bool *)
 let equal_bool ~loc (a : bool) (b : bool) =
-  equal ~loc ( = ) "Booleans aren't equal" Format.pp_print_bool a b
+  equal ~loc Bool.equal "Booleans aren't equal" Format.pp_print_bool a b
 
 let not_equal_bool ~loc (a : bool) (b : bool) =
-  not_equal ~loc ( = ) "Booleans are equal" Format.pp_print_bool a b
+  not_equal ~loc Bool.equal "Booleans are equal" Format.pp_print_bool a b
 
 (* tez *)
 let equal_tez ~loc (a : Alpha_context.Tez.t) (b : Alpha_context.Tez.t) =
@@ -133,12 +127,20 @@ let not_equal_tez ~loc (a : Alpha_context.Tez.t) (b : Alpha_context.Tez.t) =
 let equal_pkh ~loc (a : Signature.Public_key_hash.t)
     (b : Signature.Public_key_hash.t) =
   let module PKH = Signature.Public_key_hash in
-  equal ~loc PKH.equal "Public key hashes  aren't equal" PKH.pp a b
+  equal ~loc PKH.equal "Public key hashes aren't equal" PKH.pp a b
 
 let not_equal_pkh ~loc (a : Signature.Public_key_hash.t)
     (b : Signature.Public_key_hash.t) =
   let module PKH = Signature.Public_key_hash in
   not_equal ~loc PKH.equal "Public key hashes are equal" PKH.pp a b
+
+let get_some ~loc = function
+  | Some x -> return x
+  | None -> failwith "Unexpected None (%s)" loc
+
+let is_none ~loc ~pp = function
+  | Some x -> failwith "Unexpected (Some %a) (%s)" pp x loc
+  | None -> return_unit
 
 open Context
 

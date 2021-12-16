@@ -1,4 +1,4 @@
-.. TODO nomadic-labs/tezos#462: search shifted protocol name/number & adapt
+.. TODO tezos/tezos#2170: search shifted protocol name/number & adapt
 
 .. _howtouse:
 
@@ -28,8 +28,8 @@ After a successful compilation, you should have the following binaries:
 - ``tezos-snoop``: a tool for modeling the performance of any piece of OCaml code, based on benchmarking (see :doc:`../developer/snoop`)
 
 The daemons other than the node are suffixed with the name of the protocol they are
-bound to. For instance, ``tezos-baker-010-PtGRANAD`` is the baker
-for the Granada protocol, and ``tezos-baker-alpha`` is the baker
+bound to. For instance, ``tezos-baker-011-PtHangz2`` is the baker
+for the Hangzhou protocol, and ``tezos-baker-alpha`` is the baker
 of the development protocol.
 The ``tezos-node`` daemon is not suffixed by any protocol name, because it is independent of the economic protocol. See also the `Node Protocol`_ section below.
 
@@ -52,14 +52,23 @@ To see the usage of one specific command, you may also type the command without 
 
    tezos-client transfer
 
-However, beware that the commands available on the client depend on the specific
-protocol run by the node. For instance, ``transfer`` is not available when
-the node runs the genesis protocol, which may happen for a few minutes when
-launching a node for the first time, or when the client is not connected to a
-node. In the last case, the above command generates a warning::
+.. warning::
 
-    Warning:
-      Failed to acquire the protocol version from the node
+    Beware that the commands available on the client depend on the specific
+    protocol run by the node. For instance, ``transfer`` is not available when
+    the node runs the genesis protocol, which may happen for a few minutes when
+    launching a node for the first time, **or when the client is not connected
+    to a node**. In the last case, the above command generates a warning
+    followed by an error::
+
+        Warning:
+          Failed to acquire the protocol version from the node
+          [...]
+        Error:
+          Unrecognized command.
+          Try using the man command to get more information.
+        Usage:
+          [...]
 
 .. _tezos_client_protocol:
 
@@ -262,11 +271,11 @@ command::
 
     tezos-client activate account alice with "tz1__xxxxxxxxx__.json"
 
-If you run Tezos using docker images (via the ``tezos-docker-manager.sh`` script, renamed as ``granadanet.sh``
-to run the Granadanet test network for instance), you should prefix the file
-with ``container:`` in order to copy it into the docker image::
+If you run Tezos using Docker images (via the ``tezos-docker-manager.sh`` script, renamed as ``hangzhounet.sh``
+to run the Hangzhounet test network for instance), you should prefix the file
+with ``container:`` in order to copy it into the Docker image::
 
-    ./granadanet.sh client activate account alice with "container:tz1__xxxxxxxxx__.json"
+    ./hangzhounet.sh client activate account alice with "container:tz1__xxxxxxxxx__.json"
 
 Let's check the balance of the new account with::
 

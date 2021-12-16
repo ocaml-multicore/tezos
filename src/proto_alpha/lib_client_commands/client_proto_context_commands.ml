@@ -1649,16 +1649,18 @@ let commands_rw () =
                the user is the first proposer and just injected it with
                tezos-admin-client *)
             let check_proposals proposals : bool tzresult Lwt.t =
-              let n = List.length proposals in
               let errors = ref [] in
               let error ppf =
                 Format.kasprintf (fun s -> errors := s :: !errors) ppf
               in
-              if n = 0 then error "Empty proposal list." ;
-              if n > Constants.max_proposals_per_delegate then
+              if proposals = [] then error "Empty proposal list." ;
+              if
+                Compare.List_length_with.(
+                  proposals > Constants.max_proposals_per_delegate)
+              then
                 error
                   "Too many proposals: %d > %d."
-                  n
+                  (List.length proposals)
                   Constants.max_proposals_per_delegate ;
               (match
                  Base.List.find_all_dups
@@ -1669,7 +1671,8 @@ let commands_rw () =
               | dups ->
                   error
                     "There %s: %a."
-                    (if List.length dups = 1 then "is a duplicate proposal"
+                    (if Compare.List_length_with.(dups = 1) then
+                     "is a duplicate proposal"
                     else "are duplicate proposals")
                     Format.(
                       pp_print_list
@@ -1704,7 +1707,7 @@ let commands_rw () =
               if !errors <> [] then
                 cctxt#message
                   "There %s with the submission:%t"
-                  (if List.length !errors = 1 then "is an issue"
+                  (if Compare.List_length_with.(!errors = 1) then "is an issue"
                   else "are issues")
                   Format.(
                     fun ppf ->
@@ -1949,6 +1952,74 @@ let commands_rw () =
               ~manager_sk
               None
             >>=? fun _ -> return_unit);
+    command
+      ~group
+      ~desc:"Launch a new optimistic transaction rollup."
+      (args12
+         fee_arg
+         dry_run_switch
+         verbose_signing_switch
+         simulate_switch
+         minimal_fees_arg
+         minimal_nanotez_per_byte_arg
+         minimal_nanotez_per_gas_unit_arg
+         storage_limit_arg
+         counter_arg
+         force_low_fee_arg
+         fee_cap_arg
+         burn_cap_arg)
+      (prefixes ["originate"; "tx"; "rollup"]
+      @@ prefix "from"
+      @@ ContractAlias.destination_param
+           ~name:"src"
+           ~desc:"name of the account originating the transaction rollup"
+      @@ stop)
+      (fun ( fee,
+             dry_run,
+             verbose_signing,
+             simulation,
+             minimal_fees,
+             minimal_nanotez_per_byte,
+             minimal_nanotez_per_gas_unit,
+             storage_limit,
+             counter,
+             force_low_fee,
+             fee_cap,
+             burn_cap )
+           (_, source)
+           cctxt ->
+        match Contract.is_implicit source with
+        | None ->
+            failwith "Only implicit accounts can originate transaction rollups"
+        | Some source ->
+            Client_keys.get_key cctxt source >>=? fun (_, src_pk, src_sk) ->
+            let fee_parameter =
+              {
+                Injection.minimal_fees;
+                minimal_nanotez_per_byte;
+                minimal_nanotez_per_gas_unit;
+                force_low_fee;
+                fee_cap;
+                burn_cap;
+              }
+            in
+            originate_tx_rollup
+              cctxt
+              ~chain:cctxt#chain
+              ~block:cctxt#block
+              ?dry_run:(Some dry_run)
+              ?verbose_signing:(Some verbose_signing)
+              ?fee
+              ?storage_limit
+              ?counter
+              ?confirmations:cctxt#confirmations
+              ~simulation
+              ~source
+              ~src_pk
+              ~src_sk
+              ~fee_parameter
+              ()
+            >>=? fun _res -> return_unit);
   ]
 
 let commands network () =
