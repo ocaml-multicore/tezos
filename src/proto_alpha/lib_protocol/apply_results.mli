@@ -164,6 +164,18 @@ and _ successful_manager_operation_result =
       originated_tx_rollup : Tx_rollup.t;
     }
       -> Kind.tx_rollup_origination successful_manager_operation_result
+  | Sc_rollup_originate_result : {
+      balance_updates : Receipt.balance_updates;
+      address : Sc_rollup.Address.t;
+      consumed_gas : Gas.Arith.fp;
+      size : Z.t;
+    }
+      -> Kind.sc_rollup_originate successful_manager_operation_result
+  | Sc_rollup_add_messages_result : {
+      consumed_gas : Gas.Arith.fp;
+      inbox_after : Sc_rollup.Inbox.t;
+    }
+      -> Kind.sc_rollup_add_messages successful_manager_operation_result
 
 and packed_successful_manager_operation_result =
   | Successful_manager_result :

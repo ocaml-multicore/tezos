@@ -1,3 +1,6 @@
+; This file was automatically generated, do not edit.
+; Edit file manifest/main.ml instead.
+
 (library
  (name tezos_store)
  (public_name tezos-store)
@@ -15,7 +18,8 @@
   ringo-lwt
   camlzip
   tar
-  tar-unix)
+  tar-unix
+  prometheus)
  (flags
   (:standard
    -open Tezos_shell_services

@@ -193,7 +193,7 @@ val parse_arg_transfer : string option -> Script.lazy_expr tzresult Lwt.t
 val build_transaction_operation :
   amount:Tez.t ->
   parameters:Script.lazy_expr ->
-  ?entrypoint:string ->
+  ?entrypoint:Entrypoint.t ->
   ?fee:Tez.t ->
   ?gas_limit:Gas.Arith.integral ->
   ?storage_limit:Z.t ->
@@ -208,12 +208,13 @@ val transfer :
   ?dry_run:bool ->
   ?verbose_signing:bool ->
   ?simulation:bool ->
+  ?force:bool ->
   ?branch:int ->
   source:public_key_hash ->
   src_pk:public_key ->
   src_sk:Client_keys.sk_uri ->
   destination:Contract.t ->
-  ?entrypoint:string ->
+  ?entrypoint:Entrypoint.t ->
   ?arg:string ->
   amount:Tez.t ->
   ?fee:Tez.t ->
@@ -221,6 +222,7 @@ val transfer :
   ?storage_limit:Z.t ->
   ?counter:Z.t ->
   fee_parameter:Injection.fee_parameter ->
+  ?replace_by_fees:bool ->
   unit ->
   (Kind.transaction Kind.manager Injection.result * Contract.t list) tzresult
   Lwt.t
@@ -266,7 +268,7 @@ type batch_transfer_operation = {
   storage_limit : Z.t option;
   amount : string;
   arg : string option;
-  entrypoint : string option;
+  entrypoint : Entrypoint.t option;
 }
 
 val batch_transfer_operation_encoding : batch_transfer_operation Data_encoding.t
@@ -405,5 +407,56 @@ val originate_tx_rollup :
   (Operation_hash.t
   * Kind.tx_rollup_origination Kind.manager contents
   * Kind.tx_rollup_origination Kind.manager Apply_results.contents_result)
+  tzresult
+  Lwt.t
+
+val sc_rollup_originate :
+  #Protocol_client_context.full ->
+  chain:Chain_services.chain ->
+  block:Block_services.block ->
+  ?confirmations:int ->
+  ?dry_run:bool ->
+  ?verbose_signing:bool ->
+  ?simulation:bool ->
+  ?fee:Tez.t ->
+  ?gas_limit:Gas.Arith.integral ->
+  ?storage_limit:counter ->
+  ?counter:counter ->
+  source:public_key_hash ->
+  kind:Sc_rollup.Kind.t ->
+  boot_sector:Sc_rollup.PVM.boot_sector ->
+  src_pk:public_key ->
+  src_sk:Client_keys.sk_uri ->
+  fee_parameter:Injection.fee_parameter ->
+  unit ->
+  ( Operation_hash.t
+    * Kind.sc_rollup_originate Kind.manager contents
+    * Kind.sc_rollup_originate Kind.manager Apply_results.contents_result,
+    tztrace )
+  result
+  Lwt.t
+
+val sc_rollup_add_messages :
+  #Protocol_client_context.full ->
+  chain:Chain_services.chain ->
+  block:Block_services.block ->
+  ?confirmations:int ->
+  ?dry_run:bool ->
+  ?verbose_signing:bool ->
+  ?simulation:bool ->
+  ?fee:Tez.t ->
+  ?gas_limit:Gas.Arith.integral ->
+  ?storage_limit:counter ->
+  ?counter:counter ->
+  source:public_key_hash ->
+  rollup:Alpha_context.Sc_rollup.t ->
+  messages:string list ->
+  src_pk:public_key ->
+  src_sk:Client_keys.sk_uri ->
+  fee_parameter:Injection.fee_parameter ->
+  unit ->
+  (Operation_hash.t
+  * Kind.sc_rollup_add_messages Kind.manager contents
+  * Kind.sc_rollup_add_messages Kind.manager Apply_results.contents_result)
   tzresult
   Lwt.t

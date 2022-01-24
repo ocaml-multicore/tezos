@@ -30,7 +30,7 @@ open Script
 
 type kind = Int_kind | String_kind | Bytes_kind | Prim_kind | Seq_kind
 
-type unparsed_stack_ty = (Script.expr * Script.annot) list
+type unparsed_stack_ty = Script.expr list
 
 type type_map = (Script.location * (unparsed_stack_ty * unparsed_stack_ty)) list
 
@@ -62,13 +62,11 @@ type error += Unexpected_operation of Script.location
 
 type error += Unexpected_contract of Script.location
 
-type error += No_such_entrypoint of string
+type error += No_such_entrypoint of Entrypoint.t
 
-type error += Duplicate_entrypoint of string
+type error += Duplicate_entrypoint of Entrypoint.t
 
 type error += Unreachable_entrypoint of prim list
-
-type error += Entrypoint_name_too_long of string
 
 (* Instruction typing errors *)
 type error += Fail_not_in_tail_position of Script.location
@@ -105,7 +103,10 @@ type error +=
 
 type error += Duplicated_view_name of Script.location
 
-type error += Self_in_lambda of Script.location
+type context_desc = Lambda | View
+
+type error +=
+  | Forbidden_instr_in_context of Script.location * context_desc * prim
 
 type error += Bad_stack_length
 
@@ -197,5 +198,15 @@ type error += Unexpected_forged_value of Script.location
 
 type error += Non_dupable_type of Script.location * Script.expr
 
-(* Impossible errors *)
-type error += Unparsing_invariant_violated
+(* Merge type errors *)
+
+type inconsistent_types_fast_error =
+  | Inconsistent_types_fast
+      (** This value is only used when the details of the error don't matter because
+the error will be ignored later. For example, when types are compared during
+the interpretation of the [CONTRACT] instruction any error will lead to
+returning [None] but the content of the error will be ignored. *)
+
+type _ error_details =
+  | Informative : error trace error_details
+  | Fast : inconsistent_types_fast_error error_details

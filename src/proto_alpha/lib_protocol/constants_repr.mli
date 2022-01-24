@@ -64,18 +64,6 @@ val max_micheline_bytes_limit : int
     in [Script_ir_translator]. *)
 val max_allowed_global_constant_depth : int
 
-(* an over-approximation of the size (in bytes) of an entry in the cache
-   storing the stake distribution for a given cycle *)
-val stake_distribution_size : int
-
-(* an over-approximation of the size (in bytes) of an entry in the
-   cache storing the sampler state for a given cycle *)
-val sampler_state_size : int
-
-(** Each protocol defines the number of subcaches and their respective
-    limit size using [cache_layout]. *)
-val cache_layout : int list
-
 val michelson_maximum_type_size : int
 
 type fixed
@@ -87,12 +75,6 @@ type ratio = {numerator : int; denominator : int}
 val ratio_encoding : ratio Data_encoding.t
 
 val pp_ratio : Format.formatter -> ratio -> unit
-
-type delegate_selection =
-  | Random
-  | Round_robin_over of Signature.Public_key.t list list
-
-val delegate_selection_encoding : delegate_selection Data_encoding.encoding
 
 type parametric = {
   preserved_cycles : int;
@@ -132,9 +114,17 @@ type parametric = {
   (* that is, (100 * delegated tz / own tz) *)
   double_baking_punishment : Tez_repr.t;
   ratio_of_frozen_deposits_slashed_per_double_endorsement : ratio;
-  delegate_selection : delegate_selection;
+  initial_seed : State_hash.t option;
+  cache_script_size : int;
+  (* in bytes *)
+  cache_stake_distribution_cycles : int;
+  (* in cycles *)
+  cache_sampler_state_cycles : int;
+  (* in cycles *)
   tx_rollup_enable : bool;
   tx_rollup_origination_size : int;
+  sc_rollup_enable : bool;
+  sc_rollup_origination_size : int;
 }
 
 val parametric_encoding : parametric Data_encoding.encoding
@@ -164,36 +154,58 @@ module Generated : sig
 end
 
 module Proto_previous : sig
+  type delegate_selection =
+    | Random
+    | Round_robin_over of Signature.Public_key.t list list
+
   type parametric = {
     preserved_cycles : int;
     blocks_per_cycle : int32;
     blocks_per_commitment : int32;
-    blocks_per_roll_snapshot : int32;
+    blocks_per_stake_snapshot : int32;
     blocks_per_voting_period : int32;
-    time_between_blocks : Period_repr.t list;
-    minimal_block_delay : Period_repr.t;
-    endorsers_per_block : int;
     hard_gas_limit_per_operation : Gas_limit_repr.Arith.integral;
     hard_gas_limit_per_block : Gas_limit_repr.Arith.integral;
     proof_of_work_threshold : int64;
     tokens_per_roll : Tez_repr.t;
     seed_nonce_revelation_tip : Tez_repr.t;
     origination_size : int;
-    block_security_deposit : Tez_repr.t;
-    endorsement_security_deposit : Tez_repr.t;
-    baking_reward_per_endorsement : Tez_repr.t list;
-    endorsement_reward : Tez_repr.t list;
+    baking_reward_fixed_portion : Tez_repr.t;
+    baking_reward_bonus_per_slot : Tez_repr.t;
+    endorsing_reward_per_slot : Tez_repr.t;
     cost_per_byte : Tez_repr.t;
     hard_storage_limit_per_operation : Z.t;
     quorum_min : int32;
     quorum_max : int32;
     min_proposal_quorum : int32;
-    initial_endorsers : int;
-    delay_per_missing_endorsement : Period_repr.t;
     liquidity_baking_subsidy : Tez_repr.t;
     liquidity_baking_sunset_level : int32;
     liquidity_baking_escape_ema_threshold : int32;
+    max_operations_time_to_live : int;
+    minimal_block_delay : Period_repr.t;
+    delay_increment_per_round : Period_repr.t;
+    minimal_participation_ratio : ratio;
+    consensus_committee_size : int;
+    consensus_threshold : int;
+    max_slashing_period : int;
+    frozen_deposits_percentage : int;
+    double_baking_punishment : Tez_repr.t;
+    ratio_of_frozen_deposits_slashed_per_double_endorsement : ratio;
+    delegate_selection : delegate_selection;
   }
 
   val parametric_encoding : parametric Data_encoding.encoding
 end
+
+(** For each subcache, a size limit needs to be declared once. However,
+    depending how the protocol will be instantiated (sandboxed mode,
+    test network, ...) we may want to change this limit. For each
+    subcache, a parametric constant can be used to change the limit
+    (see {parametric}).
+
+    The number of subcaches and the limits for all those subcaches form 
+    together what is called the [cache_layout]. *)
+val cache_layout_size : int
+
+(** The [cache_layout] depends on parametric constants. *)
+val cache_layout : parametric -> int list

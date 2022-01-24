@@ -25,6 +25,13 @@
 
 type history_mode = Archive | Full of int option | Rolling of int option
 
+type media_type = Json | Binary | Any
+
+let string_of_media_type = function
+  | Any -> "any"
+  | Binary -> "binary"
+  | Json -> "json"
+
 type argument =
   | Network of string
   | History_mode of history_mode
@@ -69,6 +76,7 @@ module Parameters = struct
     advertised_net_port : int option;
     rpc_host : string;
     rpc_port : int;
+    media_type : media_type;
     default_expected_pow : int;
     mutable arguments : argument list;
     mutable pending_ready : unit option Lwt.u list;
@@ -118,17 +126,6 @@ let rpc_port node = node.persistent_state.rpc_port
 let data_dir node = node.persistent_state.data_dir
 
 let runner node = node.persistent_state.runner
-
-let next_port = ref Cli.options.starting_port
-
-let fresh_port () =
-  let port = !next_port in
-  incr next_port ;
-  port
-
-let () =
-  Test.declare_reset_function @@ fun () ->
-  next_port := Cli.options.starting_port
 
 let spawn_command node =
   Process.spawn
@@ -387,13 +384,14 @@ let wait_for_request ~request node =
   let event_name =
     match request with
     | `Flush | `Inject -> "request_completed_notice.v0"
-    | `Notify -> "request_completed_debug.v0"
+    | `Notify | `Arrived -> "request_completed_debug.v0"
   in
   let request_str =
     match request with
     | `Flush -> "flush"
     | `Inject -> "inject"
     | `Notify -> "notify"
+    | `Arrived -> "arrived"
   in
   let filter json =
     match JSON.(json |-> "view" |-> "request" |> as_string_opt) with
@@ -404,16 +402,16 @@ let wait_for_request ~request node =
 
 let create ?runner ?(path = Constant.tezos_node) ?name ?color ?data_dir
     ?event_pipe ?net_port ?advertised_net_port ?(rpc_host = "localhost")
-    ?rpc_port arguments =
+    ?rpc_port ?(media_type = Any) arguments =
   let name = match name with None -> fresh_name () | Some name -> name in
   let data_dir =
     match data_dir with None -> Temp.dir ?runner name | Some dir -> dir
   in
   let net_port =
-    match net_port with None -> fresh_port () | Some port -> port
+    match net_port with None -> Port.fresh () | Some port -> port
   in
   let rpc_port =
-    match rpc_port with None -> fresh_port () | Some port -> port
+    match rpc_port with None -> Port.fresh () | Some port -> port
   in
   let arguments =
     (* Give a default value of 0 to --expected-pow. *)
@@ -438,6 +436,7 @@ let create ?runner ?(path = Constant.tezos_node) ?name ?color ?data_dir
         advertised_net_port;
         rpc_host;
         rpc_port;
+        media_type;
         arguments;
         default_expected_pow;
         runner;
@@ -510,7 +509,11 @@ let runlike_command_arguments node command arguments =
   (net_addr ^ string_of_int node.persistent_state.net_port)
   ::
   "--rpc-addr"
-  :: (rpc_addr ^ string_of_int node.persistent_state.rpc_port) :: command_args
+  ::
+  (rpc_addr ^ string_of_int node.persistent_state.rpc_port)
+  ::
+  "--media-type"
+  :: string_of_media_type node.persistent_state.media_type :: command_args
 
 let do_runlike_command ?(on_terminate = fun _ -> ()) ?event_level
     ?event_sections_levels node arguments =
@@ -561,7 +564,7 @@ let replay ?on_terminate ?event_level ?event_sections_levels
 
 let init ?runner ?path ?name ?color ?data_dir ?event_pipe ?net_port
     ?advertised_net_port ?rpc_host ?rpc_port ?event_level ?event_sections_levels
-    arguments =
+    ?media_type arguments =
   let node =
     create
       ?runner
@@ -574,6 +577,7 @@ let init ?runner ?path ?name ?color ?data_dir ?event_pipe ?net_port
       ?advertised_net_port
       ?rpc_host
       ?rpc_port
+      ?media_type
       arguments
   in
   let* () = identity_generate node in
@@ -581,11 +585,6 @@ let init ?runner ?path ?name ?color ?data_dir ?event_pipe ?net_port
   let* () = run ?event_level ?event_sections_levels node [] in
   let* () = wait_for_ready node in
   return node
-
-let restart node arguments =
-  let* () = terminate node in
-  let* () = run node arguments in
-  wait_for_ready node
 
 let send_raw_data node ~data =
   (* Extracted from Lwt_utils_unix. *)

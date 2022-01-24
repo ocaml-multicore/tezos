@@ -75,15 +75,6 @@ module Admin : sig
   (** [pp fmt ctxt] is a pretty printter for the [cache] of [ctxt]. *)
   val pp : Format.formatter -> Raw_context.t -> unit
 
-  (** [set_cache_layout ctxt layout] sets the caches of [ctxt] to
-     comply with given [layout]. If there was already a cache in
-     [ctxt], it is erased by the new layout.
-
-     In that case, a fresh collection of empty caches is reconstructed
-     from the new [layout]. Notice that cache [key]s are invalidated
-     in that case, i.e. [find t k] will return [None]. *)
-  val set_cache_layout : Raw_context.t -> size list -> Raw_context.t Lwt.t
-
   (** [sync ctxt ~cache_nonce] updates the context with the domain of
      the cache computed so far. Such function is expected to be called
      at the end of the validation of a block, when there is no more
@@ -97,9 +88,6 @@ module Admin : sig
      block. Such nonce cannot be determined by the shell and its
      computation is delegated to the economic protocol. *)
   val sync : Raw_context.t -> cache_nonce:Bytes.t -> Raw_context.t Lwt.t
-
-  (** [clear ctxt] removes all cache entries. *)
-  val clear : Raw_context.t -> Raw_context.t
 
   (** {3 Cache helpers for RPCs} *)
 
@@ -215,12 +203,12 @@ module type INTERFACE = sig
        no associated value in the subcache. *)
   val identifier_rank : Raw_context.t -> string -> int option
 
-  (** [size ctxt] returns an overapproximation of the subcache size
-        (in bytes). *)
+  (** [size ctxt] returns an overapproximation of the subcache size.
+      Note that the size unit is subcache specific. *)
   val size : Raw_context.t -> int
 
-  (** [size_limit ctxt] returns the maximal size of the subcache
-        (in bytes). *)
+  (** [size_limit ctxt] returns the maximal size of the subcache.
+      Note that the size unit is subcache specific. *)
   val size_limit : Raw_context.t -> int
 end
 

@@ -26,7 +26,7 @@
 module L = (val Tezos_proxy.Logger.logger ~protocol_name:Protocol.name
               : Tezos_proxy.Logger.S)
 
-let proxy_block_header (rpc_context : RPC_context.json)
+let proxy_block_header (rpc_context : RPC_context.generic)
     (chain : Tezos_shell_services.Block_services.chain)
     (block : Tezos_shell_services.Block_services.block) =
   let rpc_context = new Protocol_client_context.wrap_rpc_context rpc_context in
@@ -111,8 +111,8 @@ end
 let initial_context
     (proxy_builder :
       Tezos_proxy.Proxy_proto.proto_rpc ->
-      Tezos_proxy.Proxy_getter.proxy_m Lwt.t) (rpc_context : RPC_context.json)
-    (mode : Tezos_proxy.Proxy.mode)
+      Tezos_proxy.Proxy_getter.proxy_m Lwt.t)
+    (rpc_context : RPC_context.generic) (mode : Tezos_proxy.Proxy.mode)
     (chain : Tezos_shell_services.Block_services.chain)
     (block : Tezos_shell_services.Block_services.block) :
     Environment_context.Context.t Lwt.t =
@@ -134,14 +134,36 @@ let initial_context
     let proxy_mem = M.proxy_mem pgi
   end in
   let empty = Proxy_context.empty @@ Some (module N) in
-  let version_value = "alpha_current" in
   Tezos_protocol_environment.Context.add
     empty
     ["version"]
-    (Bytes.of_string version_value)
-  >>= fun ctxt -> Protocol.Main.init_cache ctxt
+    (Bytes.of_string "alpha_current")
+  >>= fun ctxt ->
+  (* There is something fundamentally strange here. The purpose of the
+     proxy mode is to fetch pieces of data that are missing. Hence,
+     there is no need to initialize the context properly. It is
+     sufficient that the proxy client is connected to a node with a
+     valid context. However, this makes the assumption that any
+     interaction with the context is pure: Only the Irmin context can
+     be modified. The cache breaks this since initializing the cache
+     changes the Irmin context but also loads values into memory. If
+     the cache is not initialized, then any cache access will fail.
+     Hence, the initialization is done here. This means that the
+     caller needs to maintain a cache on its own. But I suspect this
+     is not wanted: The cache of the proxied node should be used
+     instead. *)
+  let cache_layout =
+    (* The order matters, be careful to maintain it correctly. *)
+    Default_parameters.
+      [
+        constants_mainnet.cache_script_size;
+        constants_mainnet.cache_stake_distribution_cycles;
+        constants_mainnet.cache_sampler_state_cycles;
+      ]
+  in
+  Tezos_protocol_environment.Context.Cache.set_cache_layout ctxt cache_layout
 
-let round_durations (rpc_context : RPC_context.json)
+let round_durations (rpc_context : RPC_context.generic)
     (chain : Tezos_shell_services.Block_services.chain)
     (block : Tezos_shell_services.Block_services.block) =
   let open Protocol in
@@ -154,8 +176,8 @@ let round_durations (rpc_context : RPC_context.json)
 let init_env_rpc_context (_printer : Tezos_client_base.Client_context.printer)
     (proxy_builder :
       Tezos_proxy.Proxy_proto.proto_rpc ->
-      Tezos_proxy.Proxy_getter.proxy_m Lwt.t) (rpc_context : RPC_context.json)
-    (mode : Tezos_proxy.Proxy.mode)
+      Tezos_proxy.Proxy_getter.proxy_m Lwt.t)
+    (rpc_context : RPC_context.generic) (mode : Tezos_proxy.Proxy.mode)
     (chain : Tezos_shell_services.Block_services.chain)
     (block : Tezos_shell_services.Block_services.block) :
     Tezos_protocol_environment.rpc_context tzresult Lwt.t =

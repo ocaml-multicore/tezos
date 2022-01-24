@@ -56,6 +56,9 @@
    parameters). *)
 type history_mode = Archive | Full of int option | Rolling of int option
 
+(** Values that can be passed to the node's [--media-type] argument *)
+type media_type = Json | Binary | Any
+
 (** Tezos node command-line arguments.
 
     Not all arguments are available here.
@@ -119,6 +122,7 @@ val create :
   ?advertised_net_port:int ->
   ?rpc_host:string ->
   ?rpc_port:int ->
+  ?media_type:media_type ->
   argument list ->
   t
 
@@ -191,20 +195,12 @@ val runner : t -> Runner.t option
     If no [msg] is given, the stderr is ignored.*)
 val check_error : ?exit_code:int -> ?msg:Base.rex -> t -> unit Lwt.t
 
-(** Get a fresh, unused port.
-
-    Warning: this function does not guarantee that the given port is
-    not already in use by another process. It only guarantees that
-    it is not already in use by another node, and only if you let
-    the [Node] module choose all ports for you. *)
-val fresh_port : unit -> int
-
 (** Wait until a node terminates and return its status. If the node is not
    running, make the test fail. *)
 val wait : t -> Unix.process_status Lwt.t
 
-(** Send SIGTERM to a node and wait for it to terminate. *)
-val terminate : t -> unit Lwt.t
+(** Send SIGTERM (or SIGKILL) to a node and wait for it to terminate. *)
+val terminate : ?kill:bool -> t -> unit Lwt.t
 
 (** {2 Commands} *)
 
@@ -347,7 +343,8 @@ val wait_for_identity : t -> string Lwt.t
 
 (** [wait_for_request ?level ~request node] waits for [request] event
    on the [node]. *)
-val wait_for_request : request:[< `Flush | `Inject | `Notify] -> t -> unit Lwt.t
+val wait_for_request :
+  request:[< `Flush | `Inject | `Notify | `Arrived] -> t -> unit Lwt.t
 
 (** Wait for a custom event to occur.
 
@@ -407,6 +404,23 @@ val on_event : t -> (event -> unit) -> unit
     Usually you do not want to keep that in the final versions of your tests. *)
 val log_events : t -> unit
 
+(** Values returned by {!memory_consumption}. *)
+type observe_memory_consumption = Observe of (unit -> int option Lwt.t)
+
+(** Observe memory consumption of the node.
+
+    This function requires [perf] and [heaptrack] in the PATH.
+    Otherwise, the observation will always return [None].
+
+    The returned function gives the peak of memory consumption
+    observed since the observation has started.
+
+    [memory_consumption node] starts the observation and returns
+    [Some (Observe get)]. [get ()] stops the observation and
+    returns the observation memory consumption.
+*)
+val memory_consumption : t -> observe_memory_consumption Lwt.t
+
 (** {2 High-Level Functions} *)
 
 (** Initialize a node.
@@ -431,18 +445,9 @@ val init :
   ?rpc_port:int ->
   ?event_level:Daemon.Level.default_level ->
   ?event_sections_levels:(string * Daemon.Level.level) list ->
+  ?media_type:media_type ->
   argument list ->
   t Lwt.t
-
-(** Restart a node.
-
-    This {!terminate}s a node, then {!run}s it again and waits for it to be ready.
-
-    If you passed arguments such as [Expected_pow] or [Singleprocess]
-    to {!run} they are not automatically passed again.
-    You can pass them to [restart], or you can pass other values if you want
-    to restart with other parameters. *)
-val restart : t -> argument list -> unit Lwt.t
 
 (** [send_raw_data node ~data] writes [~data] using an IP socket on the net
     port of [node]. *)

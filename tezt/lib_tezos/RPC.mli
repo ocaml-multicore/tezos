@@ -952,14 +952,43 @@ module Votes : sig
     JSON.t Lwt.t
 end
 
+module Script_cache : sig
+  (** Call RPC /chain/[chain]/blocks/[block]/context/cache/contracts/all *)
+  val get_cached_contracts :
+    ?endpoint:Client.endpoint ->
+    ?hooks:Process.hooks ->
+    ?chain:string ->
+    ?block:string ->
+    Client.t ->
+    JSON.t Lwt.t
+end
+
 module Tx_rollup : sig
-  (** Call RPC /chain/[chain]/blocks/[block]/context/[rollup_hash]/state *)
+  (** Call RPC /chain/[chain]/blocks/[block]/context/tx_rollup/[tx_rollup_id]/state *)
   val get_state :
     ?endpoint:Client.endpoint ->
     ?hooks:Process.hooks ->
     ?chain:string ->
     ?block:string ->
-    tx_rollup_hash:string ->
+    tx_rollup:string ->
     Client.t ->
     JSON.t Lwt.t
+end
+
+module Sc_rollup : sig
+  (** Call RPC /chain/[chain]/blocks/[block]/context/sc_rollup/[rollup_hash]/state *)
+  val get_inbox :
+    ?endpoint:Client.endpoint ->
+    ?hooks:Process.hooks ->
+    ?chain:string ->
+    ?block:string ->
+    sc_rollup_address:string ->
+    Client.t ->
+    JSON.t Lwt.t
+end
+
+module Curl : sig
+  (** [get ()] returns [Some curl] where [curl ~url] returns the raw response obtained
+      by curl when requesting [url]. Returns [None] if [curl] cannot be found. *)
+  val get : unit -> (url:string -> string Lwt.t) option Lwt.t
 end

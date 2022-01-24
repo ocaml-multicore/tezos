@@ -1610,7 +1610,7 @@ module Ticket_balance = struct
   end
 
   module Sub_context = Make_subcontext (Registered) (Raw_context) (Name)
-  module Index = Make_index (Script_expr_hash)
+  module Index = Make_index (Ticket_hash_repr.Index)
   module Table =
     Make_indexed_carbonated_data_storage (Sub_context) (Index) (Encoding.Z)
 end
@@ -1639,5 +1639,62 @@ module Tx_rollup = struct
         type t = Tx_rollup_repr.state
 
         let encoding = Tx_rollup_repr.state_encoding
+      end)
+end
+
+module Sc_rollup = struct
+  module Raw_context =
+    Make_subcontext (Registered) (Raw_context)
+      (struct
+        let name = ["sc_rollup"]
+      end)
+
+  module Indexed_context =
+    Make_indexed_subcontext
+      (Make_subcontext (Registered) (Raw_context)
+         (struct
+           let name = ["index"]
+         end))
+         (Make_index (Sc_rollup_repr.Index))
+
+  (**
+
+     Each smart contract rollup is associated to:
+
+     - a PVM kind (provided at creation time, read-only) ;
+     - a boot sector (provided at creation time, read-only).
+     - a merkelized inbox, of which only the root hash is stored
+  *)
+  module PVM_kind =
+    Indexed_context.Make_map
+      (struct
+        let name = ["kind"]
+      end)
+      (struct
+        type t = Sc_rollup_repr.Kind.t
+
+        let encoding = Sc_rollup_repr.Kind.encoding
+      end)
+
+  module Boot_sector =
+    Indexed_context.Make_map
+      (struct
+        let name = ["boot_sector"]
+      end)
+      (struct
+        type t = Sc_rollup_repr.PVM.boot_sector
+
+        let encoding = Sc_rollup_repr.PVM.boot_sector_encoding
+      end)
+
+  module Inbox =
+    Indexed_context.Make_carbonated_map
+      (struct
+        let name = ["inbox"]
+      end)
+      (struct
+        type t = Sc_rollup_inbox.t
+
+        let encoding = Sc_rollup_inbox.encoding
       end)
 end

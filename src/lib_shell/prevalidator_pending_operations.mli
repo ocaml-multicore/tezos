@@ -24,67 +24,101 @@
 (*                                                                           *)
 (*****************************************************************************)
 
+(** The priority of a pending operation.
+
+    A priority is attached to each pending operation. *)
+type priority = [`High | `Medium | `Low of Q.t list]
+
 (**
    This type is used for data representing pending operations of the
-   prevalidator.
-*)
-type t
+   prevalidator. Any iterator on this structure will process operations with
+   [`High] priority first, followed by [`Medium] and finally [`Low] priority. *)
+type 'protocol_data t
 
 (** The empty structure of pending operations. *)
-val empty : t
-
-(** [from_operations m] constructs a value of type [t] from the given map [m] *)
-val from_operations : Operation.t Operation_hash.Map.t -> t
+val empty : 'protocol_data t
 
 (** [hashes p] returns the set of hashes contained in [p] *)
-val hashes : t -> Operation_hash.Set.t
+val hashes : 'protocol_data t -> Operation_hash.Set.t
 
 (** [operations p] returns the Map of bindings [oph -> op] contained in [p] *)
-val operations : t -> Operation.t Operation_hash.Map.t
+val operations :
+  'protocol_data t ->
+  'protocol_data Prevalidation.operation Operation_hash.Map.t
 
 (** [is_empty p] returns [true] if [p] has operations, [false] otherwise. *)
-val is_empty : t -> bool
+val is_empty : 'protocol_data t -> bool
 
 (** [mem oph p] returns [true] if [oph] is found in [p], [false] otherwise.
 
     Complexity is O(log(n)), where n is the number of operations (hashes) in the
     structure.
 *)
-val mem : Operation_hash.t -> t -> bool
+val mem : Operation_hash.t -> 'protocol_data t -> bool
 
-(** [add oph op p] addd the binding [oph] |-> [op] into [p].
+(** [add oph op p prio] records the operation [op] whose hash is [oph] and whose
+    priority is [prio] in [p].
 
     Complexity is O(log(n)), where n is the number of operations (hashes) in the
     structure.
 *)
-val add : Operation_hash.t -> Operation.t -> t -> t
+val add :
+  'protocol_data Prevalidation.operation ->
+  priority ->
+  'protocol_data t ->
+  'protocol_data t
 
 (** [remove oph op p] removes the binding [oph] from [p].
 
     Complexity is O(log(n)), where n is the number of operations (hashes) in the
     structure.
 *)
-val remove : Operation_hash.t -> t -> t
+val remove : Operation_hash.t -> 'protocol_data t -> 'protocol_data t
 
 (** [cardinal p] returns the number of operations (hashes) in [p].
 
     Complexity is O(n), where n is the number of operations (hashes) in the
     structure.
 *)
-val cardinal : t -> int
+val cardinal : 'protocol_data t -> int
 
 (** [fold f p acc] applies the function [f] on every binding [oph] |-> [op] of
-    [p], which also takes and updates [acc]
+    priority [prio] in [p]. The [acc] is passed to and (possibly) updated by
+    every call to [f].
+
+    We iterate on operations with `High priority first, then on those with `Low
+    priority. For operations with the same priority, the iteration order is
+    defined [Operation_hash.compare] function (operations with small hashes are
+    processed first).
 *)
-val fold : (Operation_hash.t -> Operation.t -> 'a -> 'a) -> t -> 'a -> 'a
+val fold :
+  (priority ->
+  Operation_hash.t ->
+  'protocol_data Prevalidation.operation ->
+  'a ->
+  'a) ->
+  'protocol_data t ->
+  'a ->
+  'a
 
 (** [iter f p] is similar to [fold] where [acc] is unit *)
-val iter : (Operation_hash.t -> Operation.t -> unit) -> t -> unit
+val iter :
+  (priority ->
+  Operation_hash.t ->
+  'protocol_data Prevalidation.operation ->
+  unit) ->
+  'protocol_data t ->
+  unit
 
 (** [fold_es f p acc] is the Lwt version of [fold], except that [fold_es]
-    returns if a value [Error e] is returned *)
+    returns wihtout iterating over all the elements of the list as soon as a
+    value [Error e] is returned by [f] *)
 val fold_es :
-  (Operation_hash.t -> Operation.t -> 'a -> ('a, 'b) result Lwt.t) ->
-  t ->
+  (priority ->
+  Operation_hash.t ->
+  'protocol_data Prevalidation.operation ->
+  'a ->
+  ('a, 'b) result Lwt.t) ->
+  'protocol_data t ->
   'a ->
   ('a, 'b) result Lwt.t

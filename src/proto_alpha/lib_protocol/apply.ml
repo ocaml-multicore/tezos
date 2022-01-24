@@ -108,6 +108,10 @@ type error +=
   | (* `Branch *) Empty_transaction of Contract.t
   | (* `Permanent *)
       Tx_rollup_disabled
+  | (* `Permanent *)
+      Sc_rollup_feature_disabled
+  | (* `Permanent *)
+      Inconsistent_counters
 
 let () =
   register_error_kind
@@ -480,6 +484,7 @@ let () =
     Data_encoding.(obj1 (req "contract" Contract.encoding))
     (function Empty_transaction c -> Some c | _ -> None)
     (fun c -> Empty_transaction c) ;
+
   register_error_kind
     `Permanent
     ~id:"operation.tx_rollup_is_disabled"
@@ -492,7 +497,36 @@ let () =
          will be enabled in a future proposal")
     Data_encoding.unit
     (function Tx_rollup_disabled -> Some () | _ -> None)
-    (fun () -> Tx_rollup_disabled)
+    (fun () -> Tx_rollup_disabled) ;
+
+  let description =
+    "Smart contract rollups will be enabled in a future proposal."
+  in
+  register_error_kind
+    `Permanent
+    ~id:"operation.sc_rollup_disabled"
+    ~title:"Smart contract rollups are disabled"
+    ~description
+    ~pp:(fun ppf () -> Format.fprintf ppf "%s" description)
+    Data_encoding.unit
+    (function Sc_rollup_feature_disabled -> Some () | _ -> None)
+    (fun () -> Sc_rollup_feature_disabled) ;
+
+  register_error_kind
+    `Permanent
+    ~id:"operation.inconsistent_counters"
+    ~title:"Inconsistent counters in operation"
+    ~description:
+      "Inconsistent counters in operation. Counters of an operation must be \
+       successive."
+    ~pp:(fun ppf () ->
+      Format.fprintf
+        ppf
+        "Inconsistent counters in operation. Counters of an operation must be \
+         successive.")
+    Data_encoding.empty
+    (function Inconsistent_counters -> Some () | _ -> None)
+    (fun () -> Inconsistent_counters)
 
 type error += (* `Temporary *) Wrong_voting_period of int32 * int32
 
@@ -777,7 +811,8 @@ let () =
 
 open Apply_results
 
-let cache_layout = Constants_repr.cache_layout
+let assert_sc_rollup_feature_enabled ctxt =
+  fail_unless (Constants.sc_rollup_enable ctxt) Sc_rollup_feature_disabled
 
 (**
 
@@ -867,10 +902,8 @@ let apply_manager_operation_content :
       match script with
       | None ->
           Lwt.return
-            ( ( (match entrypoint with
-                | "default" -> Result.return_unit
-                | entrypoint ->
-                    error (Script_tc_errors.No_such_entrypoint entrypoint))
+            ( ( (if Entrypoint.is_default entrypoint then Result.return_unit
+                else error (Script_tc_errors.No_such_entrypoint entrypoint))
               >>? fun () ->
                 match Micheline.root parameter with
                 | Prim (_, D_Unit, [], _) ->
@@ -896,6 +929,9 @@ let apply_manager_operation_content :
               in
               (ctxt, result, []) )
       | Some (script, script_ir) ->
+          (* Token.transfer which is being called above already loads this
+             value into the Irmin cache, so no need to burn gas for it. *)
+          Contract.get_balance ctxt destination >>=? fun balance ->
           let now = Script_timestamp.now ctxt in
           let level =
             (Level.current ctxt).level |> Raw_level.to_int32
@@ -903,7 +939,16 @@ let apply_manager_operation_content :
           in
           let step_constants =
             let open Script_interpreter in
-            {source; payer; self = destination; amount; chain_id; now; level}
+            {
+              source;
+              payer;
+              self = destination;
+              amount;
+              chain_id;
+              balance;
+              now;
+              level;
+            }
           in
           Script_interpreter.execute
             ctxt
@@ -1120,6 +1165,23 @@ let apply_manager_operation_content :
           }
       in
       return (ctxt, result, [])
+  | Sc_rollup_originate {kind; boot_sector} ->
+      assert_sc_rollup_feature_enabled ctxt >>=? fun () ->
+      Sc_rollup_operations.originate ctxt ~kind ~boot_sector
+      >>=? fun ({address; size}, ctxt) ->
+      let consumed_gas = Gas.consumed ~since:before_operation ~until:ctxt in
+      let result =
+        Sc_rollup_originate_result
+          {address; consumed_gas; size; balance_updates = []}
+      in
+      return (ctxt, result, [])
+  | Sc_rollup_add_messages {rollup; messages} ->
+      assert_sc_rollup_feature_enabled ctxt >>=? fun () ->
+      Sc_rollup.add_messages ctxt rollup messages
+      >>=? fun (inbox_after, _size, ctxt) ->
+      let consumed_gas = Gas.consumed ~since:before_operation ~until:ctxt in
+      let result = Sc_rollup_add_messages_result {consumed_gas; inbox_after} in
+      return (ctxt, result, [])
 
 type success_or_failure = Success of context | Failure
 
@@ -1329,6 +1391,17 @@ let burn_storage_fees :
         ( ctxt,
           storage_limit,
           Tx_rollup_origination_result {payload with balance_updates} )
+  | Sc_rollup_originate_result payload ->
+      let payer = `Contract payer in
+      Fees.burn_sc_rollup_origination_fees
+        ctxt
+        ~storage_limit
+        ~payer
+        payload.size
+      >>=? fun (ctxt, storage_limit, balance_updates) ->
+      let result = Sc_rollup_originate_result {payload with balance_updates} in
+      return (ctxt, storage_limit, result)
+  | Sc_rollup_add_messages_result _ -> return (ctxt, storage_limit, smopr)
 
 let apply_manager_contents (type kind) ctxt mode chain_id
     ~gas_consumed_in_precheck (op : kind Kind.manager contents) :
@@ -1452,6 +1525,33 @@ let rec mark_skipped :
             },
           mark_skipped ~payload_producer level rest )
 
+(** Check that counters are consistent, i.e. that they are successive within a
+    batch. Fail with a {b permanent} error otherwise.
+    TODO: https://gitlab.com/tezos/tezos/-/issues/2301
+    Remove when format of operation is changed to save space.
+ *)
+let check_counters_consistency contents_list =
+  let check_counter ~previous_counter counter =
+    match previous_counter with
+    | None -> return_unit
+    | Some previous_counter ->
+        let expected = Z.succ previous_counter in
+        if Compare.Z.(expected = counter) then return_unit
+        else fail Inconsistent_counters
+  in
+  let rec check_counters_rec :
+      type kind.
+      counter option -> kind Kind.manager contents_list -> unit tzresult Lwt.t =
+   fun previous_counter contents_list ->
+    match[@coq_match_with_default] contents_list with
+    | Single (Manager_operation {counter; _}) ->
+        check_counter ~previous_counter counter
+    | Cons (Manager_operation {counter; _}, rest) ->
+        check_counter ~previous_counter counter >>=? fun () ->
+        check_counters_rec (Some counter) rest
+  in
+  check_counters_rec None contents_list
+
 (** Returns an updated context, and a list of prechecked contents containing
     balance updates for fees related to each manager operation in
     [contents_list]. *)
@@ -1475,6 +1575,7 @@ let precheck_manager_contents_list ctxt contents_list ~mempool_mode =
         return (ctxt, PrecheckedCons ({contents; result}, results_rest))
   in
   let ctxt = if mempool_mode then Gas.reset_block_gas ctxt else ctxt in
+  check_counters_consistency contents_list >>=? fun () ->
   rec_precheck_manager_contents_list ctxt contents_list
 
 let check_manager_signature ctxt chain_id (op : _ Kind.manager contents_list)
@@ -2296,8 +2397,12 @@ let apply_liquidity_baking_subsidy ctxt ~escape_vote =
        Script_cache.find ctxt liquidity_baking_cpmm_contract
        >>=? fun (ctxt, cache_key, script) ->
        match script with
-       | None -> fail (Script_tc_errors.No_such_entrypoint "default")
+       | None -> fail (Script_tc_errors.No_such_entrypoint Entrypoint.default)
        | Some (script, script_ir) -> (
+           (* Token.transfer which is being called above already loads this
+              value into the Irmin cache, so no need to burn gas for it. *)
+           Contract.get_balance ctxt liquidity_baking_cpmm_contract
+           >>=? fun balance ->
            let now = Script_timestamp.now ctxt in
            let level =
              (Level.current ctxt).level |> Raw_level.to_int32
@@ -2313,6 +2418,7 @@ let apply_liquidity_baking_subsidy ctxt ~escape_vote =
                payer = liquidity_baking_cpmm_contract;
                self = liquidity_baking_cpmm_contract;
                amount = liquidity_baking_subsidy;
+               balance;
                chain_id = Chain_id.zero;
                now;
                level;
@@ -2340,7 +2446,7 @@ let apply_liquidity_baking_subsidy ctxt ~escape_vote =
              ~script
              ~parameter
              ~cached_script:(Some script_ir)
-             ~entrypoint:"default"
+             ~entrypoint:Entrypoint.default
              ~internal:false
            >>=? fun ( {ctxt; storage; lazy_storage_diff; operations},
                       (updated_cached_script, updated_size) ) ->

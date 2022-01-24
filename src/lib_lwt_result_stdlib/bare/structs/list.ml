@@ -357,6 +357,26 @@ let rev_filter_error rxs =
 
 let filter_error rxs = rev_filter_error rxs |> rev
 
+let rev_filter_left exs =
+  let rec aux xs = function
+    | [] -> xs
+    | Either.Left x :: exs -> (aux [@ocaml.tailcall]) (x :: xs) exs
+    | Either.Right _ :: exs -> (aux [@ocaml.tailcall]) xs exs
+  in
+  aux [] exs
+
+let filter_left exs = rev_filter_left exs |> rev
+
+let rev_filter_right exs =
+  let rec aux xs = function
+    | [] -> xs
+    | Either.Right x :: exs -> (aux [@ocaml.tailcall]) (x :: xs) exs
+    | Either.Left _ :: exs -> (aux [@ocaml.tailcall]) xs exs
+  in
+  aux [] exs
+
+let filter_right exs = rev_filter_right exs |> rev
+
 let filter_e f xs = rev_filter_e f xs |> Result.map rev
 
 let rev_filter_s f xs =
@@ -823,7 +843,7 @@ let rev_map2_s ~when_different_lengths f xs ys =
     | ([], _ :: _) | (_ :: _, []) -> return_error when_different_lengths
   in
   match (xs, ys) with
-  | ([], []) -> return_ok []
+  | ([], []) -> return_ok_nil
   | (x :: xs, y :: ys) ->
       let* z = lwt_apply2 f x y in
       aux [z] xs ys
@@ -871,14 +891,14 @@ let iter2_s ~when_different_lengths f xs ys =
   let open Lwt_syntax in
   let rec aux xs ys =
     match (xs, ys) with
-    | ([], []) -> return_ok ()
+    | ([], []) -> return_ok_unit
     | (x :: xs, y :: ys) ->
         let* () = f x y in
         (aux [@ocaml.tailcall]) xs ys
     | ([], _ :: _) | (_ :: _, []) -> return_error when_different_lengths
   in
   match (xs, ys) with
-  | ([], []) -> return_ok ()
+  | ([], []) -> return_ok_unit
   | (x :: xs, y :: ys) ->
       let* () = lwt_apply2 f x y in
       aux xs ys
@@ -1092,17 +1112,17 @@ let for_all2_s ~when_different_lengths f xs ys =
   let rec aux xs ys =
     match (xs, ys) with
     | ([], _ :: _) | (_ :: _, []) -> return_error when_different_lengths
-    | ([], []) -> return_ok true
+    | ([], []) -> return_ok_true
     | (x :: xs, y :: ys) ->
         let* b = f x y in
-        if b then (aux [@ocaml.tailcall]) xs ys else return_ok false
+        if b then (aux [@ocaml.tailcall]) xs ys else return_ok_false
   in
   match (xs, ys) with
   | ([], _ :: _) | (_ :: _, []) -> return_error when_different_lengths
-  | ([], []) -> return_ok true
+  | ([], []) -> return_ok_true
   | (x :: xs, y :: ys) ->
       let* b = lwt_apply2 f x y in
-      if b then aux xs ys else return_ok false
+      if b then aux xs ys else return_ok_false
 
 let for_all2_es ~when_different_lengths f xs ys =
   let open Lwt_result_syntax in
@@ -1138,17 +1158,17 @@ let exists2_s ~when_different_lengths f xs ys =
   let rec aux xs ys =
     match (xs, ys) with
     | ([], _ :: _) | (_ :: _, []) -> return_error when_different_lengths
-    | ([], []) -> return_ok false
+    | ([], []) -> return_ok_false
     | (x :: xs, y :: ys) ->
         let* b = f x y in
-        if b then return_ok true else (aux [@ocaml.tailcall]) xs ys
+        if b then return_ok_true else (aux [@ocaml.tailcall]) xs ys
   in
   match (xs, ys) with
   | ([], _ :: _) | (_ :: _, []) -> return_error when_different_lengths
-  | ([], []) -> return_ok false
+  | ([], []) -> return_ok_false
   | (x :: xs, y :: ys) ->
       let* b = lwt_apply2 f x y in
-      if b then return_ok true else aux xs ys
+      if b then return_ok_true else aux xs ys
 
 let exists2_es ~when_different_lengths f xs ys =
   let open Lwt_result_syntax in
@@ -1190,6 +1210,20 @@ let rev_partition_result xs =
 let partition_result xs =
   let (rev_oks, rev_errors) = rev_partition_result xs in
   (rev rev_oks, rev rev_errors)
+
+let rev_partition_either xs =
+  let rec aux lefts rights = function
+    | [] -> (lefts, rights)
+    | Either.Left left :: xs ->
+        (aux [@ocaml.tailcall]) (left :: lefts) rights xs
+    | Either.Right right :: xs ->
+        (aux [@ocaml.tailcall]) lefts (right :: rights) xs
+  in
+  aux [] [] xs
+
+let partition_either xs =
+  let (rev_lefts, rev_rights) = rev_partition_either xs in
+  (rev rev_lefts, rev rev_rights)
 
 let rev_partition_e f l =
   let open Result_syntax in
@@ -1286,14 +1320,12 @@ let combine ~when_different_lengths xs ys =
 let rev_combine ~when_different_lengths xs ys =
   rev_map2 ~when_different_lengths (fun x y -> (x, y)) xs ys
 
-type ('a, 'b) left_or_right_list = [`Left of 'a list | `Right of 'b list]
-
 let combine_with_leftovers xs ys =
   let rec aux rev_combined xs ys =
     match (xs, ys) with
     | ([], []) -> (rev rev_combined, None)
-    | ((_ :: _ as left), []) -> (rev rev_combined, Some (`Left left))
-    | ([], (_ :: _ as right)) -> (rev rev_combined, Some (`Right right))
+    | ((_ :: _ as left), []) -> (rev rev_combined, Some (Either.Left left))
+    | ([], (_ :: _ as right)) -> (rev rev_combined, Some (Either.Right right))
     | (x :: xs, y :: ys) ->
         (aux [@ocaml.tailcall]) ((x, y) :: rev_combined) xs ys
   in

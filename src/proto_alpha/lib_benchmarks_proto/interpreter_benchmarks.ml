@@ -1,7 +1,7 @@
 (*****************************************************************************)
 (*                                                                           *)
 (* Open Source License                                                       *)
-(* Copyright (c) 2021 Nomadic Labs, <contact@nomadic-labs.com>               *)
+(* Copyright (c) 2021-2022 Nomadic Labs <contact@nomadic-labs.com>           *)
 (*                                                                           *)
 (* Permission is hereby granted, free of charge, to any person obtaining a   *)
 (* copy of this software and associated documentation files (the "Software"),*)
@@ -23,6 +23,7 @@
 (*                                                                           *)
 (*****************************************************************************)
 
+module Timelock_samplers = Timelock
 open Protocol
 
 (* ------------------------------------------------------------------------- *)
@@ -708,7 +709,7 @@ module Registration_section = struct
                ( Execution_context.make ~rng_state
                >>=? fun (ctxt, _step_constants) ->
                  Script_ir_translator.parse_instr
-                   Script_ir_translator.Lambda
+                   Script_tc_context.data
                    ctxt
                    ~legacy:false
                    node
@@ -1235,7 +1236,7 @@ module Registration_section = struct
           (Script_map.empty int_cmp)
           keys
       in
-      let (module M) = map in
+      let (module M) = Script_map.get_module map in
       let key =
         M.OPS.fold (fun k _ -> function None -> Some k | x -> x) M.boxed None
         |> WithExceptions.Option.get ~loc:__LOC__
@@ -1410,7 +1411,7 @@ module Registration_section = struct
           (Script_map.empty int_cmp)
           keys
       in
-      let (module M) = map in
+      let (module M) = Script_map.get_module map in
       let key =
         M.OPS.fold (fun k _ -> function None -> Some k | x -> x) M.boxed None
         |> WithExceptions.Option.get ~loc:__LOC__
@@ -1420,7 +1421,7 @@ module Registration_section = struct
           (Lwt_main.run
              ( Execution_context.make ~rng_state >>=? fun (ctxt, _) ->
                let big_map =
-                 Script_ir_translator.empty_big_map int_cmp (unit_t ~annot:None)
+                 Script_ir_translator.empty_big_map int_cmp unit_t
                in
                Script_map.fold
                  (fun k v acc ->
@@ -1557,9 +1558,7 @@ module Registration_section = struct
           let (_, (module Samplers)) = make_default_samplers cfg.sampler in
           fun () ->
             let string =
-              Samplers.Random_value.value
-                Script_typed_ir.(string_t ~annot:None)
-                rng_state
+              Samplers.Random_value.value Script_typed_ir.string_t rng_state
             in
             let len = nat_of_positive_int (length string) in
             (* worst case: offset = 0 *)
@@ -1605,9 +1604,7 @@ module Registration_section = struct
           let (_, (module Samplers)) = make_default_samplers cfg.sampler in
           fun () ->
             let bytes =
-              Samplers.Random_value.value
-                Script_typed_ir.(bytes_t ~annot:None)
-                rng_state
+              Samplers.Random_value.value Script_typed_ir.bytes_t rng_state
             in
             let len = nat_of_positive_int (Bytes.length bytes) in
             (* worst case: offset = 0 *)
@@ -2157,7 +2154,7 @@ module Registration_section = struct
           (IContract
              ( kinfo (address @$ bot),
                unit,
-               "default",
+               Alpha_context.Entrypoint.default,
                halt (option (contract unit) @$ bot) ))
         ()
 
@@ -2278,12 +2275,10 @@ module Registration_section = struct
             let (_pkh, pk, sk) = Crypto_samplers.all rng_state in
             let unsigned_message =
               if for_intercept then Environment.Bytes.empty
-              else
-                Samplers.Random_value.value
-                  Script_typed_ir.(bytes_t ~annot:None)
-                  rng_state
+              else Samplers.Random_value.value Script_typed_ir.bytes_t rng_state
             in
             let signed_message = Signature.sign sk unsigned_message in
+            let signed_message = Script_signature.make signed_message in
             (pk, (signed_message, (unsigned_message, eos))))
         ()
 
@@ -2383,7 +2378,7 @@ module Registration_section = struct
           (ISelf
              ( kinfo (unit @$ bot),
                unit,
-               "default",
+               Alpha_context.Entrypoint.default,
                halt (contract unit @$ unit @$ bot) ))
         ()
 
@@ -2794,6 +2789,8 @@ module Registration_section = struct
           halt (union bytes bool @$ bot) )
 
     let resulting_stack chest chest_key time =
+      let chest = Script_timelock.make_chest chest in
+      let chest_key = Script_timelock.make_chest_key chest_key in
       ( chest_key,
         ( chest,
           ( Script_int_repr.is_nat (Script_int_repr.of_int time)
@@ -2807,7 +2804,7 @@ module Registration_section = struct
         ~kinstr
         ~stack_sampler:(fun _ rng_state () ->
           let (chest, chest_key) =
-            Timelock.chest_sampler ~plaintext_size:1 ~time:0 ~rng_state
+            Timelock_samplers.chest_sampler ~plaintext_size:1 ~time:0 ~rng_state
           in
           resulting_stack chest chest_key 0)
         ()
@@ -2830,7 +2827,7 @@ module Registration_section = struct
           in
 
           let (chest, chest_key) =
-            Timelock.chest_sampler ~plaintext_size ~time ~rng_state
+            Timelock_samplers.chest_sampler ~plaintext_size ~time ~rng_state
           in
           resulting_stack chest chest_key time)
         ()
@@ -2899,6 +2896,7 @@ module Registration_section = struct
               payer = zero;
               self = zero;
               amount = Tez.zero;
+              balance = Tez.zero;
               chain_id = Chain_id.zero;
               now = Script_timestamp.of_zint Z.zero;
               level = Script_int.zero_n;

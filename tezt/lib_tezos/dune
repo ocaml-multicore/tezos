@@ -1,5 +1,12 @@
+; This file was automatically generated, do not edit.
+; Edit file manifest/main.ml instead.
+
 (library
  (name tezt_tezos)
  (public_name tezt-tezos)
- (libraries tezt hex tezos-base tezos-base.unix)
+ (libraries
+  tezt
+  hex
+  tezos-base
+  tezos-base.unix)
  (flags (:standard -open Tezt -open Tezt.Base)))

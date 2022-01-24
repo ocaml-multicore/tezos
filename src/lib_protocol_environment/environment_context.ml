@@ -23,6 +23,7 @@
 (*                                                                           *)
 (*****************************************************************************)
 
+include Environment_context_intf
 open Error_monad
 
 let err_implementation_mismatch ~expected ~got =
@@ -31,14 +32,6 @@ let err_implementation_mismatch ~expected ~got =
     "Context implementation mismatch: expecting %s, got %s"
     expected
     got
-
-module type CONTEXT = Environment_context_intf.S
-
-module type VIEW = Environment_context_intf.VIEW
-
-module type TREE = Environment_context_intf.TREE
-
-module type CACHE = Environment_context_intf.CACHE
 
 module Equality_witness : sig
   type (_, _) eq = Refl : ('a, 'a) eq
@@ -85,8 +78,7 @@ module Context = struct
 
   type value = Bytes.t
 
-  type ('ctxt, 'tree) ops =
-    (module CONTEXT with type t = 'ctxt and type tree = 'tree)
+  type ('ctxt, 'tree) ops = (module S with type t = 'ctxt and type tree = 'tree)
 
   type _ kind = ..
 
@@ -173,6 +165,8 @@ module Context = struct
       []
       (List.rev ls)
 
+  let length (Context {ops = (module Ops); ctxt; _}) key = Ops.length ctxt key
+
   let fold ?depth
       (Context
         {ops = (module Ops) as ops; ctxt; equality_witness; impl_name; _}) key
@@ -244,6 +238,9 @@ module Context = struct
         []
         (List.rev ls)
 
+    let length (Tree {ops = (module Ops); tree; _}) key =
+      Ops.Tree.length tree key
+
     let fold ?depth
         (Tree
           {ops = (module Ops) as ops; tree = t; equality_witness; impl_name})
@@ -261,7 +258,7 @@ module Context = struct
   type block_cache = {context_hash : Context_hash.t; cache : cache}
 
   type source_of_cache =
-    [`Load | `Lazy | `Inherited of block_cache * Context_hash.t]
+    [`Force_load | `Load | `Lazy | `Inherited of block_cache * Context_hash.t]
 
   type builder = Environment_cache.key -> cache_value tzresult Lwt.t
 
@@ -499,6 +496,17 @@ module Context = struct
 
     let cache_size_limit (Context ctxt) ~cache_index =
       Environment_cache.cache_size_limit ctxt.cache ~cache_index
+
+    module Internal_for_tests = struct
+      let same_cache_domains ctxt ctxt' =
+        find_domain ctxt >>= fun domain ->
+        find_domain ctxt' >>= fun domain' ->
+        return
+        @@ Option.equal
+             Environment_cache.Internal_for_tests.equal_domain
+             domain
+             domain'
+    end
   end
 
   let load_cache (Context ctxt) mode builder =
@@ -548,16 +556,27 @@ module Context = struct
   let cache_cache : (Block_hash.t * cache) option ref = ref None
 
   let load_cache block_hash (Context ctxt) mode builder =
-    (match !cache_cache with
-    | Some (block_hash', cached_cache)
-      when Block_hash.equal block_hash block_hash' ->
-        return cached_cache
-    | _ ->
+    match mode with
+    | `Force_load ->
         cache_cache := None ;
-        load_cache (Context ctxt) mode builder >>=? fun cache ->
+        load_cache (Context ctxt) `Load builder >>=? fun cache ->
         cache_cache := Some (block_hash, cache) ;
-        return cache)
-    >>=? fun cache -> return (Context {ctxt with cache})
+        return (Context {ctxt with cache})
+    | (`Load | `Lazy | `Inherited _) as mode ->
+        (match !cache_cache with
+        | Some (block_hash', cached_cache)
+          when Block_hash.equal block_hash block_hash' ->
+            return cached_cache
+        | _ ->
+            cache_cache := None ;
+            load_cache (Context ctxt) mode builder >>=? fun cache ->
+            cache_cache := Some (block_hash, cache) ;
+            return cache)
+        >>=? fun cache -> return (Context {ctxt with cache})
+
+  let reset_cache_cache_hangzhou_issue_do_not_use_except_if_you_know_what_you_are_doing
+      () =
+    cache_cache := None
 
   (* misc *)
 
@@ -580,13 +599,13 @@ module Context = struct
     Ops.set_hash_version ctxt v >|=? fun ctxt -> Context {c with ctxt}
 end
 
-module Register (C : CONTEXT) = struct
+module Register (C : S) = struct
   type _ Context.kind += Context : C.t Context.kind
 
   let equality_witness : (C.t, C.tree) Context.equality_witness =
     Context.equality_witness ()
 
-  let ops = (module C : CONTEXT with type t = 'ctxt and type tree = 'tree)
+  let ops = (module C : S with type t = 'ctxt and type tree = 'tree)
 end
 
 type validation_result = {

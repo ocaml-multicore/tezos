@@ -1,3 +1,6 @@
+; This file was automatically generated, do not edit.
+; Edit file manifest/main.ml instead.
+
 (env (static (flags (:standard -ccopt -static))))
 
 (executable
@@ -56,7 +59,4 @@
  (flags (:standard -open Tezos_base__TzPervasives -open Tezos_stdlib_unix))
  (modules Replace))
 
-(install
- (section libexec)
- (files (replace.exe as replace)
-))
+(install (section libexec) (files (replace.exe as replace)))

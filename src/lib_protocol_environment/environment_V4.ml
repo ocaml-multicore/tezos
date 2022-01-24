@@ -179,7 +179,13 @@ struct
 
   module Compare = Compare
   module Seq = Tezos_error_monad.TzLwtreslib.Seq
-  module List = Tezos_error_monad.TzLwtreslib.List
+
+  module List = struct
+    include Tezos_error_monad.TzLwtreslib.List
+
+    include Tezos_protocol_environment_structs.V4.M.Lwtreslib_list_combine
+  end
+
   module Char = Char
   module Bytes = Bytes
   module Hex = Hex
@@ -1039,7 +1045,7 @@ struct
     let activate = Context.set_protocol
 
     module type PROTOCOL =
-      Environment_protocol_T_V4.T
+      Environment_protocol_T_V3.T
         with type context := Context.t
          and type cache_value := Environment_context.Context.cache_value
          and type cache_key := Environment_context.Context.cache_key
@@ -1065,18 +1071,7 @@ struct
 
   module Context = struct
     include Context
-
-    type depth = [`Eq of int | `Le of int | `Lt of int | `Ge of int | `Gt of int]
-
-    module type VIEW = Environment_context.VIEW
-
-    module Kind = struct
-      type t = [`Value | `Tree]
-    end
-
-    module type TREE = Environment_context.TREE
-
-    module type CACHE = Environment_context.CACHE
+    include Environment_context.V4
 
     let register_resolver = Base58.register_resolver
 

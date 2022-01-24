@@ -1,7 +1,7 @@
 tezt/_regressions/rpc/granada.proxy.mempool.out
 
 curl -s 'http://localhost:16385/chains/main/mempool/monitor_operations?applied=true&outdated=true&branch_delayed=true&refused=true&branch_refused=true'
-[{"hash":"[OPERATION_HASH]","protocol":"PtGRANADsDU8R9daYKAgWnQYAJ64omN1o3KMGVCykShA97vQbvV","branch":"[BRANCH_HASH]","contents":[{"kind":"endorsement_with_slot","endorsement":{"branch":"[BRANCH_HASH]","operations":{"kind":"endorsement","level":2},"signature":"[SIGNATURE]"},"slot":1}],"signature":"[SIGNATURE]","error":[{"kind":"temporary","id":"proto.010-PtGRANAD.prefilter.outdated_endorsement"}]}]
+[{"hash":"[OPERATION_HASH]","protocol":"PtGRANADsDU8R9daYKAgWnQYAJ64omN1o3KMGVCykShA97vQbvV","branch":"[BRANCH_HASH]","contents":[{"kind":"endorsement_with_slot","endorsement":{"branch":"[BRANCH_HASH]","operations":{"kind":"endorsement","level":3},"signature":"[SIGNATURE]"},"slot":3}],"signature":"[SIGNATURE]","error":[{"kind":"temporary","id":"proto.010-PtGRANAD.prefilter.outdated_endorsement"}]}]
 [{"hash":"[OPERATION_HASH]","protocol":"PtGRANADsDU8R9daYKAgWnQYAJ64omN1o3KMGVCykShA97vQbvV","branch":"[BRANCH_HASH]","contents":[{"kind":"transaction","source":"[PUBLIC_KEY_HASH]","fee":"1000","counter":"1","gas_limit":"1040","storage_limit":"257","amount":"1000000","destination":"[PUBLIC_KEY_HASH]"}],"signature":"[SIGNATURE]","error":[{"kind":"branch","id":"proto.010-PtGRANAD.contract.counter_in_the_past","contract":"[PUBLIC_KEY_HASH]","expected":"2","found":"1"}]}]
 [{"hash":"[OPERATION_HASH]","protocol":"PtGRANADsDU8R9daYKAgWnQYAJ64omN1o3KMGVCykShA97vQbvV","branch":"[BRANCH_HASH]","contents":[{"kind":"transaction","source":"[PUBLIC_KEY_HASH]","fee":"1000","counter":"5","gas_limit":"1040","storage_limit":"257","amount":"1000000","destination":"[PUBLIC_KEY_HASH]"}],"signature":"[SIGNATURE]","error":[{"kind":"temporary","id":"proto.010-PtGRANAD.contract.counter_in_the_future","contract":"[PUBLIC_KEY_HASH]","expected":"1","found":"5"}]}]
 [{"hash":"[OPERATION_HASH]","protocol":"PtGRANADsDU8R9daYKAgWnQYAJ64omN1o3KMGVCykShA97vQbvV","branch":"[BRANCH_HASH]","contents":[{"kind":"transaction","source":"[PUBLIC_KEY_HASH]","fee":"0","counter":"1","gas_limit":"1040","storage_limit":"257","amount":"1000000","destination":"[PUBLIC_KEY_HASH]"}],"signature":"[SIGNATURE]"}]
@@ -44,10 +44,10 @@ protocol of proxy unspecified, using the node's protocol: PtGRANADsDU8R9daYKAgWn
                 "endorsement":
                   { "branch":
                       "[BRANCH_HASH]",
-                    "operations": { "kind": "endorsement", "level": 2 },
+                    "operations": { "kind": "endorsement", "level": 3 },
                     "signature":
                       "[SIGNATURE]" },
-                "slot": 1 } ],
+                "slot": 3 } ],
           "signature":
             "[SIGNATURE]",
           "error":
@@ -277,7 +277,7 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                     "$ref": "#/definitions/error",
                     "definitions": {
                       "error": {
-                        "description": "The full list of error is available with the global RPC `GET errors`"
+                        "description": "The full list of errors is available with the global RPC `GET errors`"
                       }
                     }
                   },
@@ -361,7 +361,7 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                     "$ref": "#/definitions/error",
                     "definitions": {
                       "error": {
-                        "description": "The full list of error is available with the global RPC `GET errors`"
+                        "description": "The full list of errors is available with the global RPC `GET errors`"
                       }
                     }
                   },
@@ -453,7 +453,7 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                     "$ref": "#/definitions/error",
                     "definitions": {
                       "error": {
-                        "description": "The full list of error is available with the global RPC `GET errors`"
+                        "description": "The full list of errors is available with the global RPC `GET errors`"
                       }
                     }
                   },
@@ -575,7 +575,7 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                           "$ref": "#/definitions/Signature"
                         },
                         "error": {
-                          "$ref": "#/definitions/error"
+                          "$ref": "#/definitions/error_opt"
                         }
                       },
                       "required": [
@@ -1622,8 +1622,8 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                         "title": "A nonce hash (Base58Check-encoded)",
                         "$ref": "#/definitions/unistring"
                       },
-                      "error": {
-                        "description": "The full list of error is available with the global RPC `GET errors`"
+                      "error_opt": {
+                        "description": "An optional error-trace (None indicates no error). The full list of errors is available with the global RPC `GET errors`"
                       },
                       "fitness": {
                         "title": "Block fitness",
@@ -3519,7 +3519,7 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                             },
                             {
                               "kind": "dyn",
-                              "name": "error",
+                              "name": "error_opt",
                               "num_fields": 1,
                               "size": "Uint30"
                             },
@@ -3545,7 +3545,7 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                     "$ref": "#/definitions/error",
                     "definitions": {
                       "error": {
-                        "description": "The full list of error is available with the global RPC `GET errors`"
+                        "description": "The full list of errors is available with the global RPC `GET errors`"
                       }
                     }
                   },
@@ -5138,7 +5138,7 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                         "$ref": "#/definitions/unistring"
                       },
                       "error": {
-                        "description": "The full list of error is available with the global RPC `GET errors`"
+                        "description": "The full list of errors is available with the global RPC `GET errors`"
                       },
                       "fitness": {
                         "title": "Block fitness",
@@ -5331,7 +5331,7 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                     "$ref": "#/definitions/error",
                     "definitions": {
                       "error": {
-                        "description": "The full list of error is available with the global RPC `GET errors`"
+                        "description": "The full list of errors is available with the global RPC `GET errors`"
                       }
                     }
                   },
@@ -5439,7 +5439,7 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                     "$ref": "#/definitions/error",
                     "definitions": {
                       "error": {
-                        "description": "The full list of error is available with the global RPC `GET errors`"
+                        "description": "The full list of errors is available with the global RPC `GET errors`"
                       }
                     }
                   },
@@ -5533,7 +5533,7 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                     "$ref": "#/definitions/error",
                     "definitions": {
                       "error": {
-                        "description": "The full list of error is available with the global RPC `GET errors`"
+                        "description": "The full list of errors is available with the global RPC `GET errors`"
                       }
                     }
                   },
@@ -5658,7 +5658,7 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                     "$ref": "#/definitions/error",
                     "definitions": {
                       "error": {
-                        "description": "The full list of error is available with the global RPC `GET errors`"
+                        "description": "The full list of errors is available with the global RPC `GET errors`"
                       }
                     }
                   },
