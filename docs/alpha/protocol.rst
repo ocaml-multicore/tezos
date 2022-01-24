@@ -59,7 +59,17 @@ Sapling, etc), and some details about its implementation.
 .. toctree::
    :maxdepth: 2
 
+   token_management
+
+.. toctree::
+   :maxdepth: 2
+
    plugins
+
+.. toctree::
+   :maxdepth: 2
+
+   precheck
 
 .. toctree::
    :maxdepth: 2

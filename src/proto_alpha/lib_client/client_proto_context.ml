@@ -94,8 +94,9 @@ let parse_arg_transfer arg =
   return
     (Option.fold ~some:Script.lazy_expr ~none:Script.unit_parameter parameters)
 
-let build_transaction_operation ~amount ~parameters ?(entrypoint = "default")
-    ?fee ?gas_limit ?storage_limit destination =
+let build_transaction_operation ~amount ~parameters
+    ?(entrypoint = Entrypoint.default) ?fee ?gas_limit ?storage_limit
+    destination =
   let operation = Transaction {amount; parameters; destination; entrypoint} in
   Injection.prepare_manager_operation
     ~fee:(Limit.of_option fee)
@@ -104,9 +105,9 @@ let build_transaction_operation ~amount ~parameters ?(entrypoint = "default")
     operation
 
 let transfer (cctxt : #full) ~chain ~block ?confirmations ?dry_run
-    ?verbose_signing ?simulation ?branch ~source ~src_pk ~src_sk ~destination
-    ?(entrypoint = "default") ?arg ~amount ?fee ?gas_limit ?storage_limit
-    ?counter ~fee_parameter () =
+    ?verbose_signing ?simulation ?(force = false) ?branch ~source ~src_pk
+    ~src_sk ~destination ?(entrypoint = Entrypoint.default) ?arg ~amount ?fee
+    ?gas_limit ?storage_limit ?counter ~fee_parameter ?replace_by_fees () =
   parse_arg_transfer arg >>=? fun parameters ->
   let contents =
     build_transaction_operation
@@ -127,18 +128,21 @@ let transfer (cctxt : #full) ~chain ~block ?confirmations ?dry_run
     ?dry_run
     ?verbose_signing
     ?simulation
+    ~force
     ?branch
     ~source
     ~fee:(Limit.of_option fee)
     ~gas_limit:(Limit.of_option gas_limit)
     ~storage_limit:(Limit.of_option storage_limit)
     ?counter
+    ?replace_by_fees
     ~src_pk
     ~src_sk
     ~fee_parameter
     contents
   >>=? fun (oph, op, result) ->
-  Lwt.return (Injection.originated_contracts result) >>=? fun contracts ->
+  Lwt.return (Injection.originated_contracts ~force result)
+  >>=? fun contracts ->
   match Apply_results.pack_contents_list op result with
   | Apply_results.Single_and_result ((Manager_operation _ as op), result) ->
       return ((oph, op, result), contracts)
@@ -374,7 +378,7 @@ let originate_contract (cctxt : #full) ~chain ~block ?confirmations ?dry_run
   | Apply_results.Single_and_result ((Manager_operation _ as op), result) ->
       return (oph, op, result))
   >>=? fun res ->
-  Lwt.return (Injection.originated_contracts result) >>=? function
+  Lwt.return (Injection.originated_contracts ~force:false result) >>=? function
   | [contract] -> return (res, contract)
   | contracts ->
       failwith
@@ -484,7 +488,7 @@ type batch_transfer_operation = {
   storage_limit : Z.t option;
   amount : string;
   arg : string option;
-  entrypoint : string option;
+  entrypoint : Entrypoint.t option;
 }
 
 let batch_transfer_operation_encoding =
@@ -501,7 +505,7 @@ let batch_transfer_operation_encoding =
        (opt "storage-limit" z)
        (req "amount" string)
        (opt "arg" string)
-       (opt "entrypoint" string))
+       (opt "entrypoint" Entrypoint.simple_encoding))
 
 let read_key key =
   match Bip39.of_words key.mnemonic with
@@ -775,6 +779,72 @@ let originate_tx_rollup (cctxt : #full) ~chain ~block ?confirmations ?dry_run
     ~src_sk
     ~fee_parameter
     contents
+  >>=? fun (oph, op, result) ->
+  match Apply_results.pack_contents_list op result with
+  | Apply_results.Single_and_result ((Manager_operation _ as op), result) ->
+      return (oph, op, result)
+
+let sc_rollup_originate (cctxt : #full) ~chain ~block ?confirmations ?dry_run
+    ?verbose_signing ?simulation ?fee ?gas_limit ?storage_limit ?counter ~source
+    ~kind ~boot_sector ~src_pk ~src_sk ~fee_parameter () =
+  let op =
+    Annotated_manager_operation.Single_manager
+      (Injection.prepare_manager_operation
+         ~fee:(Limit.of_option fee)
+         ~gas_limit:(Limit.of_option gas_limit)
+         ~storage_limit:(Limit.of_option storage_limit)
+         (Sc_rollup_originate {kind; boot_sector}))
+  in
+  Injection.inject_manager_operation
+    cctxt
+    ~chain
+    ~block
+    ?confirmations
+    ?dry_run
+    ?verbose_signing
+    ?simulation
+    ?counter
+    ~source
+    ~fee:(Limit.of_option fee)
+    ~storage_limit:(Limit.of_option storage_limit)
+    ~gas_limit:(Limit.of_option gas_limit)
+    ~src_pk
+    ~src_sk
+    ~fee_parameter
+    op
+  >>=? fun (oph, op, result) ->
+  match Apply_results.pack_contents_list op result with
+  | Apply_results.Single_and_result ((Manager_operation _ as op), result) ->
+      return (oph, op, result)
+
+let sc_rollup_add_messages (cctxt : #full) ~chain ~block ?confirmations ?dry_run
+    ?verbose_signing ?simulation ?fee ?gas_limit ?storage_limit ?counter ~source
+    ~rollup ~messages ~src_pk ~src_sk ~fee_parameter () =
+  let op =
+    Annotated_manager_operation.Single_manager
+      (Injection.prepare_manager_operation
+         ~fee:(Limit.of_option fee)
+         ~gas_limit:(Limit.of_option gas_limit)
+         ~storage_limit:(Limit.of_option storage_limit)
+         (Sc_rollup_add_messages {rollup; messages}))
+  in
+  Injection.inject_manager_operation
+    cctxt
+    ~chain
+    ~block
+    ?confirmations
+    ?dry_run
+    ?verbose_signing
+    ?simulation
+    ?counter
+    ~source
+    ~fee:(Limit.of_option fee)
+    ~storage_limit:(Limit.of_option storage_limit)
+    ~gas_limit:(Limit.of_option gas_limit)
+    ~src_pk
+    ~src_sk
+    ~fee_parameter
+    op
   >>=? fun (oph, op, result) ->
   match Apply_results.pack_contents_list op result with
   | Apply_results.Single_and_result ((Manager_operation _ as op), result) ->

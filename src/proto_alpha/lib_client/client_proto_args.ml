@@ -147,6 +147,10 @@ let data_parameter =
       Lwt.return @@ Tezos_micheline.Micheline_parser.no_parsing_error
       @@ Michelson_v1_parser.parse_expression data)
 
+let entrypoint_parameter =
+  parameter (fun _ str ->
+      Lwt.return @@ Environment.wrap_tzresult @@ Entrypoint.of_string_lax str)
+
 let init_arg =
   default_arg
     ~long:"init"
@@ -191,14 +195,14 @@ let entrypoint_arg =
     ~long:"entrypoint"
     ~placeholder:"name"
     ~doc:"entrypoint of the smart contract"
-    string_parameter
+    entrypoint_parameter
 
 let default_entrypoint_arg =
   arg
     ~long:"default-entrypoint"
     ~placeholder:"name"
     ~doc:"default entrypoint of the smart contracts"
-    string_parameter
+    entrypoint_parameter
 
 let force_switch =
   switch
@@ -241,6 +245,13 @@ let tez_arg ~default ~parameter ~doc =
     ~placeholder:"amount"
     ~doc
     ~default
+    (tez_parameter ("--" ^ parameter))
+
+let tez_opt_arg ~parameter ~doc =
+  arg
+    ~long:parameter
+    ~placeholder:"amount"
+    ~doc
     (tez_parameter ("--" ^ parameter))
 
 let tez_param ~name ~desc next =
@@ -448,6 +459,17 @@ let burn_cap_arg =
          match Tez.of_string s with
          | Some t -> return t
          | None -> failwith "Bad burn cap"))
+
+let replace_by_fees_arg =
+  switch
+    ~long:"replace"
+    ~doc:
+      "Replace an existing pending transaction from the same source, if any, \
+       with another one with higher fees. There are no guarantees that the \
+       first operation will not be included or that the second one will be. \
+       But, only one of the operations at most will end in a block (in \
+       precheck mode)."
+    ()
 
 let no_waiting_for_endorsements_arg =
   switch

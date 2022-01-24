@@ -71,7 +71,7 @@ val build_transaction_operation :
   block:Block_services.block ->
   contract:Contract.t ->
   destination:Contract.t ->
-  ?entrypoint:string ->
+  ?entrypoint:Entrypoint.t ->
   ?arg:string ->
   amount:Tez.t ->
   ?fee:Tez.t ->
@@ -93,13 +93,14 @@ val transfer :
   ?dry_run:bool ->
   ?verbose_signing:bool ->
   ?simulation:bool ->
+  ?force:bool ->
   ?branch:int ->
   source:public_key_hash ->
   src_pk:public_key ->
   src_sk:Client_keys.sk_uri ->
   contract:Contract.t ->
   destination:Contract.t ->
-  ?entrypoint:string ->
+  ?entrypoint:Entrypoint.t ->
   ?arg:string ->
   amount:Tez.t ->
   ?fee:Tez.t ->
@@ -118,7 +119,7 @@ val build_lambda_for_transfer_to_implicit :
 
 val build_lambda_for_transfer_to_originated :
   destination:Contract.t ->
-  entrypoint:string ->
+  entrypoint:Entrypoint.t ->
   amount:Tez.t ->
   parameter_type:Script.expr ->
   parameter:Script.expr ->

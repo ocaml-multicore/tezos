@@ -618,21 +618,53 @@ module Votes = struct
     Client.rpc ?endpoint ?hooks GET path client
 end
 
+module Script_cache = struct
+  let get_cached_contracts ?endpoint ?hooks ?(chain = "main") ?(block = "head")
+      client =
+    let path =
+      ["chains"; chain; "blocks"; block; "context"; "cache"; "contracts"; "all"]
+    in
+    Client.rpc ?endpoint ?hooks GET path client
+end
+
 module Tx_rollup = struct
-  let sub_path ~chain ~block ~tx_rollup_hash sub =
+  let sub_path ?(chain = "main") ?(block = "head") ~tx_rollup sub =
+    ["chains"; chain; "blocks"; block; "context"; "tx_rollup"; tx_rollup; sub]
+
+  let get_state ?endpoint ?hooks ?chain ?block ~tx_rollup client =
+    let path = sub_path ?chain ?block ~tx_rollup "state" in
+    Client.rpc ?endpoint ?hooks GET path client
+end
+
+module Sc_rollup = struct
+  let path ~chain ~block ~sc_rollup_address =
     [
-      "chains";
-      chain;
-      "blocks";
-      block;
-      "context";
-      "tx_rollup";
-      tx_rollup_hash;
-      sub;
+      "chains"; chain; "blocks"; block; "context"; "sc_rollup"; sc_rollup_address;
     ]
 
-  let get_state ?endpoint ?hooks ?(chain = "main") ?(block = "head")
-      ~tx_rollup_hash client =
-    let path = sub_path ~chain ~block ~tx_rollup_hash "state" in
+  let get_inbox ?endpoint ?hooks ?(chain = "main") ?(block = "head")
+      ~sc_rollup_address client =
+    let path = path ~chain ~block ~sc_rollup_address @ ["inbox"] in
     Client.rpc ?endpoint ?hooks GET path client
+end
+
+module Curl = struct
+  let curl_path_cache = ref None
+
+  let get () =
+    Process.(
+      try
+        let* curl_path =
+          match !curl_path_cache with
+          | Some curl_path -> return curl_path
+          | None ->
+              let* curl_path =
+                run_and_read_stdout "sh" ["-c"; "command -v curl"]
+              in
+              let curl_path = String.trim curl_path in
+              curl_path_cache := Some curl_path ;
+              return curl_path
+        in
+        return @@ Some (fun ~url -> run_and_read_stdout curl_path ["-s"; url])
+      with _ -> return @@ None)
 end

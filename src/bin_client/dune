@@ -1,10 +1,7 @@
-; See src/bin_node/dune to understand in detail how this file abuses
-; the alternative dependency mechanism of dune to implement optional
-; dependencies.
+; This file was automatically generated, do not edit.
+; Edit file manifest/main.ml instead.
 
-(env
- (static
-  (flags (:standard -ccopt -static -cclib "-lusb-1.0 -lhidapi-libusb -ludev"))))
+(env (static (flags (:standard -ccopt -static))))
 
 (executables
  (names main_client main_admin)
@@ -68,20 +65,18 @@
   (select void_for_linking-tezos-client-011-PtHangz2-commands-registration from
    (tezos-client-011-PtHangz2-commands-registration -> void_for_linking-tezos-client-011-PtHangz2-commands-registration.empty)
    (-> void_for_linking-tezos-client-011-PtHangz2-commands-registration.empty))
+  (select void_for_linking-tezos-client-012-Psithaca-commands-registration from
+   (tezos-client-012-Psithaca-commands-registration -> void_for_linking-tezos-client-012-Psithaca-commands-registration.empty)
+   (-> void_for_linking-tezos-client-012-Psithaca-commands-registration.empty))
   (select void_for_linking-tezos-client-alpha-commands-registration from
    (tezos-client-alpha-commands-registration -> void_for_linking-tezos-client-alpha-commands-registration.empty)
    (-> void_for_linking-tezos-client-alpha-commands-registration.empty))
-
-            ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-            ; If you modify this file around here, modify src/bin_proxy_server/dune too! ;
-            ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-  (select void_for_linking-tezos-baking-010-PtGRANAD-commands-registration from
-   (tezos-baking-010-PtGRANAD-commands.registration -> void_for_linking-tezos-baking-010-PtGRANAD-commands-registration.empty)
-   (-> void_for_linking-tezos-baking-010-PtGRANAD-commands-registration.empty))
   (select void_for_linking-tezos-baking-011-PtHangz2-commands-registration from
    (tezos-baking-011-PtHangz2-commands.registration -> void_for_linking-tezos-baking-011-PtHangz2-commands-registration.empty)
    (-> void_for_linking-tezos-baking-011-PtHangz2-commands-registration.empty))
+  (select void_for_linking-tezos-baking-012-Psithaca-commands-registration from
+   (tezos-baking-012-Psithaca-commands.registration -> void_for_linking-tezos-baking-012-Psithaca-commands-registration.empty)
+   (-> void_for_linking-tezos-baking-012-Psithaca-commands-registration.empty))
   (select void_for_linking-tezos-baking-alpha-commands-registration from
    (tezos-baking-alpha-commands.registration -> void_for_linking-tezos-baking-alpha-commands-registration.empty)
    (-> void_for_linking-tezos-baking-alpha-commands-registration.empty))
@@ -100,6 +95,9 @@
   (select void_for_linking-tezos-protocol-plugin-011-PtHangz2 from
    (tezos-protocol-plugin-011-PtHangz2 -> void_for_linking-tezos-protocol-plugin-011-PtHangz2.empty)
    (-> void_for_linking-tezos-protocol-plugin-011-PtHangz2.empty))
+  (select void_for_linking-tezos-protocol-plugin-012-Psithaca from
+   (tezos-protocol-plugin-012-Psithaca -> void_for_linking-tezos-protocol-plugin-012-Psithaca.empty)
+   (-> void_for_linking-tezos-protocol-plugin-012-Psithaca.empty))
   (select void_for_linking-tezos-protocol-plugin-alpha from
    (tezos-protocol-plugin-alpha -> void_for_linking-tezos-protocol-plugin-alpha.empty)
    (-> void_for_linking-tezos-protocol-plugin-alpha.empty)))
@@ -133,15 +131,17 @@
    (write-file void_for_linking-tezos-client-009-PsFLoren-commands-registration.empty "")
    (write-file void_for_linking-tezos-client-010-PtGRANAD-commands-registration.empty "")
    (write-file void_for_linking-tezos-client-011-PtHangz2-commands-registration.empty "")
+   (write-file void_for_linking-tezos-client-012-Psithaca-commands-registration.empty "")
    (write-file void_for_linking-tezos-client-alpha-commands-registration.empty "")
-   (write-file void_for_linking-tezos-baking-010-PtGRANAD-commands-registration.empty "")
    (write-file void_for_linking-tezos-baking-011-PtHangz2-commands-registration.empty "")
+   (write-file void_for_linking-tezos-baking-012-Psithaca-commands-registration.empty "")
    (write-file void_for_linking-tezos-baking-alpha-commands-registration.empty "")
    (write-file void_for_linking-tezos-protocol-plugin-007-PsDELPH1.empty "")
    (write-file void_for_linking-tezos-protocol-plugin-008-PtEdo2Zk.empty "")
    (write-file void_for_linking-tezos-protocol-plugin-009-PsFLoren.empty "")
    (write-file void_for_linking-tezos-protocol-plugin-010-PtGRANAD.empty "")
    (write-file void_for_linking-tezos-protocol-plugin-011-PtHangz2.empty "")
+   (write-file void_for_linking-tezos-protocol-plugin-012-Psithaca.empty "")
    (write-file void_for_linking-tezos-protocol-plugin-alpha.empty ""))))
 
 (install

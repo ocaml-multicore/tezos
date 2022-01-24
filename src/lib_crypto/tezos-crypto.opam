@@ -1,3 +1,5 @@
+# This file was automatically generated, do not edit.
+# Edit file manifest/main.ml instead.
 opam-version: "2.0"
 maintainer: "contact@tezos.com"
 authors: ["Tezos devteam"]
@@ -15,13 +17,13 @@ depends: [
   "tezos-error-monad"
   "tezos-rpc"
   "tezos-stdlib"
-  "ringo" { = "0.5" }
+  "ringo" { = "0.7" }
   "zarith" { >= "1.12" & < "1.13" }
   "zarith_stubs_js"
   "tezos-hacl-glue-unix" {with-test}
   "alcotest" { with-test & >= "1.5.0" }
   "alcotest-lwt" { with-test & >= "1.5.0" }
-  "qcheck-alcotest" {with-test}
+  "qcheck-alcotest" { with-test & >= "0.15" }
   "tezos-test-helpers" {with-test}
 ]
 build: [

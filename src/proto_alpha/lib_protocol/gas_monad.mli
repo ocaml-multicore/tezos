@@ -40,6 +40,10 @@ type ('a, 'trace) gas_monad = ('a, 'trace) t
 (** monadic return operator of the gas monad *)
 val return : 'a -> ('a, 'trace) t
 
+(** Specialized monadic return operator for unit value, strictly equivalent to
+    [return ()]. *)
+val return_unit : (unit, 'trace) t
+
 (** Binding operator for the gas monad *)
 val ( >>$ ) : ('a, 'trace) t -> ('a -> ('b, 'trace) t) -> ('b, 'trace) t
 
@@ -52,7 +56,7 @@ val ( >?$ ) : ('a, 'trace) t -> ('a -> ('b, 'trace) result) -> ('b, 'trace) t
 
 (** Another variant of [( >>$ )] that lets recover from inner errors *)
 val ( >??$ ) :
-  ('a, 'trace) t -> (('a, 'trace) result -> ('b, 'trace) t) -> ('b, 'trace) t
+  ('a, 'trace) t -> (('a, 'trace) result -> ('b, 'trace') t) -> ('b, 'trace') t
 
 (** gas-free embedding of tzresult values. [of_result x] is equivalent to [return () >?$ fun () -> x] *)
 val of_result : ('a, 'trace) result -> ('a, 'trace) t
@@ -62,10 +66,15 @@ val of_result : ('a, 'trace) result -> ('a, 'trace) t
     for details.*)
 val consume_gas : Gas.cost -> (unit, 'trace) t
 
-(** Escaping the gas monad *)
+(** Escaping the gas monad. If the given context has [unlimited] mode enabled,
+    through [Gas.set_unlimited], no gas is consumed. *)
 val run : context -> ('a, 'trace) t -> (('a, 'trace) result * context) tzresult
 
 (** re-export of [Error_monad.record_trace_eval]. This function has no
-    effect in the case of a gas-exhaustion error. *)
+    effect in the case of a gas-exhaustion error
+    or if [error_details] is [Fast]. *)
 val record_trace_eval :
-  (unit -> 'err) -> ('a, 'err trace) t -> ('a, 'err trace) t
+  error_details:'error_trace Script_tc_errors.error_details ->
+  (unit -> error) ->
+  ('a, 'error_trace) t ->
+  ('a, 'error_trace) t

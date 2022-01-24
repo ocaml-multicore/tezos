@@ -1,6 +1,7 @@
-(env
- (static
-  (flags (:standard -ccopt -static -cclib "-lusb-1.0 -lhidapi-libusb -ludev"))))
+; This file was automatically generated, do not edit.
+; Edit file manifest/main.ml instead.
+
+(env (static (flags (:standard -ccopt -static))))
 
 (executable
  (name main_signer)

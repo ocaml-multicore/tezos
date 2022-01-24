@@ -1,3 +1,5 @@
+# This file was automatically generated, do not edit.
+# Edit file manifest/main.ml instead.
 opam-version: "2.0"
 maintainer: "contact@tezos.com"
 authors: ["Tezos devteam"]
@@ -24,6 +26,7 @@ depopts: [
   "tezos-client-009-PsFLoren"
   "tezos-client-010-PtGRANAD"
   "tezos-client-011-PtHangz2"
+  "tezos-client-012-Psithaca"
   "tezos-client-alpha"
 ]
 build: [

@@ -1,6 +1,7 @@
-(env
- (static
-  (flags (:standard -ccopt -static -cclib "-lusb-1.0 -lhidapi-libusb -ludev"))))
+; This file was automatically generated, do not edit.
+; Edit file manifest/main.ml instead.
+
+(env (static (flags (:standard -ccopt -static))))
 
 (executable
  (name codec)
@@ -37,6 +38,9 @@
   (select void_for_linking-tezos-client-011-PtHangz2 from
    (tezos-client-011-PtHangz2 -> void_for_linking-tezos-client-011-PtHangz2.empty)
    (-> void_for_linking-tezos-client-011-PtHangz2.empty))
+  (select void_for_linking-tezos-client-012-Psithaca from
+   (tezos-client-012-Psithaca -> void_for_linking-tezos-client-012-Psithaca.empty)
+   (-> void_for_linking-tezos-client-012-Psithaca.empty))
   (select void_for_linking-tezos-client-alpha from
    (tezos-client-alpha -> void_for_linking-tezos-client-alpha.empty)
    (-> void_for_linking-tezos-client-alpha.empty)))
@@ -61,4 +65,5 @@
    (write-file void_for_linking-tezos-client-009-PsFLoren.empty "")
    (write-file void_for_linking-tezos-client-010-PtGRANAD.empty "")
    (write-file void_for_linking-tezos-client-011-PtHangz2.empty "")
+   (write-file void_for_linking-tezos-client-012-Psithaca.empty "")
    (write-file void_for_linking-tezos-client-alpha.empty ""))))

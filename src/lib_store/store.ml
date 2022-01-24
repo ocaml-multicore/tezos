@@ -1351,10 +1351,16 @@ module Chain = struct
              which will be updated by the merge finalizer. *)
           Stored_data.write chain_state.checkpoint_data new_checkpoint
           >>=? fun () ->
+          Prometheus.Gauge.set
+            Store_metrics.metrics.checkpoint_level
+            (Int32.to_float (snd new_checkpoint)) ;
           Stored_data.write chain_state.current_head_data new_head_descr
           >>=? fun () ->
           Stored_data.write chain_state.alternate_heads_data new_alternate_heads
           >>=? fun () ->
+          Prometheus.Gauge.set
+            Store_metrics.metrics.alternate_heads_count
+            (Int.to_float (List.length new_alternate_heads)) ;
           Stored_data.write chain_state.target_data new_target >>=? fun () ->
           (* Update live_data *)
           locked_compute_live_blocks
@@ -1455,14 +1461,12 @@ module Chain = struct
       known_heads chain_store >>= fun heads ->
       genesis_block chain_store >>= fun genesis ->
       let best = genesis in
-      List.fold_left
+      List.fold_left_es
         (fun best (hash, _level) ->
-          let valid_predecessor_t = find_valid_predecessor hash in
-          best >>=? fun best ->
-          valid_predecessor_t >>=? fun pred ->
+          find_valid_predecessor hash >>=? fun pred ->
           if Fitness.(Block.fitness pred > Block.fitness best) then return pred
           else return best)
-        (return best)
+        best
         heads
 
   let set_target chain_store new_target =
@@ -1724,6 +1728,10 @@ module Chain = struct
     >>=? fun () ->
     Stored_data.load (Naming.checkpoint_file chain_dir)
     >>=? fun checkpoint_data ->
+    Stored_data.get checkpoint_data >>= fun (_, checkpoint_level) ->
+    Prometheus.Gauge.set
+      Store_metrics.metrics.checkpoint_level
+      (Int32.to_float checkpoint_level) ;
     Stored_data.load (Naming.target_file chain_dir) >>=? fun target_data ->
     Stored_data.load (Naming.invalid_blocks_file chain_dir)
     >>=? fun invalid_blocks_data ->

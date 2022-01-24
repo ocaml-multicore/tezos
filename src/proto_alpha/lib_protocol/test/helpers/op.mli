@@ -62,7 +62,7 @@ val transaction :
   ?gas_limit:Gas.Arith.integral ->
   ?storage_limit:Z.t ->
   ?parameters:Script.lazy_expr ->
-  ?entrypoint:string ->
+  ?entrypoint:Entrypoint.t ->
   Context.t ->
   Contract.t ->
   Contract.t ->
@@ -157,6 +157,14 @@ val combine_operations :
   packed_operation list ->
   packed_operation tzresult Lwt.t
 
+(** Batch a list of (already signed) operations and (re-)sign with the [source].
+    No revelation is inserted and the counters are kept as they are. *)
+val batch_operations :
+  source:Contract.t ->
+  Context.t ->
+  packed_operation list ->
+  packed_operation tzresult Lwt.t
+
 (** Reveals a seed_nonce that was previously committed at a certain level *)
 val seed_nonce_revelation :
   Context.t -> Raw_level.t -> Nonce.t -> Operation.packed
@@ -194,3 +202,17 @@ val tx_rollup_origination :
   Context.t ->
   Contract.t ->
   (Operation.packed * Tx_rollup.t) tzresult Lwt.t
+
+(** [sc_rollup_origination ctxt source kind boot_sector] originates a new
+    smart contract rollup of some given [kind] booting using [boot_sector].
+    The process is the same as in [tx_rollup_origination]. *)
+val sc_rollup_origination :
+  ?counter:counter ->
+  ?fee:Tez.t ->
+  ?gas_limit:Gas.Arith.integral ->
+  ?storage_limit:counter ->
+  Context.t ->
+  Contract.t ->
+  Sc_rollup.Kind.t ->
+  Sc_rollup.PVM.boot_sector ->
+  packed_operation tzresult Lwt.t

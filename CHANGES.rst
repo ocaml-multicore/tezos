@@ -23,6 +23,55 @@ be documented here either.
 Node
 ----
 
+- The RPC GET `/chains/main/mempool/pending_operations` does not
+  output unparsable operations anymore. Previously, they were in the
+  ``Refused`` field with a parsing error.
+
+- Added an optional parameter ``media-type``.
+  It defines which format of data serialisation must be used for RPC requests to the node.
+  The value can be  ``json``, ``binary`` or ``any``. By default, the value is set to ``any``.
+
+- The ``ithacanet`` network alias now denotes the configuration for
+  the Ithacanet test network that uses Ithaca2 (``Psithaca2``)
+  instead of the initial Ithacanet test network that used Ithaca (``PsiThaCa``).
+
+Client
+------
+
+- A new ``--force`` option was added to the ``transfer`` command. It
+  makes the client inject the transaction in a node even if the
+  simulation of the transaction fails.
+
+- A new ``--self-address`` option was added to the ``run script``
+  command. It makes the given address be considered the address of
+  the contract being run. The address must actually exist in the
+  context. If ``--balance`` wasn't specified, the script also
+  inherits the given contract's balance.
+
+Baker / Endorser / Accuser
+--------------------------
+
+Proxy server
+------------
+
+Protocol Compiler And Environment
+---------------------------------
+
+Codec
+-----
+
+Docker Images
+-------------
+
+Miscellaneous
+-------------
+
+Version 12.0~rc1
+================
+
+Node
+----
+
 - UNIX errors are now displayed using human-friendly English instead of error codes.
 
 - Manager operations do no longer need to be executed before being
@@ -33,12 +82,15 @@ Node
   (aka the mempool).
 
 - The following RPCs output format changed:
+
   1. ``/workers/block_validator``,
   2. ``/workers/chain_validators``,
   3. ``/workers/chain_validators/<chain_id>``,
   4. ``/workers/chain_validator/<chain_id>/peer_validators``,
   5. ``/workers/chain_validator/<chain_id>/peer_validators/<peer_id>``,
-  6. ``/workers/prevalidators``.
+  6. ``/workers/prevalidators``,
+  7. ``/chains/<chain_id>/mempool/filter``.
+
   The field ``backlog`` is removed. Those logs can be obtained via the
   node itself. Logging can be redirected to a file via the option
   ``--log-file``. External tools such as ``logrotate`` can be used to
@@ -46,6 +98,7 @@ Node
 
 - The node configuration format is changed. The
   following paths are removed:
+
   1. ``shell.chain_validator.limits.worker_backlog_size``
   2. ``shell.chain_validator.limits.worker_backlog_level``
   3. ``shell.peer_validator.limits.worker_backlog_size``
@@ -58,7 +111,7 @@ Node
   If those fields are present in your configuration file, they can
   simply be removed.
 
-- Added version ``1`` to RPC ``GET chains/main/mempool/pending_operations``.
+- Added version ``1`` to RPC ``GET /chains/main/mempool/pending_operations``.
   It can be used by calling the RPC with the parameter ``?version=1``
   (default version is still ``0``).
 
@@ -66,32 +119,32 @@ Node
   without having to restart the node. See also the new documentation pages
   related to logging.
 
--  Better handling of mempool cache in the `distributed_db` which
-   should make the `distributed_db` RAM consumption strongly
-   correlated to the one of the mempool.
+- Better handling of mempool cache in the `distributed_db` which
+  should make the `distributed_db` RAM consumption strongly
+  correlated to the one of the mempool.
 
--  Fixed RPC GET ``/chains/<chain_id>/mempool/filter``, that did not
-   show fields of the filter configuration that were equal to their
-   default value: e.g. if the configuration was the default one, it
-   just returned ``{}``. Now displays all the fields by default. The
-   old behavior may be brought back by setting the new optional
-   parameter ``include_default`` to ``false``.
+- Fixed RPC GET ``/chains/<chain_id>/mempool/filter``, that did not
+  show fields of the filter configuration that were equal to their
+  default value: e.g. if the configuration was the default one, it
+  just returned ``{}``. Now displays all the fields by default. The
+  old behavior may be brought back by setting the new optional
+  parameter ``include_default`` to ``false``.
 
--  Changed the behavior of RPC POST ``/chains/<chain_id>/mempool/filter``
-   when provided an input json that does not describe a valid filter
-   configuration. It used to revert the filter back to the default
-   configuration in that case, but now it leaves it unchanged. (Note:
-   if the input json is valid but does not provide all the fields of
-   the filter configuration, then any missing field is set back to its
-   default value, rather than left unchanged. This is the same
-   behavior as the previous version of the RPC.) As this behavior may
-   be confusing, the RPC now returns the new filter configuration of
-   the mempool.
+- Changed the behavior of RPC POST ``/chains/<chain_id>/mempool/filter``
+  when provided an input json that does not describe a valid filter
+  configuration. It used to revert the filter back to the default
+  configuration in that case, but now it leaves it unchanged. (Note:
+  if the input json is valid but does not provide all the fields of
+  the filter configuration, then any missing field is set back to its
+  default value, rather than left unchanged. This is the same
+  behavior as the previous version of the RPC.) As this behavior may
+  be confusing, the RPC now returns the new filter configuration of
+  the mempool.
 
--  When encoded in binary, errors now have a single size field. This only
-   affects the binary representation of errors or values that include errors
-   inside. It may break the compatibility for tools that request binary-only
-   answers from the node and parse the errors by hand.
+- When encoded in binary, errors now have a single size field. This only
+  affects the binary representation of errors or values that include errors
+  inside. It may break the compatibility for tools that request binary-only
+  answers from the node and parse the errors by hand.
 
 - Added a new mempool's classification for the recently introduced
   outdated error category of protocols in environment v4.
@@ -116,15 +169,31 @@ Node
 - The prevalidator (which handles operations which have been received but not
   yet included in a block) was made more restrictive: it now accepts a single
   manager operation from a given manager for a given block. This limitation
-  was already present implicitely if you were using the `tezos-client` commands.
+  was already present implicitly if you were using the `tezos-client` commands.
   Batches of operations can be used to get around this restriction, see the
   `multiple transfers` command to learn more. In addition, operations
   rejected because of this limitation are solely delayed to a future block.
 
--  Removed support for store versions 0.0.4 (used by Octez 9.7) or below.
-   It is no longer possible to run ``tezos-node upgrade storage`` to upgrade
-   from those older versions. It is also no longer possible to import
-   snapshots that were exported using this version.
+- Removed support for store versions 0.0.4 (used by Octez 9.7) or below.
+  It is no longer possible to run ``tezos-node upgrade storage`` to upgrade
+  from those older versions. It is also no longer possible to import
+  snapshots that were exported using this version.
+
+- Fixed an inconsistency of the cache: the shell now reloads the cache
+  from scratch if the application fails because of a hash
+  inconsistency.
+
+- Removed the ``granadanet`` built-in network alias.
+
+- Added the ``ithacanet`` built-in network alias.
+
+- Added an option ``--listen-prometheus <PORT>`` to ``tezos-node run`` to
+  expose some metrics using the Prometheus format.
+
+- Added two optional fields, ``replace_by_fee_factor`` and
+  ``max_prechecked_manager_operations`` to ``/chains/<chain_id>/mempool/filter``
+  in order to control when the mempool accepts a manager operation replacement,
+  and how many manager operations we keep in the prechecked classification.
 
 Client
 ------
@@ -135,13 +204,39 @@ Client
   The media accept header indicates to the node which format of data serialisation is supported.
   The value can be  ``json``, ``binary`` or ``any``.
 
+- Renamed the ``--mempool`` option into ``--operations-pool``.
+  The format of the file passed as parameter has changed from the one of RPC
+  ``pending_operations`` (that is, a key-value dictionary whose values are list
+  of operations) to a single list of operations to be considered for inclusion.
+
+- ``--operations-pool`` option supports URL parameters to fetch remote mempools
+  through HTTP.  Environment variable `TEZOS_CLIENT_REMOTE_OPERATIONS_POOL_HTTP_HEADERS`
+  may be set to specify custom HTTP headers. Only the Host header is supported
+  as of now (see description in `rfc2616, section 14.23
+  <https://datatracker.ietf.org/doc/html/rfc2616#section-14.23>`_)
+
+- Added new option ``--ignore-node-mempool`` to the ``bake for`` command
+  to avoid querying the node's mempool when baking a block.
+
 - Added two options, ``--now`` and ``--level`` to the ``run script``
-  and ``run view`` commands simulating exectution of Michelson
+  and ``run view`` commands simulating execution of Michelson
   code. These options can be used to override the values normally
   returned by the ``NOW`` and ``LEVEL`` instructions.
 
 - The output of ``tezos-client``'s RPC commands now uses the format specified by the ``--media-type``.
 
+- Added new option ``--replace`` to ``transfer`` and ``multiple transfers`` commands.
+  This option allows a manager to inject a transfer or a smart contract call
+  operation (with more fees) to replace an existing one in the node's mempool.
+  This option should only be used to inject in nodes whose prevalidators use
+  the new validation scheme of manager operations (called ``operations
+  precheck``) instead of fully applying the operation in a prevalidation block.
+  Note that there are no guarantees on which operation will possibly be
+  included in a block. For instance, the second operation may arrive too late to
+  the baker, in which case, the latter might includes the first operation and
+  the second one becomes invalid.
+
+`
 Baker / Endorser / Accuser
 --------------------------
 
@@ -150,17 +245,10 @@ Baker / Endorser / Accuser
   The media accept header indicates to the node which format of data serialisation is supported.
   The value can be ``json``, ``binary`` or ``any``.
 
-Proxy server
-------------
+- Ported the ``--operations-pool`` option of the ``bake for`` command of the client
+  to the baker daemon.
 
-Protocol Compiler And Environment
----------------------------------
-
-Codec
------
-
-Docker Images
--------------
+-  Removed baker, endorser and accuser for Granada.
 
 Miscellaneous
 -------------
@@ -181,6 +269,19 @@ Miscellaneous
    Micheline expressions whose primitives are ``strings``. The difference is
    returned as another Micheline expression annotated appropriately in places
    where compared values differ.
+
+Version 11.1
+============
+
+-  Octez can now be compiled using opam 2.1 instead of requiring opam 2.0.
+
+-  ADX instructions have been disabled in Docker images and static binaries.
+   This makes it possible to use them on older CPUs.
+
+-  Fixed an incorrect behaviour of the store which could cause the node
+   to freeze for a few seconds.
+
+-  Reduced the memory consumption of the snapshot import.
 
 Version 11.0
 ============

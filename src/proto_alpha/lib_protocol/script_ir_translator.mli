@@ -2,6 +2,7 @@
 (*                                                                           *)
 (* Open Source License                                                       *)
 (* Copyright (c) 2018 Dynamic Ledger Solutions, Inc. <contact@tezos.com>     *)
+(* Copyright (c) 2021-2022 Nomadic Labs <contact@nomadic-labs.com>           *)
 (*                                                                           *)
 (* Permission is hereby granted, free of charge, to any person obtaining a   *)
 (* copy of this software and associated documentation files (the "Software"),*)
@@ -124,15 +125,7 @@ type ('a, 's, 'b, 'u) descr = {
   instr : ('a, 's, 'b, 'u) cinstr;
 }
 
-type tc_context =
-  | Lambda : tc_context
-  | Dip : ('a, 's) Script_typed_ir.stack_ty * tc_context -> tc_context
-  | Toplevel : {
-      storage_type : 'sto Script_typed_ir.ty;
-      param_type : 'param Script_typed_ir.ty;
-      root_name : Script_ir_annot.field_annot option;
-    }
-      -> tc_context
+type tc_context = Script_tc_context.t
 
 type ('a, 's) judgement =
   | Typed : ('a, 's, 'b, 'u) descr -> ('a, 's) judgement
@@ -152,16 +145,11 @@ val close_descr :
 *)
 type unparsing_mode = Optimized | Readable | Optimized_legacy
 
-type merge_type_error_flag = Default_merge_type_error | Fast_merge_type_error
-
 (* ---- Lists, Sets and Maps ----------------------------------------------- *)
 
 (** {2 High-level Michelson Data Types} *)
 type type_logger =
-  Script.location ->
-  (Script.expr * Script.annot) list ->
-  (Script.expr * Script.annot) list ->
-  unit
+  Script.location -> Script.expr list -> Script.expr list -> unit
 
 (** Create an empty big_map *)
 val empty_big_map :
@@ -210,12 +198,12 @@ val ty_eq :
 
 val merge_types :
   legacy:bool ->
-  merge_type_error_flag:merge_type_error_flag ->
+  error_details:'error_trace error_details ->
   Script.location ->
   'a Script_typed_ir.ty ->
   'b Script_typed_ir.ty ->
   ( ('a Script_typed_ir.ty, 'b Script_typed_ir.ty) eq * 'a Script_typed_ir.ty,
-    error trace )
+    'error_trace )
   Gas_monad.t
 
 (** {3 Parsing and Typechecking Michelson} *)
@@ -350,7 +338,6 @@ val parse_toplevel :
 
 val add_field_annot :
   Script_ir_annot.field_annot option ->
-  Script_ir_annot.var_annot option ->
   ('loc, 'prim) Micheline.node ->
   ('loc, 'prim) Micheline.node
 
@@ -406,7 +393,7 @@ val parse_contract :
   Script.location ->
   'a Script_typed_ir.ty ->
   Contract.t ->
-  entrypoint:string ->
+  entrypoint:Entrypoint.t ->
   (context * 'a Script_typed_ir.typed_contract) tzresult Lwt.t
 
 val parse_contract_for_script :
@@ -414,16 +401,15 @@ val parse_contract_for_script :
   Script.location ->
   'a Script_typed_ir.ty ->
   Contract.t ->
-  entrypoint:string ->
+  entrypoint:Entrypoint.t ->
   (context * 'a Script_typed_ir.typed_contract option) tzresult Lwt.t
 
 val find_entrypoint :
+  error_details:'error_trace error_details ->
   't Script_typed_ir.ty ->
   root_name:Script_ir_annot.field_annot option ->
-  string ->
-  ((Script.node -> Script.node) * ex_ty) tzresult
-
-module Entrypoints_map : Map.S with type key = string
+  Entrypoint.t ->
+  ((Script.node -> Script.node) * ex_ty, 'error_trace) result
 
 val list_entrypoints :
   't Script_typed_ir.ty ->
@@ -431,7 +417,7 @@ val list_entrypoints :
   root_name:Script_ir_annot.field_annot option ->
   (Michelson_v1_primitives.prim list list
   * (Michelson_v1_primitives.prim list * Script.unlocated_michelson_node)
-    Entrypoints_map.t)
+    Entrypoint.Map.t)
   tzresult
 
 val pack_data :
