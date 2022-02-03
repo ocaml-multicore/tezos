@@ -31,7 +31,7 @@ conf_packages="conf-gmp conf-libev conf-pkg-config conf-hidapi conf-autoconf con
 # `--depext-only`:
 case $(opam --version) in
     2.0.* ) opam_depext_command="opam depext $conf_packages" ;;
-    * ) opam_depext_command="opam install --depext-only $conf_packages" ;;
+    * ) opam_depext_command="opam install --depext-only --unlock-base $conf_packages" ;;
 esac
 ## ShellCheck does not fail when non-quoted variables are at the beginning
 ## of a command:
@@ -45,4 +45,4 @@ $opam_depext_command
 # will be intepreted as a string and not as a list of strings leading to
 # an error.
 # shellcheck disable=SC2086
-opam install $opams --deps-only --with-test --criteria="-notuptodate,-changed,-removed"
+opam install $opams --deps-only --with-test --unlock-base --criteria="-notuptodate,-changed,-removed"
