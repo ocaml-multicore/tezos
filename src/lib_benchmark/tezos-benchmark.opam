@@ -17,7 +17,6 @@ depends: [
   "prbnmcn-stats" { = "0.0.2" }
   "benchmark-utils"
   "pyml-plot"
-  "ocaml-migrate-parsetree"
   "hashcons"
 ]
 build: [
