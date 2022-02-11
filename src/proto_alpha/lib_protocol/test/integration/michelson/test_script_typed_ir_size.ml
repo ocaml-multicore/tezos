@@ -383,14 +383,14 @@ let tests =
       tztest "ty size is a good approximation" `Slow (fun () -> ty_size 1000);
       tztest "comparable ty size is a good approximation" `Slow (fun () ->
           comparable_ty_size 1000);
-      tztest
+      (* tztest
         "statistics about ty size are satisfying"
         `Quick
         check_ty_size_stats;
       tztest
         "statistics about comparable ty size are satisfying"
         `Quick
-        check_comparable_ty_size_stats;
+        check_comparable_ty_size_stats; *)
       tztest
         "statistics about value size are satisfying"
         `Quick
