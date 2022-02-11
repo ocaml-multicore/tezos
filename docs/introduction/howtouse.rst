@@ -435,14 +435,15 @@ Once it receives a block with the operation inside it will return the
 receipt.
 
 It is advisable to wait for several blocks to consider the transaction as
-final, and for an important operation we advise to wait for 60 blocks.
+final.
+Please refer to the :doc:`consensus algorithm documentation <../active/consensus>` and `analysis <https://research-development.nomadic-labs.com/faster-finality-with-emmy.html>`__ to better understand block finality in Tezos.
+`This page <https://nomadic-labs.gitlab.io/emmyplus-experiments/>`__ provides concrete values for the number of blocks one should wait.
 
 In the rare case when an operation is lost, how can we be sure that it
 will not be included in any future block, and then we may re-emit it?
-After 60 blocks a transaction is considered invalid and can't be
+After 120 blocks a transaction is considered invalid and can't be
 included anymore in a block.
-Furthermore each operation has a counter (explained in more detail
-later) that prevents replays so it is usually safe to re-emit an
+Furthermore each operation has a counter that prevents replays so it is usually safe to re-emit an
 operation that seems lost.
 
 
@@ -667,6 +668,10 @@ The behavior of the client can be configured using the following environment var
   If this variable is not set, or otherwise cannot be parsed as a positive integer, a default value of ``10`` seconds is used for each call.
   The two RPC calls this variable affects are queries that the client makes to the node in order to determine:
   (1) the protocol version of the node it connects to, and (2) the commands supported in that version.
+- `TEZOS_CLIENT_REMOTE_OPERATIONS_POOL_HTTP_HEADERS`: This variable specifies
+  custom HTTP headers to use with the ``--operations-pool`` option. Only the Host
+  header is supported as of now (see description in `rfc2616, section 14.23
+  <https://datatracker.ietf.org/doc/html/rfc2616#section-14.23>`_
 
 Other binaries
 --------------

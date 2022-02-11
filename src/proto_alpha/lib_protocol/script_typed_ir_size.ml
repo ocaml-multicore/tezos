@@ -1,7 +1,7 @@
 (*****************************************************************************)
 (*                                                                           *)
 (* Open Source License                                                       *)
-(* Copyright (c) 2021 Nomadic Labs, <contact@nomadic-labs.com>               *)
+(* Copyright (c) 2021-2022 Nomadic Labs <contact@nomadic-labs.com>           *)
 (*                                                                           *)
 (* Permission is hereby granted, free of charge, to any person obtaining a   *)
 (* copy of this software and associated documentation files (the "Software"),*)
@@ -29,100 +29,87 @@ include Cache_memory_helpers
 
 let script_string_size s = Script_string.to_string s |> string_size
 
-(* The model assumes that annotations' sizes are counted once in the
-   Micheline representation and that the strings are always
-   shared. (One can check that they are never copied.) Besides, the
-   following types are unboxed so that they have no tags. *)
-let type_annot_size (Script_ir_annot.Type_annot _) = !!0
-
-let field_annot_size (Script_ir_annot.Field_annot _) = !!0
-
-let var_annot_size (Script_ir_annot.Var_annot _) = !!0
-
 (* Memo-sizes are 16-bit integers *)
 let sapling_memo_size_size = !!0
 
 let (comparable_ty_size, ty_size) =
-  let base {annot; size = _} = hh3w +! option_size type_annot_size annot in
+  let base_basic _meta =
+    !!0
+    (* Basic types count for 0 because they are all static values, hence shared
+       and not counted by `reachable_words`.
+       On the other hand compound types are functions, hence not shared. *)
+  in
+  let base_compound _meta = h1w in
   let apply_comparable :
       type a. nodes_and_size -> a comparable_ty -> nodes_and_size =
    fun accu cty ->
     match cty with
-    | Unit_key a -> ret_succ_adding accu (base a)
-    | Int_key a -> ret_succ_adding accu (base a)
-    | Nat_key a -> ret_succ_adding accu (base a)
-    | Signature_key a -> ret_succ_adding accu (base a)
-    | String_key a -> ret_succ_adding accu (base a)
-    | Bytes_key a -> ret_succ_adding accu (base a)
-    | Mutez_key a -> ret_succ_adding accu (base a)
-    | Key_hash_key a -> ret_succ_adding accu (base a)
-    | Key_key a -> ret_succ_adding accu (base a)
-    | Timestamp_key a -> ret_succ_adding accu (base a)
-    | Address_key a -> ret_succ_adding accu (base a)
-    | Bool_key a -> ret_succ_adding accu (base a)
-    | Chain_id_key a -> ret_succ_adding accu (base a)
-    | Never_key a -> ret_succ_adding accu (base a)
-    | Pair_key ((_ty1, fa1), (_ty2, fa2), a) ->
-        ret_succ_adding accu
-        @@ base a +! hh6w
-           +! option_size field_annot_size fa1
-           +! option_size field_annot_size fa2
-    | Union_key ((_ty1, fa1), (_ty2, fa2), a) ->
-        ret_succ_adding accu
-        @@ base a +! hh6w
-           +! option_size field_annot_size fa1
-           +! option_size field_annot_size fa2
-    | Option_key (_ty, a) -> ret_succ_adding accu @@ (base a +! word_size)
+    | Unit_key a -> ret_succ_adding accu (base_basic a)
+    | Int_key a -> ret_succ_adding accu (base_basic a)
+    | Nat_key a -> ret_succ_adding accu (base_basic a)
+    | Signature_key a -> ret_succ_adding accu (base_basic a)
+    | String_key a -> ret_succ_adding accu (base_basic a)
+    | Bytes_key a -> ret_succ_adding accu (base_basic a)
+    | Mutez_key a -> ret_succ_adding accu (base_basic a)
+    | Key_hash_key a -> ret_succ_adding accu (base_basic a)
+    | Key_key a -> ret_succ_adding accu (base_basic a)
+    | Timestamp_key a -> ret_succ_adding accu (base_basic a)
+    | Address_key a -> ret_succ_adding accu (base_basic a)
+    | Bool_key a -> ret_succ_adding accu (base_basic a)
+    | Chain_id_key a -> ret_succ_adding accu (base_basic a)
+    | Never_key a -> ret_succ_adding accu (base_basic a)
+    | Pair_key ((_ty1, _fa1), (_ty2, _fa2), a) ->
+        ret_succ_adding accu @@ (base_compound a +! hh6w)
+    | Union_key ((_ty1, _fa1), (_ty2, _fa2), a) ->
+        ret_succ_adding accu @@ (base_compound a +! hh6w)
+    | Option_key (_ty, a) ->
+        ret_succ_adding accu @@ (base_compound a +! word_size)
   and apply : type a. nodes_and_size -> a ty -> nodes_and_size =
    fun accu ty ->
     match ty with
-    | Unit_t a -> ret_succ_adding accu @@ base a
-    | Int_t a -> ret_succ_adding accu @@ base a
-    | Nat_t a -> ret_succ_adding accu @@ base a
-    | Signature_t a -> ret_succ_adding accu @@ base a
-    | String_t a -> ret_succ_adding accu @@ base a
-    | Bytes_t a -> ret_succ_adding accu @@ base a
-    | Mutez_t a -> ret_succ_adding accu @@ base a
-    | Key_hash_t a -> ret_succ_adding accu @@ base a
-    | Key_t a -> ret_succ_adding accu @@ base a
-    | Timestamp_t a -> ret_succ_adding accu @@ base a
-    | Address_t a -> ret_succ_adding accu @@ base a
-    | Bool_t a -> ret_succ_adding accu @@ base a
-    | Operation_t a -> ret_succ_adding accu @@ base a
-    | Chain_id_t a -> ret_succ_adding accu @@ base a
-    | Never_t a -> ret_succ_adding accu @@ base a
-    | Bls12_381_g1_t a -> ret_succ_adding accu @@ base a
-    | Bls12_381_g2_t a -> ret_succ_adding accu @@ base a
-    | Bls12_381_fr_t a -> ret_succ_adding accu @@ base a
-    | Chest_key_t a -> ret_succ_adding accu @@ base a
-    | Chest_t a -> ret_succ_adding accu @@ base a
-    | Pair_t ((_ty1, fa1, va1), (_ty2, fa2, va2), a) ->
-        ret_succ_adding accu
-        @@ base a +! hh8w
-           +! option_size field_annot_size fa1
-           +! option_size var_annot_size va1
-           +! option_size field_annot_size fa2
-           +! option_size var_annot_size va2
-    | Union_t ((_ty1, fa1), (_ty2, fa2), a) ->
-        ret_succ_adding accu
-        @@ base a +! hh6w
-           +! option_size field_annot_size fa1
-           +! option_size field_annot_size fa2
+    | Unit_t a -> ret_succ_adding accu @@ base_basic a
+    | Int_t a -> ret_succ_adding accu @@ base_basic a
+    | Nat_t a -> ret_succ_adding accu @@ base_basic a
+    | Signature_t a -> ret_succ_adding accu @@ base_basic a
+    | String_t a -> ret_succ_adding accu @@ base_basic a
+    | Bytes_t a -> ret_succ_adding accu @@ base_basic a
+    | Mutez_t a -> ret_succ_adding accu @@ base_basic a
+    | Key_hash_t a -> ret_succ_adding accu @@ base_basic a
+    | Key_t a -> ret_succ_adding accu @@ base_basic a
+    | Timestamp_t a -> ret_succ_adding accu @@ base_basic a
+    | Address_t a -> ret_succ_adding accu @@ base_basic a
+    | Bool_t a -> ret_succ_adding accu @@ base_basic a
+    | Operation_t a -> ret_succ_adding accu @@ base_basic a
+    | Chain_id_t a -> ret_succ_adding accu @@ base_basic a
+    | Never_t a -> ret_succ_adding accu @@ base_basic a
+    | Bls12_381_g1_t a -> ret_succ_adding accu @@ base_basic a
+    | Bls12_381_g2_t a -> ret_succ_adding accu @@ base_basic a
+    | Bls12_381_fr_t a -> ret_succ_adding accu @@ base_basic a
+    | Chest_key_t a -> ret_succ_adding accu @@ base_basic a
+    | Chest_t a -> ret_succ_adding accu @@ base_basic a
+    | Pair_t ((_ty1, _fa1), (_ty2, _fa2), a) ->
+        ret_succ_adding accu @@ (base_compound a +! hh6w)
+    | Union_t ((_ty1, _fa1), (_ty2, _fa2), a) ->
+        ret_succ_adding accu @@ (base_compound a +! hh6w)
     | Lambda_t (_ty1, _ty2, a) ->
-        ret_succ_adding accu @@ (base a +! (word_size *? 2))
-    | Option_t (_ty, a) -> ret_succ_adding accu @@ (base a +! word_size)
-    | List_t (_ty, a) -> ret_succ_adding accu @@ (base a +! word_size)
-    | Set_t (_cty, a) -> ret_succ_adding accu @@ (base a +! word_size)
+        ret_succ_adding accu @@ (base_compound a +! (word_size *? 2))
+    | Option_t (_ty, a) -> ret_succ_adding accu @@ (base_compound a +! word_size)
+    | List_t (_ty, a) -> ret_succ_adding accu @@ (base_compound a +! word_size)
+    | Set_t (_cty, a) -> ret_succ_adding accu @@ (base_compound a +! word_size)
     | Map_t (_cty, _ty, a) ->
-        ret_succ_adding accu @@ (base a +! (word_size *? 2))
+        ret_succ_adding accu @@ (base_compound a +! (word_size *? 2))
     | Big_map_t (_cty, _ty, a) ->
-        ret_succ_adding accu @@ (base a +! (word_size *? 2))
-    | Contract_t (_ty, a) -> ret_succ_adding accu @@ (base a +! word_size)
+        ret_succ_adding accu @@ (base_compound a +! (word_size *? 2))
+    | Contract_t (_ty, a) ->
+        ret_succ_adding accu @@ (base_compound a +! word_size)
     | Sapling_transaction_t (_m, a) ->
-        ret_succ_adding accu @@ (base a +! sapling_memo_size_size +! word_size)
+        ret_succ_adding accu
+        @@ (base_compound a +! sapling_memo_size_size +! word_size)
     | Sapling_state_t (_m, a) ->
-        ret_succ_adding accu @@ (base a +! sapling_memo_size_size +! word_size)
-    | Ticket_t (_cty, a) -> ret_succ_adding accu @@ (base a +! word_size)
+        ret_succ_adding accu
+        @@ (base_compound a +! sapling_memo_size_size +! word_size)
+    | Ticket_t (_cty, a) ->
+        ret_succ_adding accu @@ (base_compound a +! word_size)
   in
   let f = ({apply; apply_comparable} : nodes_and_size ty_traverse) in
   ( (fun cty -> comparable_ty_traverse cty zero f),
@@ -133,10 +120,7 @@ let stack_ty_size s =
    fun accu s ->
     match s with
     | Bot_t -> ret_succ accu
-    | Item_t (ty, _, annot) ->
-        ret_succ_adding
-          (accu ++ ty_size ty)
-          (h3w +! option_size var_annot_size annot)
+    | Item_t (ty, _) -> ret_succ_adding (accu ++ ty_size ty) h2w
   in
   stack_ty_traverse s zero {apply}
 
@@ -164,7 +148,10 @@ let timestamp_size x = Script_timestamp.to_zint x |> z_size
 
 let contract_size = Contract.in_memory_size
 
-let address_size ((c, s) : address) = h2w +! contract_size c +! string_size s
+let address_size addr =
+  h2w
+  +! contract_size addr.contract
+  +! Entrypoint.in_memory_size addr.entrypoint
 
 let view_signature_size (View_signature {name; input_ty; output_ty}) =
   ret_adding
@@ -192,7 +179,7 @@ let comb_set_gadt_witness_size = peano_shape_proof
 
 let dup_n_gadt_witness_size = peano_shape_proof
 
-let contract_size (arg_ty, address) =
+let contract_size {arg_ty; address} =
   ret_adding (ty_size arg_ty) (h2w +! address_size address)
 
 let sapling_state_size {Sapling.id; diff; memo_size = _} =
@@ -201,13 +188,10 @@ let sapling_state_size {Sapling.id; diff; memo_size = _} =
   +! Sapling.diff_in_memory_size diff
   +! sapling_memo_size_size
 
-let operation_size
-    (operation :
-      packed_internal_operation * Lazy_storage.diffs_item list option) =
-  let (poi, diffs) = operation in
+let operation_size {piop; lazy_storage_diff} =
   ret_adding
-    (Operation.packed_internal_operation_in_memory_size poi
-    ++ option_size_vec Lazy_storage.diffs_in_memory_size diffs)
+    (Operation.packed_internal_operation_in_memory_size piop
+    ++ option_size_vec Lazy_storage.diffs_in_memory_size lazy_storage_diff)
     h2w
 
 let chain_id_size = h1w +? Chain_id.size
@@ -226,7 +210,7 @@ let chest_size chest =
   *)
   let locked_value_size = 256 in
   let rsa_public_size = 256 in
-  let ciphertext_size = Timelock.get_plaintext_size chest in
+  let ciphertext_size = Script_timelock.get_plaintext_size chest in
   h3w +? (locked_value_size + rsa_public_size + ciphertext_size)
 
 let chest_key_size _ =
@@ -288,11 +272,11 @@ let rec value_size :
     | Option_t (_, _) -> ret_succ_adding accu (option_size (fun _ -> !!0) x)
     | List_t (_, _) -> ret_succ_adding accu (h2w +! (h2w *? x.length))
     | Set_t (_, _) ->
-        let module M = (val x) in
+        let module M = (val Script_set.get x) in
         let boxing_space = !!300 in
         ret_succ_adding accu (boxing_space +! (h4w *? M.size))
     | Map_t (_, _, _) ->
-        let module M = (val x) in
+        let module M = (val Script_map.get_module x) in
         let boxing_space = !!300 in
         ret_succ_adding accu (boxing_space +! (h5w *? M.size))
     | Big_map_t (cty, ty', _) ->
@@ -548,19 +532,18 @@ and kinstr_size :
     | IContract (kinfo, ty, s, _) ->
         ret_succ_adding
           (accu ++ ty_size ty)
-          (base kinfo +! string_size s +! (word_size *? 2))
+          (base kinfo +! Entrypoint.in_memory_size s +! (word_size *? 2))
     | IView (kinfo, s, _) ->
         ret_succ_adding (accu ++ view_signature_size s) (base kinfo +! word_size)
     | ITransfer_tokens (kinfo, _) -> ret_succ_adding accu (base kinfo)
     | IImplicit_account (kinfo, _) -> ret_succ_adding accu (base kinfo)
     | ICreate_contract
-        {kinfo; storage_type; arg_type; lambda; root_name; views; k = _} ->
+        {kinfo; storage_type; arg_type; lambda; root_name = _; views; k = _} ->
         let accu =
           ret_succ_adding
             (accu ++ ty_size storage_type ++ ty_size arg_type
            ++ views_size views)
-            (base kinfo +! (word_size *? 4)
-            +! option_size field_annot_size root_name)
+            (base kinfo +! (word_size *? 4))
         in
         (lambda_size [@ocaml.tailcall]) ~count_lambda_nodes accu lambda
     | ISet_delegate (kinfo, _) -> ret_succ_adding accu (base kinfo)
@@ -581,7 +564,7 @@ and kinstr_size :
     | ISelf (kinfo, ty, s, _) ->
         ret_succ_adding
           (accu ++ ty_size ty)
-          (base kinfo +! (word_size *? 2) +! string_size s)
+          (base kinfo +! (word_size *? 2) +! Entrypoint.in_memory_size s)
     | ISelf_address (kinfo, _) -> ret_succ_adding accu (base kinfo)
     | IAmount (kinfo, _) -> ret_succ_adding accu (base kinfo)
     | ISapling_empty_state (kinfo, _m, _) ->
@@ -697,42 +680,42 @@ let rec kinstr_extra_size : type a s r f. (a, s, r, f) kinstr -> nodes_and_size
          to create a type that is embedded in the IR. *)
       | IJoin_tickets (_, _, k) -> (
           let kinfo = Script_typed_ir.kinfo_of_kinstr k in
-          match kinfo.kstack_ty with Item_t (ty, _, _) -> ty_size ty)
+          match kinfo.kstack_ty with Item_t (ty, _) -> ty_size ty)
       | ITicket (_, k) -> (
           let kinfo = Script_typed_ir.kinfo_of_kinstr k in
-          match kinfo.kstack_ty with Item_t (ty, _, _) -> ty_size ty)
+          match kinfo.kstack_ty with Item_t (ty, _) -> ty_size ty)
       | IRead_ticket (_, k) -> (
           let kinfo = Script_typed_ir.kinfo_of_kinstr k in
-          match kinfo.kstack_ty with Item_t (ty, _, _) -> ty_size ty)
+          match kinfo.kstack_ty with Item_t (ty, _) -> ty_size ty)
       | ICons_list (_, k) -> (
           let kinfo = Script_typed_ir.kinfo_of_kinstr k in
-          match kinfo.kstack_ty with Item_t (ty, _, _) -> ty_size ty)
+          match kinfo.kstack_ty with Item_t (ty, _) -> ty_size ty)
       | IMap_update (_, k) -> (
           let kinfo = Script_typed_ir.kinfo_of_kinstr k in
-          match kinfo.kstack_ty with Item_t (ty, _, _) -> ty_size ty)
+          match kinfo.kstack_ty with Item_t (ty, _) -> ty_size ty)
       | IMap_get_and_update (_, k) -> (
           let kinfo = Script_typed_ir.kinfo_of_kinstr k in
-          match kinfo.kstack_ty with Item_t (ty, _, _) -> ty_size ty)
+          match kinfo.kstack_ty with Item_t (ty, _) -> ty_size ty)
       | IBig_map_get_and_update (_, k) -> (
           let kinfo = Script_typed_ir.kinfo_of_kinstr k in
-          match kinfo.kstack_ty with Item_t (ty, _, _) -> ty_size ty)
+          match kinfo.kstack_ty with Item_t (ty, _) -> ty_size ty)
       | IApply (_, ty, _) -> ty_size ty
       | ICompare (_, ty, _) -> comparable_ty_size ty
       | IList_iter (_, body, _) -> (
           let kinfo = Script_typed_ir.kinfo_of_kinstr body in
-          match kinfo.kstack_ty with Item_t (ty, _, _) -> ty_size ty)
+          match kinfo.kstack_ty with Item_t (ty, _) -> ty_size ty)
       | IList_map (_, body, _) -> (
           let kinfo = Script_typed_ir.kinfo_of_kinstr body in
-          match kinfo.kstack_ty with Item_t (ty, _, _) -> ty_size ty)
+          match kinfo.kstack_ty with Item_t (ty, _) -> ty_size ty)
       | ISet_iter (_, body, _) -> (
           let kinfo = Script_typed_ir.kinfo_of_kinstr body in
-          match kinfo.kstack_ty with Item_t (ty, _, _) -> ty_size ty)
+          match kinfo.kstack_ty with Item_t (ty, _) -> ty_size ty)
       | IMap_map (_, body, _) -> (
           let kinfo = Script_typed_ir.kinfo_of_kinstr body in
-          match kinfo.kstack_ty with Item_t (ty, _, _) -> ty_size ty)
+          match kinfo.kstack_ty with Item_t (ty, _) -> ty_size ty)
       | IMap_iter (_, body, _) -> (
           let kinfo = Script_typed_ir.kinfo_of_kinstr body in
-          match kinfo.kstack_ty with Item_t (ty, _, _) -> ty_size ty)
+          match kinfo.kstack_ty with Item_t (ty, _) -> ty_size ty)
       | ILambda (_, lambda, _) -> lambda_extra_size lambda
       | ICreate_contract {lambda; _} -> lambda_extra_size lambda
       | _ -> zero
@@ -767,3 +750,11 @@ let kinstr_size kinstr =
   (Nodes.add kinstr_nodes kinstr_extra_size_nodes, size)
 
 let value_size ty x = value_size ~count_lambda_nodes:true zero (L ty) x
+
+module Internal_for_tests = struct
+  let ty_size = ty_size
+
+  let comparable_ty_size = comparable_ty_size
+
+  let kinstr_size = kinstr_size
+end

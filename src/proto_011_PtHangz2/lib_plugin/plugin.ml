@@ -248,12 +248,20 @@ module Mempool = struct
       (fun () -> Wrong_operation)
 
   let pre_filter config ~filter_state:_ ?validation_state_before
-      (Operation_data {contents; _} as op : Operation.packed_protocol_data) =
+      ({shell = _; protocol_data = Operation_data {contents; _} as op} :
+        Main.operation) =
     let bytes =
       (WithExceptions.Option.get ~loc:__LOC__
       @@ Data_encoding.Binary.fixed_length
            Tezos_base.Operation.shell_header_encoding)
       + Data_encoding.Binary.length Operation.protocol_data_encoding op
+    in
+    let prefilter_manager_op op =
+      match pre_filter_manager config op bytes with
+      | `Passed_prefilter -> `Passed_prefilter (`Low [])
+      | (`Branch_refused _ | `Branch_delayed _ | `Refused _ | `Outdated _) as
+        err ->
+          err
     in
     (match contents with
     | Single (Endorsement _) | Single (Failing_noop _) ->
@@ -269,13 +277,13 @@ module Mempool = struct
             _;
           }) -> (
         match validation_state_before with
-        | None -> `Passed_prefilter
+        | None -> `Passed_prefilter `High
         | Some {ctxt; mode; _} -> (
             match mode with
             | Partial_construction {predecessor} ->
                 if Block_hash.(predecessor = branch) then
                   (* conensus operation for the current head. *)
-                  `Passed_prefilter
+                  `Passed_prefilter `High
                 else
                   let current_level = (Level.current ctxt).level in
                   let delta = Raw_level.diff current_level level in
@@ -294,13 +302,12 @@ module Mempool = struct
     | Single (Activate_account _)
     | Single (Proposals _)
     | Single (Ballot _) ->
-        `Passed_prefilter
-    | Single (Manager_operation _) as op -> pre_filter_manager config op bytes
-    | Cons (Manager_operation _, _) as op -> pre_filter_manager config op bytes)
+        `Passed_prefilter (`Low [])
+    | Single (Manager_operation _) as op -> prefilter_manager_op op
+    | Cons (Manager_operation _, _) as op -> prefilter_manager_op op)
     |> fun res -> Lwt.return res
 
-  let precheck _ ~filter_state:_ ~validation_state:_ _ _ _ =
-    Lwt.return `Undecided
+  let precheck _ ~filter_state:_ ~validation_state:_ _ _ = Lwt.return `Undecided
 
   open Apply_results
 

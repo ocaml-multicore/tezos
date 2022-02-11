@@ -1,9 +1,3 @@
-docs/introduction/compile-sources.sh
-docs/introduction/install-bin-fedora.sh
-docs/introduction/install-bin-ubuntu.sh
-docs/introduction/install-opam-scratch.sh
-docs/introduction/install-opam.sh
-docs/introduction/use-docker-hangzhounet.sh
 scripts/baker-version-stats.sh
 scripts/ci/create_docker_image.build.sh
 scripts/ci/create_docker_image.minimal.sh
@@ -13,7 +7,6 @@ scripts/ci/docker_registry_read.sh
 scripts/ci/docker_registry_tag.sh
 scripts/create_docker_image.sh
 scripts/install_sapling_parameters.sh
-scripts/link_protocol.sh
 scripts/opam-check.sh
 scripts/opam-remove.sh
 scripts/opam-upgrade.sh

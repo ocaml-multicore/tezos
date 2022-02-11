@@ -124,14 +124,31 @@ let bson =
   }
 
 let octet_stream =
-  let construct_bytes enc v = Data_encoding.Binary.to_bytes_exn enc v in
-  let construct_string enc v = Data_encoding.Binary.to_string_exn enc v in
+  let dynsize enc =
+    (* We add a size header to all the binary exchanges between server and
+       client *)
+    Data_encoding.dynamic_size enc
+  in
+  let construct_bytes enc v =
+    Data_encoding.Binary.to_bytes_exn (dynsize enc) v
+  in
+  let construct_string enc v =
+    Data_encoding.Binary.to_string_exn (dynsize enc) v
+  in
   {
     name = Cohttp.Accept.MediaType ("application", "octet-stream");
     q = Some 200;
     pp =
       (fun enc ppf raw ->
-        match Data_encoding.Binary.of_string enc raw with
+        match Data_encoding.Binary.of_string (dynsize enc) raw with
+        | Error Data_encoding.Binary.Not_enough_data ->
+            Format.fprintf
+              ppf
+              "Partial read (%d bytes), waiting for more data (Not enough \
+               data): %a"
+              (String.length raw)
+              Hex.pp
+              (Hex.of_string raw)
         | Error re ->
             Format.fprintf
               ppf
@@ -143,7 +160,7 @@ let octet_stream =
               ppf
               ";; binary equivalent of the following json@.%a"
               Data_encoding.Json.pp
-              (Data_encoding.Json.construct enc v));
+              (Data_encoding.Json.construct (dynsize enc) v));
     construct = construct_string;
     construct_seq =
       (fun enc v ->
@@ -151,7 +168,7 @@ let octet_stream =
         Seq.return (b, 0, Bytes.length b));
     destruct =
       (fun enc s ->
-        match Data_encoding.Binary.of_string enc s with
+        match Data_encoding.Binary.of_string (dynsize enc) s with
         | Error re ->
             Error
               (Format.asprintf
@@ -188,3 +205,26 @@ let of_content_type c =
   else if c = Content_type.bson then Some bson
   else if c = Content_type.octet_stream then Some octet_stream
   else None
+
+module Command_line = struct
+  type t = Any | Json | Binary
+
+  let parse_cli_parameter = function
+    | "json" -> Some Json
+    | "binary" -> Some Binary
+    | "any" -> Some Any
+    | _ -> None
+
+  let of_command_line = function
+    | Any -> all_media_types
+    | Binary -> [octet_stream]
+    | Json -> [json; bson]
+
+  let pp_parameter ppf = function
+    | Any -> Format.fprintf ppf "any"
+    | Binary -> Format.fprintf ppf "json"
+    | Json -> Format.fprintf ppf "any"
+
+  let encoding =
+    Data_encoding.string_enum [("json", Json); ("binary", Binary); ("any", Any)]
+end

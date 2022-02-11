@@ -40,7 +40,7 @@ type error += Reject of Script.location * Script.expr * execution_trace option
 
 type error += Overflow of Script.location * execution_trace option
 
-type error += Runtime_contract_error : Contract.t * Script.expr -> error
+type error += Runtime_contract_error of Contract.t
 
 type error += Bad_contract_parameter of Contract.t (* `Permanent *)
 
@@ -62,6 +62,7 @@ type step_constants = Script_typed_ir.step_constants = {
   payer : Contract.t;
   self : Contract.t;
   amount : Tez.t;
+  balance : Tez.t;
   chain_id : Chain_id.t;
   now : Script_timestamp.t;
   level : Script_int.n Script_int.num;
@@ -104,7 +105,7 @@ val execute :
   Script_ir_translator.unparsing_mode ->
   step_constants ->
   script:Script.t ->
-  entrypoint:string ->
+  entrypoint:Entrypoint.t ->
   parameter:Script.expr ->
   internal:bool ->
   (execution_result * (Script_ir_translator.ex_script * int)) tzresult Lwt.t

@@ -168,7 +168,13 @@ struct
 
   module Compare = Compare
   module Seq = Tezos_error_monad.TzLwtreslib.Seq
-  module List = Tezos_error_monad.TzLwtreslib.List
+
+  module List = struct
+    include Tezos_error_monad.TzLwtreslib.List
+
+    include Tezos_protocol_environment_structs.V3.M.Lwtreslib_list_combine
+  end
+
   module Char = Char
   module Bytes = Bytes
   module Hex = Hex
@@ -1033,48 +1039,7 @@ struct
 
   module Context = struct
     include Context
-
-    type depth = [`Eq of int | `Le of int | `Lt of int | `Ge of int | `Gt of int]
-
-    module type VIEW = sig
-      include Environment_context.VIEW
-
-      val fold :
-        ?depth:depth ->
-        t ->
-        key ->
-        init:'a ->
-        f:(key -> tree -> 'a -> 'a Lwt.t) ->
-        'a Lwt.t
-    end
-
-    module Kind = struct
-      type t = [`Value | `Tree]
-    end
-
-    module type TREE = sig
-      type t
-
-      type tree
-
-      include VIEW with type t := tree and type tree := tree
-
-      val empty : t -> tree
-
-      val is_empty : tree -> bool
-
-      val kind : tree -> Kind.t
-
-      val to_value : tree -> value option Lwt.t
-
-      val of_value : t -> value -> tree Lwt.t
-
-      val hash : tree -> Context_hash.t
-
-      val equal : tree -> tree -> bool
-
-      val clear : ?depth:int -> tree -> unit
-    end
+    include Environment_context.V3
 
     let fold ?depth ctxt k ~init ~f =
       Context.fold ?depth ctxt k ~order:`Sorted ~init ~f

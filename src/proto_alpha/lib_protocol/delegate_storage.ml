@@ -629,43 +629,13 @@ module Random = struct
     return (c, (pk, pkh))
 end
 
-(* Round robin delegate selection. This is only used for testing purposes. *)
-module Round_robin = struct
-  let over level slot delegates =
-    let nth_mod n l =
-      match List.nth_opt l (n mod List.length l) with
-      | None -> assert false
-      | Some x -> x
-    in
-    let level_int = Int32.to_int level.Level_repr.level_position in
-    if Compare.Int.(level_int = 0) then
-      (* dummy case for level 0 *)
-      nth_mod 0 delegates |> nth_mod 0 |> return
-    else
-      let adjusted_level = level_int - 1 in
-      let n_defined_levels = List.length delegates in
-      if Compare.Int.(adjusted_level < n_defined_levels) then
-        nth_mod adjusted_level delegates |> nth_mod slot |> return
-      else
-        let delegates =
-          match List.rev delegates with [] -> assert false | last :: _ -> last
-        in
-        nth_mod (level_int - n_defined_levels + slot) delegates |> return
-end
-
-let slot_owner c level slot =
-  match (Constants_storage.parametric c).delegate_selection with
-  | Random -> Random.owner c level (Slot_repr.to_int slot)
-  | Round_robin_over delegates ->
-      Round_robin.over level (Slot_repr.to_int slot) delegates >|=? fun pk ->
-      (c, (pk, Signature.Public_key.hash pk))
+let slot_owner c level slot = Random.owner c level (Slot_repr.to_int slot)
 
 let baking_rights_owner c (level : Level_repr.t) ~round =
   Round_repr.to_int round >>?= fun round ->
   let consensus_committee_size = Constants_storage.consensus_committee_size c in
-  let pos = round mod consensus_committee_size in
-  slot_owner c level pos >>=? fun (ctxt, pk) ->
-  return (ctxt, Slot_repr.of_int_do_not_use_except_for_parameters pos, pk)
+  Slot_repr.of_int (round mod consensus_committee_size) >>?= fun slot ->
+  slot_owner c level slot >>=? fun (ctxt, pk) -> return (ctxt, slot, pk)
 
 let already_slashed_for_double_endorsing ctxt delegate (level : Level_repr.t) =
   Storage.Slashed_deposits.find (ctxt, level.cycle) (level.level, delegate)

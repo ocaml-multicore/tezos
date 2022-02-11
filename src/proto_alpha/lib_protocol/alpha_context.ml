@@ -2,7 +2,7 @@
 (*                                                                           *)
 (* Open Source License                                                       *)
 (* Copyright (c) 2018 Dynamic Ledger Solutions, Inc. <contact@tezos.com>     *)
-(* Copyright (c) 2019-2020 Nomadic Labs <contact@nomadic-labs.com>           *)
+(* Copyright (c) 2019-2022 Nomadic Labs <contact@nomadic-labs.com>           *)
 (*                                                                           *)
 (* Permission is hereby granted, free of charge, to any person obtaining a   *)
 (* copy of this software and associated documentation files (the "Software"),*)
@@ -52,9 +52,18 @@ end
 module Slot = struct
   include Slot_repr
 
-  let slot_range = List.slot_range
+  type slot_range = List.t
+
+  let slot_range ~min ~count = List.slot_range ~min ~count
 end
 
+module Sc_rollup = struct
+  include Sc_rollup_repr
+  include Sc_rollup_storage
+  module Inbox = Sc_rollup_inbox
+end
+
+module Entrypoint = Entrypoint_repr
 include Operation_repr
 
 module Operation = struct
@@ -439,6 +448,7 @@ let description = Raw_context.description
 
 module Parameters = Parameters_repr
 module Liquidity_baking = Liquidity_baking_repr
+module Ticket_hash = Ticket_hash_repr
 
 module Ticket_balance = struct
   include Ticket_storage

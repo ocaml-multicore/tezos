@@ -2,7 +2,7 @@
 (*                                                                           *)
 (* Open Source License                                                       *)
 (* Copyright (c) 2018 Dynamic Ledger Solutions, Inc. <contact@tezos.com>     *)
-(* Copyright (c) 2019-2021 Nomadic Labs <contact@nomadic-labs.com>           *)
+(* Copyright (c) 2019-2022 Nomadic Labs <contact@nomadic-labs.com>           *)
 (* Copyright (c) 2021 Trili Tech, <contact@trili.tech>                       *)
 (*                                                                           *)
 (* Permission is hereby granted, free of charge, to any person obtaining a   *)
@@ -73,13 +73,15 @@ module Slot : sig
 
   val zero : t
 
-  val succ : t -> t
+  val succ : t -> t tzresult
 
   val of_int_do_not_use_except_for_parameters : int -> t
 
   val encoding : t Data_encoding.encoding
 
-  val slot_range : min:int -> count:int -> t list tzresult
+  type slot_range = private t list
+
+  val slot_range : min:int -> count:int -> slot_range tzresult
 
   module Map : Map.S with type key = t
 
@@ -87,7 +89,11 @@ module Slot : sig
 end
 
 module Tez : sig
-  include BASIC_DATA
+  type repr
+
+  type t = Tez_tag of repr [@@ocaml.unboxed]
+
+  include BASIC_DATA with type t := t
 
   type tez = t
 
@@ -449,6 +455,8 @@ module Gas : sig
   val cost_of_repr : Gas_limit_repr.cost -> cost
 end
 
+module Entrypoint : module type of Entrypoint_repr
+
 module Script_string : module type of Script_string_repr
 
 module Script_int : module type of Script_int_repr
@@ -456,7 +464,9 @@ module Script_int : module type of Script_int_repr
 module Script_timestamp : sig
   open Script_int
 
-  type t
+  type repr
+
+  type t = Timestamp_tag of repr [@@ocaml.unboxed]
 
   val compare : t -> t -> int
 
@@ -702,10 +712,6 @@ module Constants : sig
   (** Fixed constants *)
   type fixed
 
-  type delegate_selection =
-    | Random
-    | Round_robin_over of Signature.Public_key.t list list
-
   val fixed_encoding : fixed Data_encoding.t
 
   val proof_of_work_nonce_size : int
@@ -760,9 +766,14 @@ module Constants : sig
     frozen_deposits_percentage : int;
     double_baking_punishment : Tez.t;
     ratio_of_frozen_deposits_slashed_per_double_endorsement : ratio;
-    delegate_selection : delegate_selection;
+    initial_seed : State_hash.t option;
+    cache_script_size : int;
+    cache_stake_distribution_cycles : int;
+    cache_sampler_state_cycles : int;
     tx_rollup_enable : bool;
     tx_rollup_origination_size : int;
+    sc_rollup_enable : bool;
+    sc_rollup_origination_size : int;
   }
 
   module Generated : sig
@@ -848,7 +859,9 @@ module Constants : sig
 
   val tx_rollup_origination_size : context -> int
 
-  val delegate_selection_encoding : delegate_selection Data_encoding.t
+  val sc_rollup_enable : context -> bool
+
+  val sc_rollup_origination_size : context -> int
 
   (** All constants: fixed and parametric *)
   type t = private {fixed : fixed; parametric : parametric}
@@ -967,11 +980,7 @@ module Cache : sig
 
     val pp : Format.formatter -> context -> unit
 
-    val set_cache_layout : context -> size list -> context Lwt.t
-
     val sync : context -> cache_nonce:Bytes.t -> context Lwt.t
-
-    val clear : context -> context
 
     val future_cache_expectation : context -> time_in_blocks:int -> context
 
@@ -1149,7 +1158,7 @@ end
 
 module Big_map : sig
   module Id : sig
-    type t
+    type t = Lazy_storage_kind.Big_map.Id.t
 
     val encoding : t Data_encoding.t
 
@@ -1322,7 +1331,10 @@ module Lazy_storage : sig
     | Remove
     | Update of {init : ('id, 'alloc) init; updates : 'updates}
 
-  type diffs_item
+  type diffs_item = private
+    | Item :
+        ('i, 'a, 'u) Lazy_storage_kind.t * 'i * ('i, 'a, 'u) diff
+        -> diffs_item
 
   val make : ('i, 'a, 'u) Kind.t -> 'i -> ('i, 'a, 'u) diff -> diffs_item
 
@@ -1766,6 +1778,48 @@ module Vote : sig
   val clear_current_proposal : context -> context tzresult Lwt.t
 end
 
+(** See {!Sc_rollup_storage} and {!Sc_rollup_repr}. *)
+module Sc_rollup : sig
+  module PVM : sig
+    type boot_sector
+
+    val boot_sector_of_string : string -> boot_sector
+  end
+
+  module Address : S.HASH
+
+  type t = Address.t
+
+  module Kind : sig
+    type t = Example_arith
+
+    val encoding : t Data_encoding.t
+  end
+
+  val originate :
+    context ->
+    kind:Kind.t ->
+    boot_sector:PVM.boot_sector ->
+    (t * Z.t * context) tzresult Lwt.t
+
+  val kind : context -> t -> Kind.t option tzresult Lwt.t
+
+  module Inbox : sig
+    type t
+
+    val encoding : t Data_encoding.encoding
+
+    val pp : Format.formatter -> t -> unit
+  end
+
+  val rpc_arg : t RPC_arg.t
+
+  val add_messages :
+    context -> t -> string list -> (Inbox.t * Z.t * context) tzresult Lwt.t
+
+  val inbox : context -> t -> (Inbox.t * context) tzresult Lwt.t
+end
+
 module Block_payload : sig
   val hash :
     predecessor:Block_hash.t ->
@@ -1894,6 +1948,28 @@ module Block_header : sig
     unit tzresult
 end
 
+(** This module re-exports functions from {!Ticket_hash_repr}. See
+    documentation of the functions there. *)
+module Ticket_hash : sig
+  type t
+
+  val encoding : t Data_encoding.t
+
+  val pp : Format.formatter -> t -> unit
+
+  val equal : t -> t -> bool
+
+  val compare : t -> t -> int
+
+  val make :
+    context ->
+    ticketer:Script.node ->
+    typ:Script.node ->
+    contents:Script.node ->
+    owner:Script.node ->
+    (t * context) tzresult
+end
+
 module Kind : sig
   type preendorsement_consensus_kind = Preendorsement_consensus_kind
 
@@ -1942,6 +2018,10 @@ module Kind : sig
 
   type tx_rollup_origination = Tx_rollup_origination_kind
 
+  type sc_rollup_originate = Sc_rollup_originate_kind
+
+  type sc_rollup_add_messages = Sc_rollup_add_messages_kind
+
   type 'a manager =
     | Reveal_manager_kind : reveal manager
     | Transaction_manager_kind : transaction manager
@@ -1950,6 +2030,8 @@ module Kind : sig
     | Register_global_constant_manager_kind : register_global_constant manager
     | Set_deposits_limit_manager_kind : set_deposits_limit manager
     | Tx_rollup_origination_manager_kind : tx_rollup_origination manager
+    | Sc_rollup_originate_manager_kind : sc_rollup_originate manager
+    | Sc_rollup_add_messages_manager_kind : sc_rollup_add_messages manager
 end
 
 type 'a consensus_operation_type =
@@ -2046,7 +2128,7 @@ and _ manager_operation =
   | Transaction : {
       amount : Tez.tez;
       parameters : Script.lazy_expr;
-      entrypoint : string;
+      entrypoint : Entrypoint.t;
       destination : Contract.contract;
     }
       -> Kind.transaction manager_operation
@@ -2068,6 +2150,16 @@ and _ manager_operation =
       Tez.t option
       -> Kind.set_deposits_limit manager_operation
   | Tx_rollup_origination : Kind.tx_rollup_origination manager_operation
+  | Sc_rollup_originate : {
+      kind : Sc_rollup.Kind.t;
+      boot_sector : Sc_rollup.PVM.boot_sector;
+    }
+      -> Kind.sc_rollup_originate manager_operation
+  | Sc_rollup_add_messages : {
+      rollup : Sc_rollup.t;
+      messages : string list;
+    }
+      -> Kind.sc_rollup_add_messages manager_operation
 
 and counter = Z.t
 
@@ -2213,6 +2305,11 @@ module Operation : sig
 
     val set_deposits_limit_case : Kind.set_deposits_limit Kind.manager case
 
+    val sc_rollup_originate_case : Kind.sc_rollup_originate Kind.manager case
+
+    val sc_rollup_add_messages_case :
+      Kind.sc_rollup_add_messages Kind.manager case
+
     module Manager_operations : sig
       type 'b case =
         | MCase : {
@@ -2238,6 +2335,10 @@ module Operation : sig
       val set_deposits_limit_case : Kind.set_deposits_limit case
 
       val tx_rollup_origination_case : Kind.tx_rollup_origination case
+
+      val sc_rollup_originate_case : Kind.sc_rollup_originate case
+
+      val sc_rollup_add_messages_case : Kind.sc_rollup_add_messages case
     end
   end
 
@@ -2375,22 +2476,11 @@ end
     documentation of the functions there.
  *)
 module Ticket_balance : sig
-  type key_hash
-
-  val script_expr_hash_of_key_hash : key_hash -> Script_expr_hash.t
-
-  val make_key_hash :
-    context ->
-    ticketer:Script.node ->
-    typ:Script.node ->
-    contents:Script.node ->
-    owner:Script.node ->
-    (key_hash * context) tzresult
-
   val adjust_balance :
-    context -> key_hash -> delta:Z.t -> (Z.t * context) tzresult Lwt.t
+    context -> Ticket_hash.t -> delta:Z.t -> (Z.t * context) tzresult Lwt.t
 
-  val get_balance : context -> key_hash -> (Z.t option * context) tzresult Lwt.t
+  val get_balance :
+    context -> Ticket_hash.t -> (Z.t option * context) tzresult Lwt.t
 end
 
 module First_level_of_tenderbake : sig
@@ -2491,6 +2581,14 @@ module Fees : sig
     context ->
     storage_limit:Z.t ->
     payer:Token.source ->
+    (context * Z.t * Receipt.balance_updates) tzresult Lwt.t
+
+  val burn_sc_rollup_origination_fees :
+    ?origin:Receipt.update_origin ->
+    context ->
+    storage_limit:Z.t ->
+    payer:Token.source ->
+    Z.t ->
     (context * Z.t * Receipt.balance_updates) tzresult Lwt.t
 
   type error += Cannot_pay_storage_fee (* `Temporary *)

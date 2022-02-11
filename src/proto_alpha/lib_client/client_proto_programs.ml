@@ -51,7 +51,15 @@ module Program = Client_aliases.Alias (struct
   let name = "script"
 end)
 
-let print_errors ?parsed (cctxt : #Client_context.printer) errs ~show_source =
+let print_errors ?parsed (cctxt : #Protocol_client_context.full) errs
+    ~show_source =
+  Michelson_v1_error_reporter.enrich_runtime_errors
+    cctxt
+    ~chain:cctxt#chain
+    ~block:cctxt#block
+    ~parsed
+    errs
+  >>= fun errs ->
   cctxt#warning
     "%a"
     (Michelson_v1_error_reporter.report_errors
@@ -62,7 +70,7 @@ let print_errors ?parsed (cctxt : #Client_context.printer) errs ~show_source =
   >>= fun () ->
   cctxt#error "error running script" >>= fun () -> return_unit
 
-let print_view_result (cctxt : #Client_context.printer) = function
+let print_view_result (cctxt : #Protocol_client_context.full) = function
   | Ok expr -> cctxt#message "%a" print_expr expr >>= fun () -> return_unit
   | Error errs -> print_errors cctxt ~show_source:false errs
 
@@ -125,16 +133,17 @@ type simulation_params = {
 type run_view_params = {
   shared_params : simulation_params;
   contract : Contract.t;
-  entrypoint : string;
+  entrypoint : Entrypoint.t;
 }
 
 type run_params = {
   shared_params : simulation_params;
   amount : Tez.t option;
-  balance : Tez.t;
+  balance : Tez.t option;
   program : Michelson_v1_parser.parsed;
   storage : Michelson_v1_parser.parsed;
-  entrypoint : string option;
+  entrypoint : Entrypoint.t option;
+  self : Contract.t option;
 }
 
 let run_view (cctxt : #Protocol_client_context.rpc_context)
@@ -171,6 +180,7 @@ let run (cctxt : #Protocol_client_context.rpc_context)
     balance;
     storage;
     entrypoint;
+    self;
   } =
     params
   in
@@ -185,10 +195,11 @@ let run (cctxt : #Protocol_client_context.rpc_context)
     ~storage:storage.expanded
     ~input:input.expanded
     ~amount
-    ~balance
+    ?balance
     ~chain_id
     ~source
     ~payer
+    ~self
     ~now
     ~level
 
@@ -202,6 +213,7 @@ let trace (cctxt : #Protocol_client_context.rpc_context)
     balance;
     storage;
     entrypoint;
+    self;
   } =
     params
   in
@@ -216,10 +228,11 @@ let trace (cctxt : #Protocol_client_context.rpc_context)
     ~storage:storage.expanded
     ~input:input.expanded
     ~amount
-    ~balance
+    ?balance
     ~chain_id
     ~source
     ~payer
+    ~self
     ~now
     ~level
 

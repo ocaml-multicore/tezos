@@ -1,3 +1,5 @@
+# This file was automatically generated, do not edit.
+# Edit file manifest/main.ml instead.
 opam-version: "2.0"
 maintainer: "contact@tezos.com"
 authors: ["Tezos devteam"]
@@ -15,7 +17,7 @@ depends: [
   "tezos-shell-services"
   "alcotest-lwt" { with-test & >= "1.5.0" }
   "ocplib-endian"
-  "fmt"
+  "fmt" { >= "0.8.7" }
   "tezos-stdlib-unix"
   "tezos-rpc-http-client-unix"
 ]

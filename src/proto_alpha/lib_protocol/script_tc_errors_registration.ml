@@ -28,21 +28,18 @@ open Script
 open Script_tc_errors
 
 (* Helpers for encoding *)
+let stack_ty_enc = Data_encoding.list Script.expr_encoding
+
 let type_map_enc =
   let open Data_encoding in
-  let stack_enc = list (tup2 Script.expr_encoding (list string)) in
   list
     (conv
        (fun (loc, (bef, aft)) -> (loc, bef, aft))
        (fun (loc, bef, aft) -> (loc, (bef, aft)))
        (obj3
           (req "location" Script.location_encoding)
-          (req "stack_before" stack_enc)
-          (req "stack_after" stack_enc)))
-
-let stack_ty_enc =
-  let open Data_encoding in
-  list (obj2 (req "type" Script.expr_encoding) (dft "annots" (list string) []))
+          (req "stack_before" stack_ty_enc)
+          (req "stack_after" stack_ty_enc)))
 
 (* main registration *)
 let () =
@@ -82,6 +79,11 @@ let () =
            ("primitiveApplication", Prim_kind);
            ("sequence", Seq_kind);
          ]
+  in
+  let context_desc_enc =
+    let open Data_encoding in
+    def "michelson_v1.context_desc"
+    @@ string_enum [("Lambda", Lambda); ("View", View)]
   in
   (* -- Structure errors ---------------------- *)
   (* Invalid arity *)
@@ -215,7 +217,7 @@ let () =
     ~id:"michelson_v1.no_such_entrypoint"
     ~title:"No such entrypoint (type error)"
     ~description:"An entrypoint was not found when calling a contract."
-    (obj1 (req "entrypoint" string))
+    (obj1 (req "entrypoint" Entrypoint.simple_encoding))
     (function No_such_entrypoint entrypoint -> Some entrypoint | _ -> None)
     (fun entrypoint -> No_such_entrypoint entrypoint) ;
   (* Unreachable entrypoint *)
@@ -233,20 +235,9 @@ let () =
     ~id:"michelson_v1.duplicate_entrypoint"
     ~title:"Duplicate entrypoint (type error)"
     ~description:"Two entrypoints have the same name."
-    (obj1 (req "path" string))
+    (obj1 (req "path" Entrypoint.simple_encoding))
     (function Duplicate_entrypoint entrypoint -> Some entrypoint | _ -> None)
     (fun entrypoint -> Duplicate_entrypoint entrypoint) ;
-  (* Entrypoint name too long *)
-  register_error_kind
-    `Permanent
-    ~id:"michelson_v1.entrypoint_name_too_long"
-    ~title:"Entrypoint name too long (type error)"
-    ~description:
-      "An entrypoint name exceeds the maximum length of 31 characters."
-    (obj1 (req "name" string))
-    (function
-      | Entrypoint_name_too_long entrypoint -> Some entrypoint | _ -> None)
-    (fun entrypoint -> Entrypoint_name_too_long entrypoint) ;
   (* Unexpected contract *)
   register_error_kind
     `Permanent
@@ -456,15 +447,21 @@ let () =
     (obj1 (req "item_level" int16))
     (function Bad_stack_item n -> Some n | _ -> None)
     (fun n -> Bad_stack_item n) ;
-  (* SELF in lambda *)
+  (* Forbidden instruction in a context. *)
   register_error_kind
     `Permanent
-    ~id:"michelson_v1.self_in_lambda"
-    ~title:"SELF instruction in lambda"
-    ~description:"A SELF instruction was encountered in a lambda expression."
-    (located empty)
-    (function Self_in_lambda loc -> Some (loc, ()) | _ -> None)
-    (fun (loc, ()) -> Self_in_lambda loc) ;
+    ~id:"michelson_v1.forbidden_instr_in_context"
+    ~title:"Forbidden instruction in context"
+    ~description:
+      "An instruction was encountered in a context where it is forbidden."
+    (located
+       (obj2
+          (req "context" context_desc_enc)
+          (req "forbidden_instruction" prim_encoding)))
+    (function
+      | Forbidden_instr_in_context (loc, ctxt, prim) -> Some (loc, (ctxt, prim))
+      | _ -> None)
+    (fun (loc, (ctxt, prim)) -> Forbidden_instr_in_context (loc, ctxt, prim)) ;
   (* Bad stack length *)
   register_error_kind
     `Permanent

@@ -46,28 +46,6 @@ let max_micheline_bytes_limit = 50_000
 
 let max_allowed_global_constant_depth = 10_000
 
-(* In this version of the protocol, there are the following subcaches:
-
-   * One for contract source code and storage. Its size has been
-   chosen not too exceed 100 000 000 bytes.
-
-   * One for the stake distribution for all cycles stored at any
-   moment (* preserved_cycles + max_slashing_period + 1 *)
-
-   * One for the sampler state for all cycles stored at any moment.  *)
-
-let stake_distribution_size = 500 (* delegates*) * 15 (* words *) * 4
-(* bytes *)
-
-let sampler_state_size = 80 (* words *) * 4 (* bytes *)
-
-let cache_layout =
-  [
-    100_000_000;
-    8 (* cycles *) * stake_distribution_size;
-    8 (* cycles *) * sampler_state_size;
-  ]
-
 (* In previous versions of the protocol, this
    [michelson_maximum_type_size] limit was set to 1000 but
    the contract input types (pair <parameter_type> <storage_type>)
@@ -75,6 +53,10 @@ let cache_layout =
    <storage_type> where however checked hence it was possible to build
    types as big as 2001. *)
 let michelson_maximum_type_size = 2001
+
+(* This constant declares the number of subcaches used by the cache
+   mechanism (see {Context.Cache}). *)
+let cache_layout_size = 3
 
 type fixed = unit
 
@@ -94,17 +76,6 @@ let pp_ratio fmt {numerator; denominator} =
 
 let fixed_encoding =
   let open Data_encoding in
-  let uint62 =
-    let max_int_int64 = Int64.of_int max_int in
-    conv_with_guard
-      (fun int -> Int64.of_int int)
-      (fun int64 ->
-        if Compare.Int64.(int64 < 0L) then Error "Negative integer"
-        else if Compare.Int64.(int64 > max_int_int64) then
-          Error "Integer does not fit in 62 bits"
-        else ok @@ Int64.to_int int64)
-      int64
-  in
   conv
     (fun () ->
       ( proof_of_work_nonce_size,
@@ -115,7 +86,7 @@ let fixed_encoding =
         max_micheline_node_count,
         max_micheline_bytes_limit,
         max_allowed_global_constant_depth,
-        cache_layout,
+        cache_layout_size,
         michelson_maximum_type_size ))
     (fun ( _proof_of_work_nonce_size,
            _nonce_length,
@@ -125,7 +96,7 @@ let fixed_encoding =
            _max_micheline_node_count,
            _max_micheline_bytes_limit,
            _max_allowed_global_constant_depth,
-           _cache_layout,
+           _cache_layout_size,
            _michelson_maximum_type_size ) -> ())
     (obj10
        (req "proof_of_work_nonce_size" uint8)
@@ -136,32 +107,10 @@ let fixed_encoding =
        (req "max_micheline_node_count" int31)
        (req "max_micheline_bytes_limit" int31)
        (req "max_allowed_global_constants_depth" int31)
-       (req "cache_layout" (list uint62))
+       (req "cache_layout_size" uint8)
        (req "michelson_maximum_type_size" uint16))
 
 let fixed = ()
-
-type delegate_selection =
-  | Random
-  | Round_robin_over of Signature.Public_key.t list list
-
-let delegate_selection_encoding =
-  let open Data_encoding in
-  union
-    [
-      case
-        (Tag 0)
-        ~title:"Random_delegate_selection"
-        (constant "random")
-        (function Random -> Some () | _ -> None)
-        (fun () -> Random);
-      case
-        (Tag 1)
-        ~title:"Round_robin_over_delegates"
-        (list (list Signature.Public_key.encoding))
-        (function Round_robin_over l -> Some l | _ -> None)
-        (fun l -> Round_robin_over l);
-    ]
 
 (* The encoded representation of this type is stored in the context as
    bytes. Changing the encoding, or the value of these constants from
@@ -203,9 +152,16 @@ type parametric = {
   frozen_deposits_percentage : int;
   double_baking_punishment : Tez_repr.t;
   ratio_of_frozen_deposits_slashed_per_double_endorsement : ratio;
-  delegate_selection : delegate_selection;
+  initial_seed : State_hash.t option;
+  (* If a new cache is added, please also modify the
+     [cache_layout_size] value. *)
+  cache_script_size : int;
+  cache_stake_distribution_cycles : int;
+  cache_sampler_state_cycles : int;
   tx_rollup_enable : bool;
   tx_rollup_origination_size : int;
+  sc_rollup_enable : bool;
+  sc_rollup_origination_size : int;
 }
 
 let parametric_encoding =
@@ -244,8 +200,13 @@ let parametric_encoding =
                 c.frozen_deposits_percentage,
                 c.double_baking_punishment,
                 c.ratio_of_frozen_deposits_slashed_per_double_endorsement,
-                c.delegate_selection ),
-              (c.tx_rollup_enable, c.tx_rollup_origination_size) ) ) ) ))
+                c.initial_seed ),
+              ( ( c.cache_script_size,
+                  c.cache_stake_distribution_cycles,
+                  c.cache_sampler_state_cycles ),
+                ( (c.tx_rollup_enable, c.tx_rollup_origination_size),
+                  (c.sc_rollup_enable, c.sc_rollup_origination_size) ) ) ) ) )
+      ))
     (fun ( ( preserved_cycles,
              blocks_per_cycle,
              blocks_per_commitment,
@@ -278,8 +239,12 @@ let parametric_encoding =
                    frozen_deposits_percentage,
                    double_baking_punishment,
                    ratio_of_frozen_deposits_slashed_per_double_endorsement,
-                   delegate_selection ),
-                 (tx_rollup_enable, tx_rollup_origination_size) ) ) ) ) ->
+                   initial_seed ),
+                 ( ( cache_script_size,
+                     cache_stake_distribution_cycles,
+                     cache_sampler_state_cycles ),
+                   ( (tx_rollup_enable, tx_rollup_origination_size),
+                     (sc_rollup_enable, sc_rollup_origination_size) ) ) ) ) ) ) ->
       {
         preserved_cycles;
         blocks_per_cycle;
@@ -313,9 +278,14 @@ let parametric_encoding =
         frozen_deposits_percentage;
         double_baking_punishment;
         ratio_of_frozen_deposits_slashed_per_double_endorsement;
-        delegate_selection;
+        initial_seed;
+        cache_script_size;
+        cache_stake_distribution_cycles;
+        cache_sampler_state_cycles;
         tx_rollup_enable;
         tx_rollup_origination_size;
+        sc_rollup_enable;
+        sc_rollup_origination_size;
       })
     (merge_objs
        (obj9
@@ -363,10 +333,19 @@ let parametric_encoding =
                    (req
                       "ratio_of_frozen_deposits_slashed_per_double_endorsement"
                       ratio_encoding)
-                   (dft "delegate_selection" delegate_selection_encoding Random))
-                (obj2
-                   (req "tx_rollup_enable" bool)
-                   (req "tx_rollup_origination_size" int31))))))
+                   (opt "initial_seed" State_hash.encoding))
+                (merge_objs
+                   (obj3
+                      (req "cache_script_size" int31)
+                      (req "cache_stake_distribution_cycles" int8)
+                      (req "cache_sampler_state_cycles" int8))
+                   (merge_objs
+                      (obj2
+                         (req "tx_rollup_enable" bool)
+                         (req "tx_rollup_origination_size" int31))
+                      (obj2
+                         (req "sc_rollup_enable" bool)
+                         (req "sc_rollup_origination_size" int31))))))))
 
 type t = {fixed : fixed; parametric : parametric}
 
@@ -493,35 +472,62 @@ module Generated = struct
 end
 
 module Proto_previous = struct
+  type delegate_selection =
+    | Random
+    | Round_robin_over of Signature.Public_key.t list list
+
+  let delegate_selection_encoding =
+    let open Data_encoding in
+    union
+      [
+        case
+          (Tag 0)
+          ~title:"Random_delegate_selection"
+          (constant "random")
+          (function Random -> Some () | _ -> None)
+          (fun () -> Random);
+        case
+          (Tag 1)
+          ~title:"Round_robin_over_delegates"
+          (list (list Signature.Public_key.encoding))
+          (function Round_robin_over l -> Some l | _ -> None)
+          (fun l -> Round_robin_over l);
+      ]
+
   type parametric = {
     preserved_cycles : int;
     blocks_per_cycle : int32;
     blocks_per_commitment : int32;
-    blocks_per_roll_snapshot : int32;
+    blocks_per_stake_snapshot : int32;
     blocks_per_voting_period : int32;
-    time_between_blocks : Period_repr.t list;
-    minimal_block_delay : Period_repr.t;
-    endorsers_per_block : int;
     hard_gas_limit_per_operation : Gas_limit_repr.Arith.integral;
     hard_gas_limit_per_block : Gas_limit_repr.Arith.integral;
     proof_of_work_threshold : int64;
     tokens_per_roll : Tez_repr.t;
     seed_nonce_revelation_tip : Tez_repr.t;
     origination_size : int;
-    block_security_deposit : Tez_repr.t;
-    endorsement_security_deposit : Tez_repr.t;
-    baking_reward_per_endorsement : Tez_repr.t list;
-    endorsement_reward : Tez_repr.t list;
+    baking_reward_fixed_portion : Tez_repr.t;
+    baking_reward_bonus_per_slot : Tez_repr.t;
+    endorsing_reward_per_slot : Tez_repr.t;
     cost_per_byte : Tez_repr.t;
     hard_storage_limit_per_operation : Z.t;
     quorum_min : int32;
     quorum_max : int32;
     min_proposal_quorum : int32;
-    initial_endorsers : int;
-    delay_per_missing_endorsement : Period_repr.t;
     liquidity_baking_subsidy : Tez_repr.t;
     liquidity_baking_sunset_level : int32;
     liquidity_baking_escape_ema_threshold : int32;
+    max_operations_time_to_live : int;
+    minimal_block_delay : Period_repr.t;
+    delay_increment_per_round : Period_repr.t;
+    minimal_participation_ratio : ratio;
+    consensus_committee_size : int;
+    consensus_threshold : int;
+    max_slashing_period : int;
+    frozen_deposits_percentage : int;
+    double_baking_punishment : Tez_repr.t;
+    ratio_of_frozen_deposits_slashed_per_double_endorsement : ratio;
+    delegate_selection : delegate_selection;
   }
 
   let parametric_encoding =
@@ -531,124 +537,155 @@ module Proto_previous = struct
         ( ( c.preserved_cycles,
             c.blocks_per_cycle,
             c.blocks_per_commitment,
-            c.blocks_per_roll_snapshot,
+            c.blocks_per_stake_snapshot,
             c.blocks_per_voting_period,
-            c.time_between_blocks,
-            c.endorsers_per_block,
             c.hard_gas_limit_per_operation,
             c.hard_gas_limit_per_block,
-            c.proof_of_work_threshold ),
-          ( ( c.tokens_per_roll,
-              c.seed_nonce_revelation_tip,
+            c.proof_of_work_threshold,
+            c.tokens_per_roll ),
+          ( ( c.seed_nonce_revelation_tip,
               c.origination_size,
-              c.block_security_deposit,
-              c.endorsement_security_deposit,
-              c.baking_reward_per_endorsement,
-              c.endorsement_reward,
+              c.baking_reward_fixed_portion,
+              c.baking_reward_bonus_per_slot,
+              c.endorsing_reward_per_slot,
               c.cost_per_byte,
-              c.hard_storage_limit_per_operation ),
-            ( c.quorum_min,
-              c.quorum_max,
-              c.min_proposal_quorum,
-              c.initial_endorsers,
-              c.delay_per_missing_endorsement,
-              c.minimal_block_delay,
-              c.liquidity_baking_subsidy,
-              c.liquidity_baking_sunset_level,
-              c.liquidity_baking_escape_ema_threshold ) ) ))
+              c.hard_storage_limit_per_operation,
+              c.quorum_min ),
+            ( ( c.quorum_max,
+                c.min_proposal_quorum,
+                c.liquidity_baking_subsidy,
+                c.liquidity_baking_sunset_level,
+                c.liquidity_baking_escape_ema_threshold,
+                c.max_operations_time_to_live,
+                c.minimal_block_delay,
+                c.delay_increment_per_round,
+                c.consensus_committee_size,
+                c.consensus_threshold ),
+              ( c.minimal_participation_ratio,
+                c.max_slashing_period,
+                c.frozen_deposits_percentage,
+                c.double_baking_punishment,
+                c.ratio_of_frozen_deposits_slashed_per_double_endorsement,
+                c.delegate_selection ) ) ) ))
       (fun ( ( preserved_cycles,
                blocks_per_cycle,
                blocks_per_commitment,
-               blocks_per_roll_snapshot,
+               blocks_per_stake_snapshot,
                blocks_per_voting_period,
-               time_between_blocks,
-               endorsers_per_block,
                hard_gas_limit_per_operation,
                hard_gas_limit_per_block,
-               proof_of_work_threshold ),
-             ( ( tokens_per_roll,
-                 seed_nonce_revelation_tip,
+               proof_of_work_threshold,
+               tokens_per_roll ),
+             ( ( seed_nonce_revelation_tip,
                  origination_size,
-                 block_security_deposit,
-                 endorsement_security_deposit,
-                 baking_reward_per_endorsement,
-                 endorsement_reward,
+                 baking_reward_fixed_portion,
+                 baking_reward_bonus_per_slot,
+                 endorsing_reward_per_slot,
                  cost_per_byte,
-                 hard_storage_limit_per_operation ),
-               ( quorum_min,
-                 quorum_max,
-                 min_proposal_quorum,
-                 initial_endorsers,
-                 delay_per_missing_endorsement,
-                 minimal_block_delay,
-                 liquidity_baking_subsidy,
-                 liquidity_baking_sunset_level,
-                 liquidity_baking_escape_ema_threshold ) ) ) ->
+                 hard_storage_limit_per_operation,
+                 quorum_min ),
+               ( ( quorum_max,
+                   min_proposal_quorum,
+                   liquidity_baking_subsidy,
+                   liquidity_baking_sunset_level,
+                   liquidity_baking_escape_ema_threshold,
+                   max_operations_time_to_live,
+                   minimal_block_delay,
+                   delay_increment_per_round,
+                   consensus_committee_size,
+                   consensus_threshold ),
+                 ( minimal_participation_ratio,
+                   max_slashing_period,
+                   frozen_deposits_percentage,
+                   double_baking_punishment,
+                   ratio_of_frozen_deposits_slashed_per_double_endorsement,
+                   delegate_selection ) ) ) ) ->
         {
           preserved_cycles;
           blocks_per_cycle;
           blocks_per_commitment;
-          blocks_per_roll_snapshot;
+          blocks_per_stake_snapshot;
           blocks_per_voting_period;
-          time_between_blocks;
-          endorsers_per_block;
           hard_gas_limit_per_operation;
           hard_gas_limit_per_block;
           proof_of_work_threshold;
           tokens_per_roll;
           seed_nonce_revelation_tip;
           origination_size;
-          block_security_deposit;
-          endorsement_security_deposit;
-          baking_reward_per_endorsement;
-          endorsement_reward;
+          baking_reward_fixed_portion;
+          baking_reward_bonus_per_slot;
+          endorsing_reward_per_slot;
           cost_per_byte;
           hard_storage_limit_per_operation;
           quorum_min;
           quorum_max;
           min_proposal_quorum;
-          initial_endorsers;
-          delay_per_missing_endorsement;
-          minimal_block_delay;
           liquidity_baking_subsidy;
           liquidity_baking_sunset_level;
           liquidity_baking_escape_ema_threshold;
+          max_operations_time_to_live;
+          minimal_block_delay;
+          delay_increment_per_round;
+          minimal_participation_ratio;
+          max_slashing_period;
+          consensus_committee_size;
+          consensus_threshold;
+          frozen_deposits_percentage;
+          double_baking_punishment;
+          ratio_of_frozen_deposits_slashed_per_double_endorsement;
+          delegate_selection;
         })
       (merge_objs
-         (obj10
+         (obj9
             (req "preserved_cycles" uint8)
             (req "blocks_per_cycle" int32)
             (req "blocks_per_commitment" int32)
-            (req "blocks_per_roll_snapshot" int32)
+            (req "blocks_per_stake_snapshot" int32)
             (req "blocks_per_voting_period" int32)
-            (req "time_between_blocks" (list Period_repr.encoding))
-            (req "endorsers_per_block" uint16)
             (req
                "hard_gas_limit_per_operation"
                Gas_limit_repr.Arith.z_integral_encoding)
             (req
                "hard_gas_limit_per_block"
                Gas_limit_repr.Arith.z_integral_encoding)
-            (req "proof_of_work_threshold" int64))
+            (req "proof_of_work_threshold" int64)
+            (req "tokens_per_roll" Tez_repr.encoding))
          (merge_objs
-            (obj9
-               (req "tokens_per_roll" Tez_repr.encoding)
+            (obj8
                (req "seed_nonce_revelation_tip" Tez_repr.encoding)
                (req "origination_size" int31)
-               (req "block_security_deposit" Tez_repr.encoding)
-               (req "endorsement_security_deposit" Tez_repr.encoding)
-               (req "baking_reward_per_endorsement" (list Tez_repr.encoding))
-               (req "endorsement_reward" (list Tez_repr.encoding))
+               (req "baking_reward_fixed_portion" Tez_repr.encoding)
+               (req "baking_reward_bonus_per_slot" Tez_repr.encoding)
+               (req "endorsing_reward_per_slot" Tez_repr.encoding)
                (req "cost_per_byte" Tez_repr.encoding)
-               (req "hard_storage_limit_per_operation" z))
-            (obj9
-               (req "quorum_min" int32)
-               (req "quorum_max" int32)
-               (req "min_proposal_quorum" int32)
-               (req "initial_endorsers" uint16)
-               (req "delay_per_missing_endorsement" Period_repr.encoding)
-               (req "minimal_block_delay" Period_repr.encoding)
-               (req "liquidity_baking_subsidy" Tez_repr.encoding)
-               (req "liquidity_baking_sunset_level" int32)
-               (req "liquidity_baking_escape_ema_threshold" int32))))
+               (req "hard_storage_limit_per_operation" z)
+               (req "quorum_min" int32))
+            (merge_objs
+               (obj10
+                  (req "quorum_max" int32)
+                  (req "min_proposal_quorum" int32)
+                  (req "liquidity_baking_subsidy" Tez_repr.encoding)
+                  (req "liquidity_baking_sunset_level" int32)
+                  (req "liquidity_baking_escape_ema_threshold" int32)
+                  (req "max_operations_time_to_live" int16)
+                  (req "minimal_block_delay" Period_repr.encoding)
+                  (req "delay_increment_per_round" Period_repr.encoding)
+                  (req "consensus_committee_size" int31)
+                  (req "consensus_threshold" int31))
+               (obj6
+                  (req "minimal_participation_ratio" ratio_encoding)
+                  (req "max_slashing_period" int31)
+                  (req "frozen_deposits_percentage" int31)
+                  (req "double_baking_punishment" Tez_repr.encoding)
+                  (req
+                     "ratio_of_frozen_deposits_slashed_per_double_endorsement"
+                     ratio_encoding)
+                  (dft "delegate_selection" delegate_selection_encoding Random)))))
 end
+
+let cache_layout p =
+  [
+    p.cache_script_size;
+    p.cache_stake_distribution_cycles;
+    p.cache_sampler_state_cycles;
+  ]

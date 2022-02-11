@@ -3,6 +3,7 @@
 (* Open Source License                                                       *)
 (* Copyright (c) 2018 Dynamic Ledger Solutions, Inc. <contact@tezos.com>     *)
 (* Copyright (c) 2020 Metastate AG <hello@metastate.dev>                     *)
+(* Copyright (c) 2021-2022 Nomadic Labs <contact@nomadic-labs.com>           *)
 (*                                                                           *)
 (* Permission is hereby granted, free of charge, to any person obtaining a   *)
 (* copy of this software and associated documentation files (the "Software"),*)
@@ -49,6 +50,7 @@ type step_constants = {
      - as caller in VIEW, TRANSFER_TOKENS, and CREATE_CONTRACT *)
   amount : Tez.t;
       (** The amount of the current transaction, as returned by AMOUNT. *)
+  balance : Tez.t;  (** The balance of the contract as returned by BALANCE. *)
   chain_id : Chain_id.t;
       (** The chain id of the chain, as returned by CHAIN_ID. *)
   now : Script_timestamp.t;
@@ -61,13 +63,159 @@ type step_constants = {
 
 type never = |
 
-type address = Contract.t * string
+type address = {contract : Contract.t; entrypoint : Entrypoint.t}
+
+module Script_signature = struct
+  type t = Signature_tag of signature [@@ocaml.unboxed]
+
+  let make s = Signature_tag s
+
+  let get (Signature_tag s) = s
+
+  let encoding =
+    Data_encoding.conv
+      (fun (Signature_tag x) -> x)
+      (fun x -> Signature_tag x)
+      Signature.encoding
+
+  let of_b58check_opt x = Option.map make (Signature.of_b58check_opt x)
+
+  let check ?watermark pub_key (Signature_tag s) bytes =
+    Signature.check ?watermark pub_key s bytes
+
+  let compare (Signature_tag x) (Signature_tag y) = Signature.compare x y
+
+  let size = Signature.size
+end
+
+type signature = Script_signature.t
 
 type ('a, 'b) pair = 'a * 'b
 
 type ('a, 'b) union = L of 'a | R of 'b
 
-type operation = packed_internal_operation * Lazy_storage.diffs option
+type operation = {
+  piop : packed_internal_operation;
+  lazy_storage_diff : Lazy_storage.diffs option;
+}
+
+module Script_chain_id = struct
+  type t = Chain_id_tag of Chain_id.t [@@ocaml.unboxed]
+
+  let make x = Chain_id_tag x
+
+  let compare (Chain_id_tag x) (Chain_id_tag y) = Chain_id.compare x y
+
+  let size = Chain_id.size
+
+  let encoding =
+    Data_encoding.conv (fun (Chain_id_tag x) -> x) make Chain_id.encoding
+
+  let to_b58check (Chain_id_tag x) = Chain_id.to_b58check x
+
+  let of_b58check_opt x = Option.map make (Chain_id.of_b58check_opt x)
+end
+
+module Script_bls = struct
+  module type S = sig
+    type t
+
+    type fr
+
+    val add : t -> t -> t
+
+    val mul : t -> fr -> t
+
+    val negate : t -> t
+
+    val of_bytes_opt : Bytes.t -> t option
+
+    val to_bytes : t -> Bytes.t
+  end
+
+  module Fr = struct
+    type t = Fr_tag of Bls12_381.Fr.t [@@ocaml.unboxed]
+
+    open Bls12_381.Fr
+
+    let add (Fr_tag x) (Fr_tag y) = Fr_tag (add x y)
+
+    let mul (Fr_tag x) (Fr_tag y) = Fr_tag (mul x y)
+
+    let negate (Fr_tag x) = Fr_tag (negate x)
+
+    let of_bytes_opt bytes = Option.map (fun x -> Fr_tag x) (of_bytes_opt bytes)
+
+    let to_bytes (Fr_tag x) = to_bytes x
+
+    let of_z z = Fr_tag (of_z z)
+
+    let to_z (Fr_tag x) = to_z x
+  end
+
+  module G1 = struct
+    type t = G1_tag of Bls12_381.G1.t [@@ocaml.unboxed]
+
+    open Bls12_381.G1
+
+    let add (G1_tag x) (G1_tag y) = G1_tag (add x y)
+
+    let mul (G1_tag x) (Fr.Fr_tag y) = G1_tag (mul x y)
+
+    let negate (G1_tag x) = G1_tag (negate x)
+
+    let of_bytes_opt bytes = Option.map (fun x -> G1_tag x) (of_bytes_opt bytes)
+
+    let to_bytes (G1_tag x) = to_bytes x
+  end
+
+  module G2 = struct
+    type t = G2_tag of Bls12_381.G2.t [@@ocaml.unboxed]
+
+    open Bls12_381.G2
+
+    let add (G2_tag x) (G2_tag y) = G2_tag (add x y)
+
+    let mul (G2_tag x) (Fr.Fr_tag y) = G2_tag (mul x y)
+
+    let negate (G2_tag x) = G2_tag (negate x)
+
+    let of_bytes_opt bytes = Option.map (fun x -> G2_tag x) (of_bytes_opt bytes)
+
+    let to_bytes (G2_tag x) = to_bytes x
+  end
+
+  let pairing_check l =
+    let l = List.map (fun (G1.G1_tag x, G2.G2_tag y) -> (x, y)) l in
+    Bls12_381.pairing_check l
+end
+
+module Script_timelock = struct
+  type chest_key = Chest_key_tag of Timelock.chest_key [@@ocaml.unboxed]
+
+  let make_chest_key chest_key = Chest_key_tag chest_key
+
+  let chest_key_encoding =
+    Data_encoding.conv
+      (fun (Chest_key_tag x) -> x)
+      (fun x -> Chest_key_tag x)
+      Timelock.chest_key_encoding
+
+  type chest = Chest_tag of Timelock.chest [@@ocaml.unboxed]
+
+  let make_chest chest = Chest_tag chest
+
+  let chest_encoding =
+    Data_encoding.conv
+      (fun (Chest_tag x) -> x)
+      (fun x -> Chest_tag x)
+      Timelock.chest_encoding
+
+  let open_chest (Chest_tag chest) (Chest_key_tag chest_key) ~time =
+    Timelock.open_chest chest chest_key ~time
+
+  let get_plaintext_size (Chest_tag x) = Timelock.get_plaintext_size x
+end
 
 type 'a ticket = {ticketer : Contract.t; contents : 'a; amount : n num}
 
@@ -90,7 +238,11 @@ module type TYPE_SIZE = sig
   *)
   type 'a t
 
-  val merge : 'a t -> 'b t -> 'a t tzresult
+  val merge :
+    error_details:'error_trace Script_tc_errors.error_details ->
+    'a t ->
+    'b t ->
+    ('a t, 'error_trace) result
 
   val to_int : 'a t -> Saturation_repr.mul_safe Saturation_repr.t
 
@@ -129,9 +281,20 @@ module Type_size : TYPE_SIZE = struct
 
   let four = 4
 
-  let merge x y =
+  let merge :
+      type a b error_trace.
+      error_details:error_trace Script_tc_errors.error_details ->
+      a t ->
+      b t ->
+      (a t, error_trace) result =
+   fun ~error_details x y ->
     if Compare.Int.(x = y) then ok x
-    else error @@ Script_tc_errors.Inconsistent_type_sizes (x, y)
+    else
+      Error
+        (match error_details with
+        | Fast -> Inconsistent_types_fast
+        | Informative ->
+            trace_of_error @@ Script_tc_errors.Inconsistent_type_sizes (x, y))
 
   let of_int loc size =
     let max_size = Constants.michelson_maximum_type_size in
@@ -147,7 +310,7 @@ type empty_cell = EmptyCell
 
 type end_of_stack = empty_cell * empty_cell
 
-type 'a ty_metadata = {annot : type_annot option; size : 'a Type_size.t}
+type 'a ty_metadata = {size : 'a Type_size.t} [@@unboxed]
 
 type _ comparable_ty =
   | Unit_key : unit ty_metadata -> unit comparable_ty
@@ -164,7 +327,9 @@ type _ comparable_ty =
   | Timestamp_key :
       Script_timestamp.t ty_metadata
       -> Script_timestamp.t comparable_ty
-  | Chain_id_key : Chain_id.t ty_metadata -> Chain_id.t comparable_ty
+  | Chain_id_key :
+      Script_chain_id.t ty_metadata
+      -> Script_chain_id.t comparable_ty
   | Address_key : address ty_metadata -> address comparable_ty
   | Pair_key :
       ('a comparable_ty * field_annot option)
@@ -201,48 +366,47 @@ let comparable_ty_metadata : type a. a comparable_ty -> a ty_metadata = function
 
 let comparable_ty_size t = (comparable_ty_metadata t).size
 
-let unit_key ~annot = Unit_key {annot; size = Type_size.one}
+let unit_key = Unit_key {size = Type_size.one}
 
-let never_key ~annot = Never_key {annot; size = Type_size.one}
+let never_key = Never_key {size = Type_size.one}
 
-let int_key ~annot = Int_key {annot; size = Type_size.one}
+let int_key = Int_key {size = Type_size.one}
 
-let nat_key ~annot = Nat_key {annot; size = Type_size.one}
+let nat_key = Nat_key {size = Type_size.one}
 
-let signature_key ~annot = Signature_key {annot; size = Type_size.one}
+let signature_key = Signature_key {size = Type_size.one}
 
-let string_key ~annot = String_key {annot; size = Type_size.one}
+let string_key = String_key {size = Type_size.one}
 
-let bytes_key ~annot = Bytes_key {annot; size = Type_size.one}
+let bytes_key = Bytes_key {size = Type_size.one}
 
-let mutez_key ~annot = Mutez_key {annot; size = Type_size.one}
+let mutez_key = Mutez_key {size = Type_size.one}
 
-let bool_key ~annot = Bool_key {annot; size = Type_size.one}
+let bool_key = Bool_key {size = Type_size.one}
 
-let key_hash_key ~annot = Key_hash_key {annot; size = Type_size.one}
+let key_hash_key = Key_hash_key {size = Type_size.one}
 
-let key_key ~annot = Key_key {annot; size = Type_size.one}
+let key_key = Key_key {size = Type_size.one}
 
-let timestamp_key ~annot = Timestamp_key {annot; size = Type_size.one}
+let timestamp_key = Timestamp_key {size = Type_size.one}
 
-let chain_id_key ~annot = Chain_id_key {annot; size = Type_size.one}
+let chain_id_key = Chain_id_key {size = Type_size.one}
 
-let address_key ~annot = Address_key {annot; size = Type_size.one}
+let address_key = Address_key {size = Type_size.one}
 
-let pair_key loc (l, fannot_l) (r, fannot_r) ~annot =
+let pair_key loc (l, fannot_l) (r, fannot_r) =
   Type_size.compound2 loc (comparable_ty_size l) (comparable_ty_size r)
-  >|? fun size -> Pair_key ((l, fannot_l), (r, fannot_r), {annot; size})
+  >|? fun size -> Pair_key ((l, fannot_l), (r, fannot_r), {size})
 
-let pair_3_key loc l m r =
-  pair_key loc m r ~annot:None >>? fun r -> pair_key loc l (r, None) ~annot:None
+let pair_3_key loc l m r = pair_key loc m r >>? fun r -> pair_key loc l (r, None)
 
-let union_key loc (l, fannot_l) (r, fannot_r) ~annot =
+let union_key loc (l, fannot_l) (r, fannot_r) =
   Type_size.compound2 loc (comparable_ty_size l) (comparable_ty_size r)
-  >|? fun size -> Union_key ((l, fannot_l), (r, fannot_r), {annot; size})
+  >|? fun size -> Union_key ((l, fannot_l), (r, fannot_r), {size})
 
-let option_key loc t ~annot =
+let option_key loc t =
   Type_size.compound1 loc (comparable_ty_size t) >|? fun size ->
-  Option_key (t, {annot; size})
+  Option_key (t, {size})
 
 (*
 
@@ -284,7 +448,8 @@ module type Boxed_set = sig
   val size : int
 end
 
-type 'elt set = (module Boxed_set with type elt = 'elt)
+type 'elt set = Set_tag of (module Boxed_set with type elt = 'elt)
+[@@ocaml.unboxed]
 
 (*
 
@@ -324,7 +489,8 @@ module type Boxed_map = sig
 end
 
 type ('key, 'value) map =
-  (module Boxed_map with type key = 'key and type value = 'value)
+  | Map_tag of (module Boxed_map with type key = 'key and type value = 'value)
+[@@ocaml.unboxed]
 
 module Big_map_overlay = Map.Make (struct
   type t = Script_expr_hash.t
@@ -788,7 +954,7 @@ and ('before_top, 'before, 'result_top, 'result) kinstr =
   | IContract :
       (address, 's) kinfo
       * 'a ty
-      * string
+      * Entrypoint.t
       * ('a typed_contract option, 's, 'r, 'f) kinstr
       -> (address, 's, 'r, 'f) kinstr
   | IView :
@@ -855,7 +1021,7 @@ and ('before_top, 'before, 'result_top, 'result) kinstr =
   | ISelf :
       ('a, 's) kinfo
       * 'b ty
-      * string
+      * Entrypoint.t
       * ('b typed_contract, 'a * 's, 'r, 'f) kinstr
       -> ('a, 's, 'r, 'f) kinstr
   | ISelf_address :
@@ -899,7 +1065,7 @@ and ('before_top, 'before, 'result_top, 'result) kinstr =
       * ('b, 'u, 'r, 'f) kinstr
       -> ('a, 's, 'r, 'f) kinstr
   | IChainId :
-      ('a, 's) kinfo * (Chain_id.t, 'a * 's, 'r, 'f) kinstr
+      ('a, 's) kinfo * (Script_chain_id.t, 'a * 's, 'r, 'f) kinstr
       -> ('a, 's, 'r, 'f) kinstr
   | INever : (never, 's) kinfo -> (never, 's, 'r, 'f) kinstr
   | IVoting_power :
@@ -915,51 +1081,53 @@ and ('before_top, 'before, 'result_top, 'result) kinstr =
       (bytes, 's) kinfo * (bytes, 's, 'r, 'f) kinstr
       -> (bytes, 's, 'r, 'f) kinstr
   | IAdd_bls12_381_g1 :
-      (Bls12_381.G1.t, Bls12_381.G1.t * 's) kinfo
-      * (Bls12_381.G1.t, 's, 'r, 'f) kinstr
-      -> (Bls12_381.G1.t, Bls12_381.G1.t * 's, 'r, 'f) kinstr
+      (Script_bls.G1.t, Script_bls.G1.t * 's) kinfo
+      * (Script_bls.G1.t, 's, 'r, 'f) kinstr
+      -> (Script_bls.G1.t, Script_bls.G1.t * 's, 'r, 'f) kinstr
   | IAdd_bls12_381_g2 :
-      (Bls12_381.G2.t, Bls12_381.G2.t * 's) kinfo
-      * (Bls12_381.G2.t, 's, 'r, 'f) kinstr
-      -> (Bls12_381.G2.t, Bls12_381.G2.t * 's, 'r, 'f) kinstr
+      (Script_bls.G2.t, Script_bls.G2.t * 's) kinfo
+      * (Script_bls.G2.t, 's, 'r, 'f) kinstr
+      -> (Script_bls.G2.t, Script_bls.G2.t * 's, 'r, 'f) kinstr
   | IAdd_bls12_381_fr :
-      (Bls12_381.Fr.t, Bls12_381.Fr.t * 's) kinfo
-      * (Bls12_381.Fr.t, 's, 'r, 'f) kinstr
-      -> (Bls12_381.Fr.t, Bls12_381.Fr.t * 's, 'r, 'f) kinstr
+      (Script_bls.Fr.t, Script_bls.Fr.t * 's) kinfo
+      * (Script_bls.Fr.t, 's, 'r, 'f) kinstr
+      -> (Script_bls.Fr.t, Script_bls.Fr.t * 's, 'r, 'f) kinstr
   | IMul_bls12_381_g1 :
-      (Bls12_381.G1.t, Bls12_381.Fr.t * 's) kinfo
-      * (Bls12_381.G1.t, 's, 'r, 'f) kinstr
-      -> (Bls12_381.G1.t, Bls12_381.Fr.t * 's, 'r, 'f) kinstr
+      (Script_bls.G1.t, Script_bls.Fr.t * 's) kinfo
+      * (Script_bls.G1.t, 's, 'r, 'f) kinstr
+      -> (Script_bls.G1.t, Script_bls.Fr.t * 's, 'r, 'f) kinstr
   | IMul_bls12_381_g2 :
-      (Bls12_381.G2.t, Bls12_381.Fr.t * 's) kinfo
-      * (Bls12_381.G2.t, 's, 'r, 'f) kinstr
-      -> (Bls12_381.G2.t, Bls12_381.Fr.t * 's, 'r, 'f) kinstr
+      (Script_bls.G2.t, Script_bls.Fr.t * 's) kinfo
+      * (Script_bls.G2.t, 's, 'r, 'f) kinstr
+      -> (Script_bls.G2.t, Script_bls.Fr.t * 's, 'r, 'f) kinstr
   | IMul_bls12_381_fr :
-      (Bls12_381.Fr.t, Bls12_381.Fr.t * 's) kinfo
-      * (Bls12_381.Fr.t, 's, 'r, 'f) kinstr
-      -> (Bls12_381.Fr.t, Bls12_381.Fr.t * 's, 'r, 'f) kinstr
+      (Script_bls.Fr.t, Script_bls.Fr.t * 's) kinfo
+      * (Script_bls.Fr.t, 's, 'r, 'f) kinstr
+      -> (Script_bls.Fr.t, Script_bls.Fr.t * 's, 'r, 'f) kinstr
   | IMul_bls12_381_z_fr :
-      (Bls12_381.Fr.t, 'a num * 's) kinfo * (Bls12_381.Fr.t, 's, 'r, 'f) kinstr
-      -> (Bls12_381.Fr.t, 'a num * 's, 'r, 'f) kinstr
+      (Script_bls.Fr.t, 'a num * 's) kinfo
+      * (Script_bls.Fr.t, 's, 'r, 'f) kinstr
+      -> (Script_bls.Fr.t, 'a num * 's, 'r, 'f) kinstr
   | IMul_bls12_381_fr_z :
-      ('a num, Bls12_381.Fr.t * 's) kinfo * (Bls12_381.Fr.t, 's, 'r, 'f) kinstr
-      -> ('a num, Bls12_381.Fr.t * 's, 'r, 'f) kinstr
+      ('a num, Script_bls.Fr.t * 's) kinfo
+      * (Script_bls.Fr.t, 's, 'r, 'f) kinstr
+      -> ('a num, Script_bls.Fr.t * 's, 'r, 'f) kinstr
   | IInt_bls12_381_fr :
-      (Bls12_381.Fr.t, 's) kinfo * (z num, 's, 'r, 'f) kinstr
-      -> (Bls12_381.Fr.t, 's, 'r, 'f) kinstr
+      (Script_bls.Fr.t, 's) kinfo * (z num, 's, 'r, 'f) kinstr
+      -> (Script_bls.Fr.t, 's, 'r, 'f) kinstr
   | INeg_bls12_381_g1 :
-      (Bls12_381.G1.t, 's) kinfo * (Bls12_381.G1.t, 's, 'r, 'f) kinstr
-      -> (Bls12_381.G1.t, 's, 'r, 'f) kinstr
+      (Script_bls.G1.t, 's) kinfo * (Script_bls.G1.t, 's, 'r, 'f) kinstr
+      -> (Script_bls.G1.t, 's, 'r, 'f) kinstr
   | INeg_bls12_381_g2 :
-      (Bls12_381.G2.t, 's) kinfo * (Bls12_381.G2.t, 's, 'r, 'f) kinstr
-      -> (Bls12_381.G2.t, 's, 'r, 'f) kinstr
+      (Script_bls.G2.t, 's) kinfo * (Script_bls.G2.t, 's, 'r, 'f) kinstr
+      -> (Script_bls.G2.t, 's, 'r, 'f) kinstr
   | INeg_bls12_381_fr :
-      (Bls12_381.Fr.t, 's) kinfo * (Bls12_381.Fr.t, 's, 'r, 'f) kinstr
-      -> (Bls12_381.Fr.t, 's, 'r, 'f) kinstr
+      (Script_bls.Fr.t, 's) kinfo * (Script_bls.Fr.t, 's, 'r, 'f) kinstr
+      -> (Script_bls.Fr.t, 's, 'r, 'f) kinstr
   | IPairing_check_bls12_381 :
-      ((Bls12_381.G1.t, Bls12_381.G2.t) pair boxed_list, 's) kinfo
+      ((Script_bls.G1.t, Script_bls.G2.t) pair boxed_list, 's) kinfo
       * (bool, 's, 'r, 'f) kinstr
-      -> ((Bls12_381.G1.t, Bls12_381.G2.t) pair boxed_list, 's, 'r, 'f) kinstr
+      -> ((Script_bls.G1.t, Script_bls.G2.t) pair boxed_list, 's, 'r, 'f) kinstr
   | IComb :
       ('a, 's) kinfo
       * int
@@ -1007,9 +1175,13 @@ and ('before_top, 'before, 'result_top, 'result) kinstr =
       * ('a ticket option, 's, 'r, 'f) kinstr
       -> ('a ticket * 'a ticket, 's, 'r, 'f) kinstr
   | IOpen_chest :
-      (Timelock.chest_key, Timelock.chest * (n num * 's)) kinfo
+      (Script_timelock.chest_key, Script_timelock.chest * (n num * 's)) kinfo
       * ((bytes, bool) union, 's, 'r, 'f) kinstr
-      -> (Timelock.chest_key, Timelock.chest * (n num * 's), 'r, 'f) kinstr
+      -> ( Script_timelock.chest_key,
+           Script_timelock.chest * (n num * 's),
+           'r,
+           'f )
+         kinstr
   (*
      Internal control instructions
      -----------------------------
@@ -1029,7 +1201,7 @@ and ('arg, 'ret) lambda =
       -> ('arg, 'ret) lambda
 [@@coq_force_gadt]
 
-and 'arg typed_contract = 'arg ty * address
+and 'arg typed_contract = {arg_ty : 'arg ty; address : address}
 
 and (_, _, _, _) continuation =
   | KNil : ('r, 'f, 'r, 'f) continuation
@@ -1096,8 +1268,7 @@ and ('a, 's, 'b, 'f, 'c, 'u) logging_function =
   'c * 'u ->
   unit
 
-and execution_trace =
-  (Script.location * Gas.t * (Script.expr * string option) list) list
+and execution_trace = (Script.location * Gas.t * Script.expr list) list
 
 and logger = {
   log_interp : 'a 's 'b 'f 'c 'u. ('a, 's, 'b, 'f, 'c, 'u) logging_function;
@@ -1122,8 +1293,8 @@ and 'ty ty =
   | Address_t : address ty_metadata -> address ty
   | Bool_t : bool ty_metadata -> bool ty
   | Pair_t :
-      ('a ty * field_annot option * var_annot option)
-      * ('b ty * field_annot option * var_annot option)
+      ('a ty * field_annot option)
+      * ('b ty * field_annot option)
       * ('a, 'b) pair ty_metadata
       -> ('a, 'b) pair ty
   | Union_t :
@@ -1153,19 +1324,19 @@ and 'ty ty =
       Sapling.Memo_size.t * Sapling.state ty_metadata
       -> Sapling.state ty
   | Operation_t : operation ty_metadata -> operation ty
-  | Chain_id_t : Chain_id.t ty_metadata -> Chain_id.t ty
+  | Chain_id_t : Script_chain_id.t ty_metadata -> Script_chain_id.t ty
   | Never_t : never ty_metadata -> never ty
-  | Bls12_381_g1_t : Bls12_381.G1.t ty_metadata -> Bls12_381.G1.t ty
-  | Bls12_381_g2_t : Bls12_381.G2.t ty_metadata -> Bls12_381.G2.t ty
-  | Bls12_381_fr_t : Bls12_381.Fr.t ty_metadata -> Bls12_381.Fr.t ty
+  | Bls12_381_g1_t : Script_bls.G1.t ty_metadata -> Script_bls.G1.t ty
+  | Bls12_381_g2_t : Script_bls.G2.t ty_metadata -> Script_bls.G2.t ty
+  | Bls12_381_fr_t : Script_bls.Fr.t ty_metadata -> Script_bls.Fr.t ty
   | Ticket_t : 'a comparable_ty * 'a ticket ty_metadata -> 'a ticket ty
-  | Chest_key_t : Timelock.chest_key ty_metadata -> Timelock.chest_key ty
-  | Chest_t : Timelock.chest ty_metadata -> Timelock.chest ty
+  | Chest_key_t :
+      Script_timelock.chest_key ty_metadata
+      -> Script_timelock.chest_key ty
+  | Chest_t : Script_timelock.chest ty_metadata -> Script_timelock.chest ty
 
 and ('top_ty, 'resty) stack_ty =
-  | Item_t :
-      'ty ty * ('ty2, 'rest) stack_ty * var_annot option
-      -> ('ty, 'ty2 * 'rest) stack_ty
+  | Item_t : 'ty ty * ('ty2, 'rest) stack_ty -> ('ty, 'ty2 * 'rest) stack_ty
   | Bot_t : (empty_cell, empty_cell) stack_ty
 
 and ('key, 'value) big_map = {
@@ -1640,169 +1811,123 @@ let ty_metadata : type a. a ty -> a ty_metadata = function
 
 let ty_size t = (ty_metadata t).size
 
-let unit_t ~annot = Unit_t {annot; size = Type_size.one}
+let unit_t = Unit_t {size = Type_size.one}
 
-let int_t ~annot = Int_t {annot; size = Type_size.one}
+let int_t = Int_t {size = Type_size.one}
 
-let nat_t ~annot = Nat_t {annot; size = Type_size.one}
+let nat_t = Nat_t {size = Type_size.one}
 
-let signature_t ~annot = Signature_t {annot; size = Type_size.one}
+let signature_t = Signature_t {size = Type_size.one}
 
-let string_t ~annot = String_t {annot; size = Type_size.one}
+let string_t = String_t {size = Type_size.one}
 
-let bytes_t ~annot = Bytes_t {annot; size = Type_size.one}
+let bytes_t = Bytes_t {size = Type_size.one}
 
-let mutez_t ~annot = Mutez_t {annot; size = Type_size.one}
+let mutez_t = Mutez_t {size = Type_size.one}
 
-let key_hash_t ~annot = Key_hash_t {annot; size = Type_size.one}
+let key_hash_t = Key_hash_t {size = Type_size.one}
 
-let key_t ~annot = Key_t {annot; size = Type_size.one}
+let key_t = Key_t {size = Type_size.one}
 
-let timestamp_t ~annot = Timestamp_t {annot; size = Type_size.one}
+let timestamp_t = Timestamp_t {size = Type_size.one}
 
-let address_t ~annot = Address_t {annot; size = Type_size.one}
+let address_t = Address_t {size = Type_size.one}
 
-let bool_t ~annot = Bool_t {annot; size = Type_size.one}
+let bool_t = Bool_t {size = Type_size.one}
 
-let pair_t loc (l, fannot_l, vannot_l) (r, fannot_r, vannot_r) ~annot =
+let pair_t loc (l, fannot_l) (r, fannot_r) =
   Type_size.compound2 loc (ty_size l) (ty_size r) >|? fun size ->
-  Pair_t ((l, fannot_l, vannot_l), (r, fannot_r, vannot_r), {annot; size})
+  Pair_t ((l, fannot_l), (r, fannot_r), {size})
 
-let union_t loc (l, fannot_l) (r, fannot_r) ~annot =
+let union_t loc (l, fannot_l) (r, fannot_r) =
   Type_size.compound2 loc (ty_size l) (ty_size r) >|? fun size ->
-  Union_t ((l, fannot_l), (r, fannot_r), {annot; size})
+  Union_t ((l, fannot_l), (r, fannot_r), {size})
 
 let union_bytes_bool_t =
-  Union_t
-    ( (bytes_t ~annot:None, None),
-      (bool_t ~annot:None, None),
-      {annot = None; size = Type_size.three} )
+  Union_t ((bytes_t, None), (bool_t, None), {size = Type_size.three})
 
-let lambda_t loc l r ~annot =
+let lambda_t loc l r =
   Type_size.compound2 loc (ty_size l) (ty_size r) >|? fun size ->
-  Lambda_t (l, r, {annot; size})
+  Lambda_t (l, r, {size})
 
-let option_t loc t ~annot =
-  Type_size.compound1 loc (ty_size t) >|? fun size -> Option_t (t, {annot; size})
+let option_t loc t =
+  Type_size.compound1 loc (ty_size t) >|? fun size -> Option_t (t, {size})
 
-let option_mutez'_t meta =
-  let {annot; size = _} = meta in
-  Option_t (mutez_t ~annot, {annot = None; size = Type_size.two})
+let option_mutez_t = Option_t (mutez_t, {size = Type_size.two})
 
-let option_string'_t meta =
-  let {annot; size = _} = meta in
-  Option_t (string_t ~annot, {annot = None; size = Type_size.two})
+let option_string_t = Option_t (string_t, {size = Type_size.two})
 
-let option_bytes'_t meta =
-  let {annot; size = _} = meta in
-  Option_t (bytes_t ~annot, {annot = None; size = Type_size.two})
+let option_bytes_t = Option_t (bytes_t, {size = Type_size.two})
 
-let option_nat_t =
-  Option_t (nat_t ~annot:None, {annot = None; size = Type_size.two})
+let option_nat_t = Option_t (nat_t, {size = Type_size.two})
 
 let option_pair_nat_nat_t =
   Option_t
-    ( Pair_t
-        ( (nat_t ~annot:None, None, None),
-          (nat_t ~annot:None, None, None),
-          {annot = None; size = Type_size.three} ),
-      {annot = None; size = Type_size.four} )
+    ( Pair_t ((nat_t, None), (nat_t, None), {size = Type_size.three}),
+      {size = Type_size.four} )
 
-let option_pair_nat'_nat'_t meta =
-  let {annot; size = _} = meta in
+let option_pair_nat_mutez_t =
   Option_t
-    ( Pair_t
-        ( (nat_t ~annot, None, None),
-          (nat_t ~annot, None, None),
-          {annot = None; size = Type_size.three} ),
-      {annot = None; size = Type_size.four} )
+    ( Pair_t ((nat_t, None), (mutez_t, None), {size = Type_size.three}),
+      {size = Type_size.four} )
 
-let option_pair_nat_mutez'_t meta =
-  let {annot; size = _} = meta in
+let option_pair_mutez_mutez_t =
   Option_t
-    ( Pair_t
-        ( (nat_t ~annot:None, None, None),
-          (mutez_t ~annot, None, None),
-          {annot = None; size = Type_size.three} ),
-      {annot = None; size = Type_size.four} )
+    ( Pair_t ((mutez_t, None), (mutez_t, None), {size = Type_size.three}),
+      {size = Type_size.four} )
 
-let option_pair_mutez'_mutez'_t meta =
-  let {annot; size = _} = meta in
+let option_pair_int_nat_t =
   Option_t
-    ( Pair_t
-        ( (mutez_t ~annot, None, None),
-          (mutez_t ~annot, None, None),
-          {annot = None; size = Type_size.three} ),
-      {annot = None; size = Type_size.four} )
+    ( Pair_t ((int_t, None), (nat_t, None), {size = Type_size.three}),
+      {size = Type_size.four} )
 
-let option_pair_int'_nat_t meta =
-  let {annot; size = _} = meta in
-  Option_t
-    ( Pair_t
-        ( (int_t ~annot, None, None),
-          (nat_t ~annot:None, None, None),
-          {annot = None; size = Type_size.three} ),
-      {annot = None; size = Type_size.four} )
+let list_t loc t =
+  Type_size.compound1 loc (ty_size t) >|? fun size -> List_t (t, {size})
 
-let option_pair_int_nat'_t meta =
-  let {annot; size = _} = meta in
-  Option_t
-    ( Pair_t
-        ( (int_t ~annot:None, None, None),
-          (nat_t ~annot, None, None),
-          {annot = None; size = Type_size.three} ),
-      {annot = None; size = Type_size.four} )
+let operation_t = Operation_t {size = Type_size.one}
 
-let list_t loc t ~annot =
-  Type_size.compound1 loc (ty_size t) >|? fun size -> List_t (t, {annot; size})
+let list_operation_t = List_t (operation_t, {size = Type_size.two})
 
-let operation_t ~annot = Operation_t {annot; size = Type_size.one}
-
-let list_operation_t =
-  List_t (operation_t ~annot:None, {annot = None; size = Type_size.two})
-
-let set_t loc t ~annot =
+let set_t loc t =
   Type_size.compound1 loc (comparable_ty_size t) >|? fun size ->
-  Set_t (t, {annot; size})
+  Set_t (t, {size})
 
-let map_t loc l r ~annot =
+let map_t loc l r =
   Type_size.compound2 loc (comparable_ty_size l) (ty_size r) >|? fun size ->
-  Map_t (l, r, {annot; size})
+  Map_t (l, r, {size})
 
-let big_map_t loc l r ~annot =
+let big_map_t loc l r =
   Type_size.compound2 loc (comparable_ty_size l) (ty_size r) >|? fun size ->
-  Big_map_t (l, r, {annot; size})
+  Big_map_t (l, r, {size})
 
-let contract_t loc t ~annot =
-  Type_size.compound1 loc (ty_size t) >|? fun size ->
-  Contract_t (t, {annot; size})
+let contract_t loc t =
+  Type_size.compound1 loc (ty_size t) >|? fun size -> Contract_t (t, {size})
 
-let contract_unit_t =
-  Contract_t (unit_t ~annot:None, {annot = None; size = Type_size.two})
+let contract_unit_t = Contract_t (unit_t, {size = Type_size.two})
 
-let sapling_transaction_t ~memo_size ~annot =
-  Sapling_transaction_t (memo_size, {annot; size = Type_size.one})
+let sapling_transaction_t ~memo_size =
+  Sapling_transaction_t (memo_size, {size = Type_size.one})
 
-let sapling_state_t ~memo_size ~annot =
-  Sapling_state_t (memo_size, {annot; size = Type_size.one})
+let sapling_state_t ~memo_size =
+  Sapling_state_t (memo_size, {size = Type_size.one})
 
-let chain_id_t ~annot = Chain_id_t {annot; size = Type_size.one}
+let chain_id_t = Chain_id_t {size = Type_size.one}
 
-let never_t ~annot = Never_t {annot; size = Type_size.one}
+let never_t = Never_t {size = Type_size.one}
 
-let bls12_381_g1_t ~annot = Bls12_381_g1_t {annot; size = Type_size.one}
+let bls12_381_g1_t = Bls12_381_g1_t {size = Type_size.one}
 
-let bls12_381_g2_t ~annot = Bls12_381_g2_t {annot; size = Type_size.one}
+let bls12_381_g2_t = Bls12_381_g2_t {size = Type_size.one}
 
-let bls12_381_fr_t ~annot = Bls12_381_fr_t {annot; size = Type_size.one}
+let bls12_381_fr_t = Bls12_381_fr_t {size = Type_size.one}
 
-let ticket_t loc t ~annot =
+let ticket_t loc t =
   Type_size.compound1 loc (comparable_ty_size t) >|? fun size ->
-  Ticket_t (t, {annot; size})
+  Ticket_t (t, {size})
 
-let chest_key_t ~annot = Chest_key_t {annot; size = Type_size.one}
+let chest_key_t = Chest_key_t {size = Type_size.one}
 
-let chest_t ~annot = Chest_t {annot; size = Type_size.one}
+let chest_t = Chest_t {size = Type_size.one}
 
 type 'a kinstr_traverse = {
   apply : 'b 'u 'r 'f. 'a -> ('b, 'u, 'r, 'f) kinstr -> 'a;
@@ -2036,7 +2161,7 @@ let (ty_traverse, comparable_ty_traverse) =
         (continue [@ocaml.tailcall]) accu
     | Ticket_t (cty, _) -> aux f accu cty continue
     | Chest_key_t _ | Chest_t _ -> (continue [@ocaml.tailcall]) accu
-    | Pair_t ((ty1, _, _), (ty2, _, _), _) ->
+    | Pair_t ((ty1, _), (ty2, _), _) ->
         (next2' [@ocaml.tailcall]) f accu ty1 ty2 continue
     | Union_t ((ty1, _), (ty2, _), _) ->
         (next2' [@ocaml.tailcall]) f accu ty1 ty2 continue
@@ -2078,7 +2203,7 @@ let stack_ty_traverse (type a t) (sty : (a, t) stack_ty) init f =
    fun accu sty ->
     match sty with
     | Bot_t -> f.apply accu sty
-    | Item_t (_, sty', _) -> aux (f.apply accu sty) sty'
+    | Item_t (_, sty') -> aux (f.apply accu sty) sty'
   in
   aux init sty
 
@@ -2118,7 +2243,7 @@ let value_traverse (type t) (ty : (t ty, t comparable_ty) union) (x : t) init f
     | Bls12_381_g2_t _ | Bls12_381_fr_t _ | Chest_key_t _ | Chest_t _
     | Lambda_t (_, _, _) ->
         (return [@ocaml.tailcall]) ()
-    | Pair_t ((ty1, _, _), (ty2, _, _), _) ->
+    | Pair_t ((ty1, _), (ty2, _), _) ->
         (next2 [@ocaml.tailcall]) ty1 ty2 (fst x) (snd x)
     | Union_t ((ty1, _), (ty2, _), _) -> (
         match x with
@@ -2131,11 +2256,11 @@ let value_traverse (type t) (ty : (t ty, t comparable_ty) union) (x : t) init f
     | Ticket_t (cty, _) -> (aux' [@ocaml.tailcall]) accu cty x.contents continue
     | List_t (ty', _) -> on_list ty' accu x.elements
     | Map_t (kty, ty', _) ->
-        let module M = (val x) in
+        let (Map_tag (module M)) = x in
         let bindings = M.OPS.fold (fun k v bs -> (k, v) :: bs) M.boxed [] in
         on_bindings accu kty ty' continue bindings
     | Set_t (ty', _) ->
-        let module M = (val x) in
+        let (Set_tag (module M)) = x in
         let elements = M.OPS.fold (fun x s -> x :: s) M.boxed [] in
         on_list' accu ty' elements continue
     | Big_map_t (_, _, _) ->
@@ -2198,4 +2323,4 @@ let value_traverse (type t) (ty : (t ty, t comparable_ty) union) (x : t) init f
   [@@coq_axiom_with_reason "local mutually recursive definition not handled"]
 
 let stack_top_ty : type a b s. (a, b * s) stack_ty -> a ty = function
-  | Item_t (ty, _, _) -> ty
+  | Item_t (ty, _) -> ty

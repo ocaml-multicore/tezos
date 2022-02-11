@@ -1,3 +1,6 @@
+; This file was automatically generated, do not edit.
+; Edit file manifest/main.ml instead.
+
 (library
  (name tezos_stdlib_unix)
  (public_name tezos-stdlib-unix)
@@ -12,6 +15,7 @@
   lwt.unix
   ipaddr.unix
   re
+  ezjsonm
   ptime
   ptime.clock.os
   mtime

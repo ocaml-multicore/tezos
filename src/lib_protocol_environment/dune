@@ -1,3 +1,6 @@
+; This file was automatically generated, do not edit.
+; Edit file manifest/main.ml instead.
+
 (library
  (name tezos_protocol_environment)
  (public_name tezos-protocol-environment)
@@ -22,15 +25,13 @@
   Environment_V2
   Environment_V3
   Environment_V4
+  Environment_V5
   Environment_cache
   Environment_context
   Environment_context_intf
   Environment_protocol_T
   Environment_protocol_T_V0
-  Environment_protocol_T_V1
-  Environment_protocol_T_V2
   Environment_protocol_T_V3
-  Environment_protocol_T_V4
   Environment_protocol_T_test
   Dummy_context
   Memory_context

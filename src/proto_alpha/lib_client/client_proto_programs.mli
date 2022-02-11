@@ -47,17 +47,18 @@ type simulation_params = {
 type run_view_params = {
   shared_params : simulation_params;
   contract : Contract.t;
-  entrypoint : string;
+  entrypoint : Entrypoint.t;
 }
 
 (* Parameters specific to simulations of contract calls *)
 type run_params = {
   shared_params : simulation_params;
   amount : Tez.t option;
-  balance : Tez.t;
+  balance : Tez.t option;
   program : Michelson_v1_parser.parsed;
   storage : Michelson_v1_parser.parsed;
-  entrypoint : string option;
+  entrypoint : Entrypoint.t option;
+  self : Contract.t option;
 }
 
 val run_view :
@@ -89,10 +90,12 @@ val trace :
   Lwt.t
 
 val print_view_result :
-  #Client_context.printer -> Script_repr.expr tzresult -> unit tzresult Lwt.t
+  #Protocol_client_context.full ->
+  Script_repr.expr tzresult ->
+  unit tzresult Lwt.t
 
 val print_run_result :
-  #Client_context.printer ->
+  #Protocol_client_context.full ->
   show_source:bool ->
   parsed:Michelson_v1_parser.parsed ->
   (Script_repr.expr
@@ -102,7 +105,7 @@ val print_run_result :
   unit tzresult Lwt.t
 
 val print_trace_result :
-  #Client_context.printer ->
+  #Protocol_client_context.full ->
   show_source:bool ->
   parsed:Michelson_v1_parser.parsed ->
   (Script_repr.expr
@@ -158,16 +161,16 @@ val entrypoint_type :
   chain:Shell_services.chain ->
   block:Shell_services.block ->
   Michelson_v1_parser.parsed ->
-  entrypoint:string ->
+  entrypoint:Entrypoint.t ->
   Script.expr option tzresult Lwt.t
 
 val print_entrypoint_type :
-  #Client_context.printer ->
+  #Protocol_client_context.full ->
   emacs:bool ->
   ?script_name:string ->
   show_source:bool ->
   parsed:Michelson_v1_parser.parsed ->
-  entrypoint:string ->
+  entrypoint:Entrypoint.t ->
   Script_repr.expr option tzresult ->
   unit tzresult Lwt.t
 
@@ -179,7 +182,7 @@ val list_entrypoints :
   (string * Script.expr) list tzresult Lwt.t
 
 val print_entrypoints_list :
-  #Client_context.printer ->
+  #Protocol_client_context.full ->
   emacs:bool ->
   ?script_name:string ->
   show_source:bool ->
@@ -195,7 +198,7 @@ val list_unreachables :
   Michelson_v1_primitives.prim list list tzresult Lwt.t
 
 val print_unreachables :
-  #Client_context.printer ->
+  #Protocol_client_context.full ->
   emacs:bool ->
   ?script_name:string ->
   show_source:bool ->

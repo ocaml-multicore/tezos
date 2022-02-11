@@ -90,6 +90,7 @@ val inject_manager_operation :
   ?dry_run:bool ->
   ?verbose_signing:bool ->
   ?simulation:bool ->
+  ?force:bool ->
   source:Signature.Public_key_hash.t ->
   src_pk:Signature.public_key ->
   src_sk:Client_keys.sk_uri ->
@@ -97,9 +98,13 @@ val inject_manager_operation :
   gas_limit:Gas.Arith.integral Limit.t ->
   storage_limit:Z.t Limit.t ->
   ?counter:Z.t ->
+  ?replace_by_fees:bool ->
   fee_parameter:fee_parameter ->
   'kind Annotated_manager_operation.annotated_list ->
   'kind Kind.manager result_list tzresult Lwt.t
 
+(** Collects the addresses of all contracts originated by a batch of operations
+    by looking at the operation results. Fails if an operation in the batch is
+    failed unless [force] is given. *)
 val originated_contracts :
-  'kind contents_result_list -> Contract.t list tzresult
+  force:bool -> 'kind contents_result_list -> Contract.t list tzresult
