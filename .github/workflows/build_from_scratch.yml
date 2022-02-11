@@ -1,0 +1,30 @@
+name: Build from scratch
+
+# Controls when the workflow will run
+on:
+  # Triggers the on push or pull request events but only for the main branch
+  # the branch name must be escaped because it conatins '+' character
+  # https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#onpushpull_requestbranchestags
+  pull_request:
+    branches: [ 4.12.0\+domains ]
+  schedule:
+    # Runs everyday at 00:00 AM
+    - cron: 0 0 * * *
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+#From https://docs.github.com/en/actions/guides/publishing-docker-images
+jobs:
+  build_from_scratch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Build Image
+        run: |
+          docker build -f ci.Dockerfile .

@@ -23,6 +23,7 @@ else
     dev=
 fi
 
+
 # $OPAMSWITCH variable makes the following commands fail if the switch referred
 # to by it does not exist. Since we're going to create it later, for now let's
 # pretend it's not set.

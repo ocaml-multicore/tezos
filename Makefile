@@ -324,6 +324,10 @@ docker-image-minimal:
 		--build-arg BUILD_IMAGE_VERSION=$(DOCKER_BUILD_IMAGE_VERSION) \
 		.
 
+.PHONY: docker-image-ci
+docker-image-ci:
+	@docker build -f ci.Dockerfile .
+
 .PHONY: docker-image
 docker-image: docker-image-build docker-image-debug docker-image-bare docker-image-minimal
 
