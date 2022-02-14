@@ -1,3 +1,6 @@
+; This file was automatically generated, do not edit.
+; Edit file manifest/main.ml instead.
+
 (test
  (name test)
  (package tezos-shell-services)
@@ -9,6 +12,6 @@
   alcotest-lwt)
  (flags
   (:standard
-   -open Tezos_base__TzPervasives
+   -open Tezos_base.TzPervasives
    -open Tezos_stdlib_unix
    -open Tezos_shell_services)))

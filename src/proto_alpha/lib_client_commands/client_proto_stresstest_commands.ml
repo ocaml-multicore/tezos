@@ -84,8 +84,15 @@ type state = {
   mutable shuffled_pool : source list option;
   mutable revealed : Signature.Public_key_hash.Set.t;
   mutable last_block : Block_hash.t;
+  mutable target_block : Block_hash.t;
+      (** The block on top of which we are injecting transactions (HEAD~2). *)
   new_block_condition : unit Lwt_condition.t;
   injected_operations : Operation_hash.t list Block_hash.Table.t;
+}
+
+(** Costs of every kind of transaction used in the stress test. *)
+type transaction_costs = {
+  regular : Gas.cost;  (** Cost of a regular transaction. *)
 }
 
 let verbose = ref false
@@ -149,6 +156,13 @@ let injected_operations_encoding =
     (obj2
        (req "block_hash_when_injected" Block_hash.encoding)
        (req "operation_hashes" (list Operation_hash.encoding)))
+
+let transaction_costs_encoding =
+  let open Data_encoding in
+  conv
+    (fun {regular} -> regular)
+    (fun regular -> {regular})
+    (obj1 (req "regular" Gas_limit_repr.cost_encoding))
 
 let parse_strategy s =
   match String.split ~limit:1 ':' s with
@@ -387,8 +401,8 @@ let manager_op_of_transfer parameters
       @@ Micheline.strip_locations
            (Prim (0, Michelson_v1_primitives.D_Unit, [], []))
     in
-    let entrypoint = "default" in
-    let destination = Contract.implicit_contract dst in
+    let entrypoint = Entrypoint.default in
+    let destination = Destination.Contract (Contract.implicit_contract dst) in
     Transaction {amount; parameters; entrypoint; destination}
   in
   match counter with
@@ -407,133 +421,145 @@ let inject_transfer (cctxt : Protocol_client_context.full) parameters state
   (* If there is a new block refresh the fresh_pool *)
   if not (Block_hash.equal branch state.last_block) then (
     state.last_block <- branch ;
+    (* Because of how Tenderbake works the target block should stay 2
+       blocks in the past because this guarantees that we are targeting a
+       block that is decided. *)
+    Shell_services.Blocks.hash cctxt ~chain ~block:(`Head 2) ()
+    >>=? fun target_block ->
+    state.target_block <- target_block ;
     if Option.is_some state.shuffled_pool then
       state.shuffled_pool <-
         Some
           (List.shuffle
              ~rng_state
-             (List.map (fun src_org -> src_org.source) state.pool))) ;
-  let freshest_counter =
-    match
-      Signature.Public_key_hash.Table.find state.counters transfer.src.pkh
-    with
-    | None ->
-        (* This is the first operation we inject for this pkh: the counter given
-           by the RPC _must_ be the freshest one. *)
-        pcounter
-    | Some (previous_branch, previous_counter) ->
-        if Block_hash.equal branch previous_branch then
-          (* We already injected an operation on top of this block: the one stored
-             locally is the freshest one. *)
-          previous_counter
-        else
-          (* It seems the block changed since we last injected an operation:
-             this invalidates the previously stored counter. We return the counter
-             given by the RPC. *)
-          pcounter
-  in
-  (if Signature.Public_key_hash.Set.mem transfer.src.pkh state.revealed then
-   return true
-  else (
-    (* Either the [manager_key] RPC tells us the key is already
-       revealed, or we immediately inject a reveal operation: in any
-       case the key is revealed in the end. *)
-    state.revealed <-
-      Signature.Public_key_hash.Set.add transfer.src.pkh state.revealed ;
-    Alpha_services.Contract.manager_key cctxt (chain, block) transfer.src.pkh
-    >>=? fun pk_opt -> return (Option.is_some pk_opt)))
-  >>=? fun already_revealed ->
-  (if not already_revealed then (
-   let reveal_counter = Z.succ freshest_counter in
-   let transf_counter = Z.succ reveal_counter in
-   let reveal =
-     Manager_operation
-       {
-         source = transfer.src.pkh;
-         fee = Tez.zero;
-         counter = reveal_counter;
-         gas_limit = cost_of_manager_operation;
-         storage_limit = Z.zero;
-         operation = Reveal transfer.src.pk;
-       }
-   in
-   let manager_op =
-     manager_op_of_transfer
-       parameters
-       {transfer with counter = Some transf_counter}
-   in
-   let list = Cons (reveal, Single manager_op) in
-   Signature.Public_key_hash.Table.remove state.counters transfer.src.pkh ;
-   Signature.Public_key_hash.Table.add
-     state.counters
-     transfer.src.pkh
-     (branch, transf_counter) ;
-   (if !verbose then
-    cctxt#message
-      "injecting reveal+transfer from %a (counters=%a,%a) to %a"
-      Signature.Public_key_hash.pp
-      transfer.src.pkh
-      Z.pp_print
-      reveal_counter
-      Z.pp_print
-      transf_counter
-      Signature.Public_key_hash.pp
-      transfer.dst
-   else Lwt.return_unit)
-   >>= fun () ->
-   (* NB: regardless of our best efforts to keep track of counters, injection can fail with
-      "counter in the future" if a block switch happens in between the moment we
-      get the branch and the moment we inject, and the new block does not include
-      all the operations we injected. *)
-   inject_contents cctxt chain branch transfer.src.sk list)
+             (List.map (fun src_org -> src_org.source) state.pool)) ;
+    return ())
   else
-    let transf_counter = Z.succ freshest_counter in
-    let manager_op =
-      manager_op_of_transfer
-        parameters
-        {transfer with counter = Some transf_counter}
+    return () >>=? fun () ->
+    let freshest_counter =
+      match
+        Signature.Public_key_hash.Table.find state.counters transfer.src.pkh
+      with
+      | None ->
+          (* This is the first operation we inject for this pkh: the counter given
+             by the RPC _must_ be the freshest one. *)
+          pcounter
+      | Some (previous_branch, previous_counter) ->
+          if Block_hash.equal branch previous_branch then
+            (* We already injected an operation on top of this block: the one stored
+               locally is the freshest one. *)
+            previous_counter
+          else
+            (* It seems the block changed since we last injected an operation:
+               this invalidates the previously stored counter. We return the counter
+               given by the RPC. *)
+            pcounter
     in
-    let list = Single manager_op in
-    Signature.Public_key_hash.Table.remove state.counters transfer.src.pkh ;
-    Signature.Public_key_hash.Table.add
-      state.counters
-      transfer.src.pkh
-      (branch, transf_counter) ;
-    (if !verbose then
-     cctxt#message
-       "injecting transfer from %a (counter=%a) to %a"
-       Signature.Public_key_hash.pp
+    (if Signature.Public_key_hash.Set.mem transfer.src.pkh state.revealed then
+     return true
+    else (
+      (* Either the [manager_key] RPC tells us the key is already
+         revealed, or we immediately inject a reveal operation: in any
+         case the key is revealed in the end. *)
+      state.revealed <-
+        Signature.Public_key_hash.Set.add transfer.src.pkh state.revealed ;
+      Alpha_services.Contract.manager_key cctxt (chain, block) transfer.src.pkh
+      >>=? fun pk_opt -> return (Option.is_some pk_opt)))
+    >>=? fun already_revealed ->
+    (if not already_revealed then (
+     let reveal_counter = Z.succ freshest_counter in
+     let transf_counter = Z.succ reveal_counter in
+     let reveal =
+       Manager_operation
+         {
+           source = transfer.src.pkh;
+           fee = Tez.zero;
+           counter = reveal_counter;
+           gas_limit = cost_of_manager_operation;
+           storage_limit = Z.zero;
+           operation = Reveal transfer.src.pk;
+         }
+     in
+     let manager_op =
+       manager_op_of_transfer
+         parameters
+         {transfer with counter = Some transf_counter}
+     in
+     let list = Cons (reveal, Single manager_op) in
+     Signature.Public_key_hash.Table.remove state.counters transfer.src.pkh ;
+     Signature.Public_key_hash.Table.add
+       state.counters
        transfer.src.pkh
-       Z.pp_print
-       transf_counter
-       Signature.Public_key_hash.pp
-       transfer.dst
-    else Lwt.return_unit)
-    >>= fun () ->
-    (* See comment above. *)
-    inject_contents cctxt chain branch transfer.src.sk list)
-  >>= function
-  | Ok op_hash ->
-      debug_msg (fun () ->
-          cctxt#message
-            "inject_transfer: op injected %a"
-            Operation_hash.pp
-            op_hash)
-      >>= fun () ->
-      let ops =
-        Option.value
-          ~default:[]
-          (Block_hash.Table.find state.injected_operations branch)
+       (branch, transf_counter) ;
+     (if !verbose then
+      cctxt#message
+        "injecting reveal+transfer from %a (counters=%a,%a) to %a"
+        Signature.Public_key_hash.pp
+        transfer.src.pkh
+        Z.pp_print
+        reveal_counter
+        Z.pp_print
+        transf_counter
+        Signature.Public_key_hash.pp
+        transfer.dst
+     else Lwt.return_unit)
+     >>= fun () ->
+     (* NB: regardless of our best efforts to keep track of counters, injection can fail with
+        "counter in the future" if a block switch happens in between the moment we
+        get the branch and the moment we inject, and the new block does not include
+        all the operations we injected. *)
+     inject_contents cctxt chain state.target_block transfer.src.sk list)
+    else
+      let transf_counter = Z.succ freshest_counter in
+      let manager_op =
+        manager_op_of_transfer
+          parameters
+          {transfer with counter = Some transf_counter}
       in
-      Block_hash.Table.replace state.injected_operations branch (op_hash :: ops) ;
-      return_unit
-  | Error e ->
-      debug_msg (fun () ->
-          cctxt#message
-            "inject_transfer: error, op not injected: %a"
-            Error_monad.pp_print_trace
-            e)
-      >>= fun () -> return_unit
+      let list = Single manager_op in
+      Signature.Public_key_hash.Table.remove state.counters transfer.src.pkh ;
+      Signature.Public_key_hash.Table.add
+        state.counters
+        transfer.src.pkh
+        (branch, transf_counter) ;
+      (if !verbose then
+       cctxt#message
+         "injecting transfer from %a (counter=%a) to %a"
+         Signature.Public_key_hash.pp
+         transfer.src.pkh
+         Z.pp_print
+         transf_counter
+         Signature.Public_key_hash.pp
+         transfer.dst
+      else Lwt.return_unit)
+      >>= fun () ->
+      (* See comment above. *)
+      inject_contents cctxt chain state.target_block transfer.src.sk list)
+    >>= function
+    | Ok op_hash ->
+        debug_msg (fun () ->
+            cctxt#message
+              "inject_transfer: op injected %a"
+              Operation_hash.pp
+              op_hash)
+        >>= fun () ->
+        let ops =
+          Option.value
+            ~default:[]
+            (Block_hash.Table.find state.injected_operations branch)
+        in
+        Block_hash.Table.replace
+          state.injected_operations
+          branch
+          (op_hash :: ops) ;
+        return_unit
+    | Error e ->
+        debug_msg (fun () ->
+            cctxt#message
+              "inject_transfer: error, op not injected: %a"
+              Error_monad.pp_print_trace
+              e)
+        >>= fun () -> return_unit
 
 let save_injected_operations (cctxt : Protocol_client_context.full) state =
   let json =
@@ -953,6 +979,8 @@ let generate_random_transactions =
           let counters = Signature.Public_key_hash.Table.create 1023 in
           let rng_state = Random.State.make [|parameters.seed|] in
           Shell_services.Blocks.hash cctxt () >>=? fun current_head_on_start ->
+          Shell_services.Blocks.hash cctxt ~block:(`Head 2) ()
+          >>=? fun current_target_block ->
           let state =
             {
               current_head_on_start;
@@ -968,6 +996,7 @@ let generate_random_transactions =
                 else None);
               revealed = Signature.Public_key_hash.Set.empty;
               last_block = current_head_on_start;
+              target_block = current_target_block;
               new_block_condition = Lwt_condition.create ();
               injected_operations = Block_hash.Table.create 1023;
             }
@@ -998,7 +1027,98 @@ let generate_random_transactions =
                (fun _retcode -> save_injected_operations ())) ;
           launch cctxt parameters state rng_state save_pool)
 
+let estimate_regular_transaction_cost (cctxt : Protocol_client_context.full) :
+    Gas.Arith.integral tzresult Lwt.t =
+  let sources_json =
+    From_string
+      {
+        json =
+          `A
+            [
+              `O [("alias", `String "bootstrap1")];
+              `O [("alias", `String "bootstrap2")];
+            ];
+      }
+  in
+  match
+    Data_encoding.Json.destruct
+      input_source_list_encoding
+      (json_of_pool_source sources_json)
+  with
+  | exception _ -> cctxt#error "Could not decode list of sources"
+  | [] -> cctxt#error "It is required to provide sources"
+  | sources0 -> (
+      List.filter_map_p (normalize_source cctxt) sources0 >>= fun sources ->
+      Shell_services.Blocks.hash cctxt () >>=? fun current_head_on_start ->
+      let counters = Signature.Public_key_hash.Table.create 1023 in
+      Shell_services.Blocks.hash cctxt ~block:(`Head 2) ()
+      >>=? fun current_target_block ->
+      let state =
+        {
+          current_head_on_start;
+          counters;
+          pool = sources;
+          pool_size = List.length sources;
+          shuffled_pool = None;
+          revealed = Signature.Public_key_hash.Set.empty;
+          last_block = current_head_on_start;
+          target_block = current_target_block;
+          new_block_condition = Lwt_condition.create ();
+          injected_operations = Block_hash.Table.create 1023;
+        }
+      in
+      (* Parameters do not influence gas cost of the command, so we just
+         always use default_parameters for this estimation. *)
+      let parameters = default_parameters in
+      let rng_state = Random.State.make [|parameters.seed|] in
+      let chain = cctxt#chain in
+      let block = cctxt#block in
+      sample_transfer cctxt chain block parameters state rng_state
+      >>=? fun transfer ->
+      Alpha_services.Contract.counter cctxt (chain, block) transfer.src.pkh
+      >>=? fun current_counter ->
+      let transf_counter = Z.succ current_counter in
+      let manager_op =
+        manager_op_of_transfer
+          {
+            parameters with
+            gas_limit =
+              Default_parameters.constants_mainnet.hard_gas_limit_per_operation;
+          }
+          {transfer with counter = Some transf_counter}
+      in
+      Injection.simulate cctxt ~chain ~block (Single manager_op)
+      >>=? fun (_oph, _op, result) ->
+      match result.contents with
+      | Single_result (Manager_operation_result {operation_result; _}) -> (
+          match operation_result with
+          | Applied
+              (Transaction_result
+                (Transaction_to_contract_result {consumed_gas; _})) ->
+              return (Gas.Arith.ceil consumed_gas)
+          | _ -> cctxt#error "Simulation of regular transaction failed"))
+
+let estimate_transaction_costs : Protocol_client_context.full Clic.command =
+  let open Clic in
+  command
+    ~group
+    ~desc:"Output gas estimations for transactions that stresstest uses"
+    no_options
+    (prefixes ["stresstest"; "estimate"; "gas"] @@ stop)
+    (fun () cctxt ->
+      estimate_regular_transaction_cost cctxt >>=? fun estimate ->
+      let regular = Gas.cost_of_gas estimate in
+      let transaction_costs : transaction_costs = {regular} in
+      let json =
+        Data_encoding.Json.construct
+          transaction_costs_encoding
+          transaction_costs
+      in
+      Format.printf "%a" Data_encoding.Json.pp json ;
+      return_unit)
+
 let commands network () =
   match network with
   | Some `Mainnet -> []
-  | Some `Testnet | None -> [generate_random_transactions]
+  | Some `Testnet | None ->
+      [generate_random_transactions; estimate_transaction_costs]

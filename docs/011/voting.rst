@@ -19,7 +19,7 @@ Periods
 
 The amendment process consists of five *periods*. Each period lasts for 40960
 blocks (5 cycles) (or approximately two weeks). The periods (listed below)
-typically succeed one another for a total duration of approximately 2 months and
+typically succeed one to another for a total duration of approximately 2 months and
 a half, after which the whole amendment process starts again.
 
 The five periods are as follows:
@@ -27,13 +27,14 @@ The five periods are as follows:
 - *Proposal period*: During this period, delegates can
 
   - submit *protocol amendment proposals* (or, simply, *proposals*) using the
-    ``Proposals`` operation (see below),
-  - support a proposal using the ``Ballot`` operation (see below).
+    ``Proposals`` operation (see below);
+  - upvote one or several proposals, using the same ``Proposals`` operation.
 
   Each delegate can submit a maximum of 20 proposals. Duplicates count towards
   this total.
 
-  At the end of a **proposal period**, the proposal with most support is
+  At the end of a **proposal period**, if participation reaches a
+  :ref:`proposal quorum <proposal_quorum>`, the proposal with most support is
   selected and we move to an **exploration period**. Note that support is
   measured in the cumulated number of rolls that delegates supporting the
   proposal have. E.g., a proposal supported by a single delegate with 100 rolls
@@ -112,7 +113,7 @@ period.
 Super-majority and Quorum
 -------------------------
 
-As mentioned above, during either of the **proposal** or **promotion** periods,
+As mentioned above, during either of the **exploration** or **promotion** periods,
 delegates can cast ballots using the ``Ballot`` operation (see below).
 In both cases, delegates can cast a single Yay, Nay, or Pass ballot. A ballot
 has a weight equal to the delegate's stake as detailed above.
@@ -124,13 +125,18 @@ Yay.
 The *vote participation* is the ratio of all the cumulated stake of cast ballots
 (including Pass ballots) to the total stake.
 
-For the first voting period, the *quorum* started at 80% of stake. The quorum is
+For the first vote, the *quorum* started at 80% of stake. The quorum is
 adjusted after each vote as detailed below. This adjustment is necessary to
 ensure that the amendment process can continue even if some delegates stop
 participating. After each vote the new quorum is updated based on the old quorum
 and the **vote participation** with the following coefficients::
 
   new-quorum = 0.8 × old-quorum + 0.2 × participation
+
+However, in order to avoid establishing quorums close to 100% that would be
+very difficult to attain, or, conversely, low quorums close to 0% making
+little participation chronicle, the quorums are lower- and upper-bounded by
+:ref:`quorum_caps`.
 
 The *super-majority* is reached if the cumulated stake of Yay ballots is
 greater than 8/10 of the cumulated stake of Yay and Nay ballots.
@@ -217,8 +223,8 @@ and the delegate submits another *proposals* operation for protocols B
 and C.
 The list of submissions that will be tallied is [A,B,C].
 
-A *ballot* operation can only be submitted during one of the voting
-periods, and only once per period.
+A *ballot* operation can only be submitted during periods where a vote happens
+(e.g. exploration, promotion), and only once per period.
 
 ::
 

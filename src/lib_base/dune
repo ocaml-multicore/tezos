@@ -1,3 +1,6 @@
+; This file was automatically generated, do not edit.
+; Edit file manifest/main.ml instead.
+
 (library
  (name tezos_base)
  (public_name tezos-base)
@@ -7,10 +10,10 @@
   tezos-crypto
   data-encoding
   tezos-error-monad
-  tezos-event-logging
   tezos-rpc
   tezos-clic
   tezos-micheline
+  tezos-event-logging
   ptime
   ezjsonm
   lwt

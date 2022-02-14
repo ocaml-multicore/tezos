@@ -2,6 +2,7 @@
 (*                                                                           *)
 (* Open Source License                                                       *)
 (* Copyright (c) 2018 Dynamic Ledger Solutions, Inc. <contact@tezos.com>     *)
+(* Copyright (c) 2022 Trili Tech, <contact@trili.tech>                       *)
 (*                                                                           *)
 (* Permission is hereby granted, free of charge, to any person obtaining a   *)
 (* copy of this software and associated documentation files (the "Software"),*)
@@ -506,15 +507,19 @@ module Vote : sig
       with type value = Protocol_hash.t
        and type t := Raw_context.t
 
-  (** Sum of all rolls of all delegates. *)
-  module Listings_size :
+  (* To be removed when removing migration from Ithaca *)
+  module Legacy_listings_size :
     Single_data_storage with type value = int32 and type t := Raw_context.t
 
-  (** Contains all delegates with their assigned number of rolls. *)
+  (** Sum of voting weights of all delegates. *)
+  module Voting_power_in_listings :
+    Single_data_storage with type value = int64 and type t := Raw_context.t
+
+  (** Contains all delegates with their assigned voting weight. *)
   module Listings :
     Indexed_data_storage
       with type key = Signature.Public_key_hash.t
-       and type value = int32
+       and type value = int64
        and type t := Raw_context.t
 
   (** Set of protocol proposal with corresponding proposer delegate *)
@@ -663,7 +668,7 @@ module Ticket_balance : sig
   module Table :
     Non_iterable_indexed_carbonated_data_storage
       with type t := Raw_context.t
-       and type key = Script_expr_hash.t
+       and type key = Ticket_hash_repr.t
        and type value = Z.t
 end
 
@@ -693,12 +698,138 @@ module Tenderbake : sig
 end
 
 module Tx_rollup : sig
-  (** Storage from this submodule must only be accessed through the
-      module `Tx_rollup_storage`. *)
-
+  (** [State] stores the state of a transaction rollup. *)
   module State :
-    Indexed_data_storage
+    Non_iterable_indexed_carbonated_data_storage
       with type key = Tx_rollup_repr.t
-       and type value = Tx_rollup_repr.state
+       and type value = Tx_rollup_state_repr.t
        and type t := Raw_context.t
+
+  (** The number of bytes allocated by the messages stored in each inbox,
+      as well as its predecessor and successor. *)
+  module Inbox_metadata :
+    Non_iterable_indexed_carbonated_data_storage
+      with type t := Raw_context.t * Raw_level_repr.t
+       and type key = Tx_rollup_repr.t
+       and type value = Tx_rollup_inbox_repr.metadata
+
+  (** A carbonated storage to store the hashes of the messages
+      appended in an inbox, in reverse order.
+
+      The actual content is already stored in the block (as part of
+      the operations), so by only storing the hashes we avoid
+      unnecessary storage duplication. *)
+  module Inbox_rev_contents :
+    Non_iterable_indexed_carbonated_data_storage
+      with type t := Raw_context.t * Raw_level_repr.t
+       and type key = Tx_rollup_repr.t
+       and type value = Tx_rollup_message_repr.hash list
+
+  (** [fold (ctxt, level) ~order ~init ~f] traverses all rollups with
+      a nonempty inbox at [level].
+
+      No assurances whatsoever are provided regarding the order of
+      traversal. *)
+  val fold :
+    Raw_context.t ->
+    Raw_level_repr.t ->
+    init:'a ->
+    f:(Tx_rollup_repr.t -> 'a -> 'a Lwt.t) ->
+    'a Lwt.t
+end
+
+module Sc_rollup : sig
+  (** Smart contract rollup.
+
+      Storage from this submodule must only be accessed through the
+      module `Sc_rollup_storage`.
+
+      Each smart contract rollup is associated to:
+
+      - a PVM kind (provided at creation time, read-only)
+      - a boot sector (provided at creation time, read-only)
+      - a merkelized inbox, of which only the root hash is stored
+      - a tree of commitments, rooted at the last finalized commitment
+      - a map from stakers to commitments
+
+      For performance reasons we also store (per rollup):
+
+      - the total number of active stakers;
+      - the number of stakers per commitment.
+
+      See module comments for details.
+  *)
+  module PVM_kind :
+    Indexed_data_storage
+      with type key = Sc_rollup_repr.t
+       and type value = Sc_rollup_repr.Kind.t
+       and type t := Raw_context.t
+
+  module Boot_sector :
+    Indexed_data_storage
+      with type key = Sc_rollup_repr.t
+       and type value = Sc_rollup_repr.PVM.boot_sector
+       and type t := Raw_context.t
+
+  module Inbox :
+    Non_iterable_indexed_carbonated_data_storage
+      with type key = Sc_rollup_repr.t
+       and type value = Sc_rollup_inbox.t
+       and type t := Raw_context.t
+
+  module Last_final_commitment :
+    Non_iterable_indexed_carbonated_data_storage
+      with type key = Sc_rollup_repr.t
+       and type value = Sc_rollup_repr.Commitment_hash.t
+       and type t := Raw_context.t
+
+  module Stakers :
+    Non_iterable_indexed_carbonated_data_storage
+      with type key = Signature.Public_key_hash.t
+       and type value = Sc_rollup_repr.Commitment_hash.t
+       and type t = Raw_context.t * Sc_rollup_repr.t
+
+  (** Cache: This should always be the size of [Stakers].
+
+      Combined with {!Commitment_stake_count} (see below), this ensures we can
+      check that all stakers agree on a commitment prior to finalization in
+      O(1) - rather than O(n) reads.
+    *)
+  module Stakers_size :
+    Non_iterable_indexed_carbonated_data_storage
+      with type key = Sc_rollup_repr.t
+       and type value = int32
+       and type t := Raw_context.t
+
+  module Commitments :
+    Non_iterable_indexed_carbonated_data_storage
+      with type key = Sc_rollup_repr.Commitment_hash.t
+       and type value = Sc_rollup_repr.Commitment.t
+       and type t = Raw_context.t * Sc_rollup_repr.t
+
+  (** Cache: This should always be the number of stakers that are directly or
+      indirectly staked on this commitment.
+
+      Let Stakers[S] mean "looking up the key S in [Stakers]".
+
+      A staker [S] is directly staked on [C] if [Stakers[S] = C]. A staker
+      [S] is indirectly staked on [C] if [C] is an ancestor of [Stakers[S]].
+
+      This ensures we remove unreachable commitments at the end of a
+      dispute in O(n) reads, where n is the length of the rejected branch.
+
+      We maintain the invariant that each branch has at least one staker.  On
+      rejection, we decrease stake count from the removed staker to the root,
+      and reclaim commitments whose stake count (refcount) thus reaches zero.
+
+      In the worst case all commitments are dishonest and on the same branch.
+      In practice we expect the honest branch, to be the longest, and dishonest
+      branches to be of similar lengths, making removal require a small number
+      of steps with respect to the total number of commitments.
+   *)
+  module Commitment_stake_count :
+    Non_iterable_indexed_carbonated_data_storage
+      with type key = Sc_rollup_repr.Commitment_hash.t
+       and type value = int32
+       and type t = Raw_context.t * Sc_rollup_repr.t
 end

@@ -1,3 +1,6 @@
+; This file was automatically generated, do not edit.
+; Edit file manifest/main.ml instead.
+
 (library
  (name tezos_stdlib)
  (public_name tezos-stdlib)
@@ -7,6 +10,6 @@
   zarith
   zarith_stubs_js
   lwt)
- (inline_tests)
+ (inline_tests (flags -verbose))
  (preprocess (pps ppx_inline_test))
  (js_of_ocaml))

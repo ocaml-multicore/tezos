@@ -107,6 +107,7 @@ let may_setup_pidfile pidfile_opt f =
         f
 
 let commands base_dir require_auth : Client_context.full command list =
+  let open Lwt_result_syntax in
   Tezos_signer_backends_unix.Ledger.commands ()
   @ Client_keys_commands.commands None
   @ [
@@ -148,15 +149,17 @@ let commands base_dir require_auth : Client_context.full command list =
         (fun (pidfile, magic_bytes, check_high_watermark, host, port, timeout)
              cctxt ->
           may_setup_pidfile pidfile @@ fun () ->
-          Tezos_signer_backends.Encrypted.decrypt_all cctxt >>=? fun () ->
-          Socket_daemon.run
-            cctxt
-            (Tcp (host, port, [AI_SOCKTYPE SOCK_STREAM]))
-            ?magic_bytes
-            ~check_high_watermark
-            ~require_auth
-            ~timeout
-          >>=? fun _ -> return_unit);
+          let* () = Tezos_signer_backends.Encrypted.decrypt_all cctxt in
+          let* _ =
+            Socket_daemon.run
+              cctxt
+              (Tcp (host, port, [AI_SOCKTYPE SOCK_STREAM]))
+              ?magic_bytes
+              ~check_high_watermark
+              ~require_auth
+              ~timeout
+          in
+          return_unit);
       command
         ~group
         ~desc:"Launch a signer daemon over a local Unix socket."
@@ -174,14 +177,16 @@ let commands base_dir require_auth : Client_context.full command list =
         (prefixes ["launch"; "local"; "signer"] @@ stop)
         (fun (pidfile, magic_bytes, check_high_watermark, path) cctxt ->
           may_setup_pidfile pidfile @@ fun () ->
-          Tezos_signer_backends.Encrypted.decrypt_all cctxt >>=? fun () ->
-          Socket_daemon.run
-            cctxt
-            (Unix path)
-            ?magic_bytes
-            ~check_high_watermark
-            ~require_auth
-          >>=? fun _ -> return_unit);
+          let* () = Tezos_signer_backends.Encrypted.decrypt_all cctxt in
+          let* _ =
+            Socket_daemon.run
+              cctxt
+              (Unix path)
+              ?magic_bytes
+              ~check_high_watermark
+              ~require_auth
+          in
+          return_unit);
       command
         ~group
         ~desc:"Launch a signer daemon over HTTP."
@@ -208,7 +213,7 @@ let commands base_dir require_auth : Client_context.full command list =
         (prefixes ["launch"; "http"; "signer"] @@ stop)
         (fun (pidfile, magic_bytes, check_high_watermark, host, port) cctxt ->
           may_setup_pidfile pidfile @@ fun () ->
-          Tezos_signer_backends.Encrypted.decrypt_all cctxt >>=? fun () ->
+          let* () = Tezos_signer_backends.Encrypted.decrypt_all cctxt in
           Http_daemon.run_http
             cctxt
             ~host
@@ -260,7 +265,7 @@ let commands base_dir require_auth : Client_context.full command list =
              key
              cctxt ->
           may_setup_pidfile pidfile @@ fun () ->
-          Tezos_signer_backends.Encrypted.decrypt_all cctxt >>=? fun () ->
+          let* () = Tezos_signer_backends.Encrypted.decrypt_all cctxt in
           Http_daemon.run_https
             cctxt
             ~host
@@ -324,10 +329,10 @@ let require_auth_arg () =
 
 let password_filename_arg () =
   arg
-    ~long:"password-file"
+    ~long:"password-filename"
     ~short:'f'
     ~placeholder:"filename"
-    ~doc:"Absolute path of the password file"
+    ~doc:"path to the password filename"
     (string_parameter ())
 
 let global_options () =
@@ -339,14 +344,22 @@ module Signer_config = struct
   let global_options = global_options
 
   let parse_config_args ctx argv =
-    Clic.parse_global_options (global_options ()) ctx argv
-    >>=? fun ((base_dir, require_auth, password_filename), remaining) ->
+    let open Lwt_result_syntax in
+    let* ((base_dir, require_auth, password_filename), remaining) =
+      Clic.parse_global_options (global_options ()) ctx argv
+    in
     return
       ( {
           Client_config.default_parsed_config_args with
+          parsed_args =
+            Some
+              {
+                Client_config.default_cli_args with
+                confirmations = None;
+                password_filename;
+              };
           base_dir;
           require_auth;
-          password_filename;
         },
         remaining )
 
@@ -356,7 +369,7 @@ module Signer_config = struct
 
   let default_base_dir = default_base_dir
 
-  let default_media_type = [Media_type.octet_stream]
+  let default_media_type = Media_type.Command_line.Binary
 
   let other_registrations = None
 

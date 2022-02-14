@@ -1,0 +1,66 @@
+---
+release-on-gitlab:
+  image: registry.gitlab.com/gitlab-org/release-cli
+  extends:
+    - .rules_template__release_tag
+  variables:
+    PACKAGE_REGISTRY_URL: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${CI_PROJECT_NAMESPACE}/${CI_COMMIT_TAG}"
+  stage: publish_release
+  script:
+    - apk --no-cache --virtual add jq curl
+    - scripts/release/create-gitlab-release.sh
+  dependencies:
+    - build:static-arm64-linux-binaries
+    - build:static-x86_64-linux-binaries
+
+# Note: here we rely on $IMAGE_ARCH_PREFIX to be empty.
+# Otherwise, $DOCKER_IMAGE_TAG would contain $IMAGE_ARCH_PREFIX too.
+# $IMAGE_ARCH_PREFIX is only used when building Docker images,
+# here we handle all architectures so there is no such variable.
+docker:merge_manifests:
+  extends:
+    - .rules_template__master_and_releases
+    - .image_template__latest # Docker-in-Docker (dind)
+    - .docker_registry_auth # Sets up a before_script
+  stage: publish_release
+  script:
+    - apk add git
+    # Environment variables from before_script
+    - . ./scripts/ci/docker.env
+    - LAST_COMMIT_DATE_TIME=$(git log --pretty=format:"%cd" -1 --date="format:%Y%m%d%H%M%S" 2>&1)
+
+    - docker pull "${DOCKER_IMAGE_NAME}bare:amd64_${DOCKER_IMAGE_TAG}"
+    - docker pull "${DOCKER_IMAGE_NAME}bare:arm64_${DOCKER_IMAGE_TAG}"
+    - docker manifest create "${DOCKER_IMAGE_NAME}bare:${DOCKER_IMAGE_TAG}"
+      --amend "${DOCKER_IMAGE_NAME}bare:amd64_${DOCKER_IMAGE_TAG}"
+      --amend "${DOCKER_IMAGE_NAME}bare:arm64_${DOCKER_IMAGE_TAG}"
+    - docker manifest push "${DOCKER_IMAGE_NAME}bare:${DOCKER_IMAGE_TAG}"
+
+    - docker manifest create "${DOCKER_IMAGE_NAME}bare:${DOCKER_IMAGE_TAG}_${CI_COMMIT_SHORT_SHA}_${LAST_COMMIT_DATE_TIME}"
+      --amend "${DOCKER_IMAGE_NAME}bare:amd64_${DOCKER_IMAGE_TAG}"
+      --amend "${DOCKER_IMAGE_NAME}bare:arm64_${DOCKER_IMAGE_TAG}"
+    - docker manifest push "${DOCKER_IMAGE_NAME}bare:${DOCKER_IMAGE_TAG}_${CI_COMMIT_SHORT_SHA}_${LAST_COMMIT_DATE_TIME}"
+
+    - docker pull "${DOCKER_IMAGE_NAME}debug:amd64_${DOCKER_IMAGE_TAG}"
+    - docker pull "${DOCKER_IMAGE_NAME}debug:arm64_${DOCKER_IMAGE_TAG}"
+    - docker manifest create "${DOCKER_IMAGE_NAME}debug:${DOCKER_IMAGE_TAG}"
+      --amend "${DOCKER_IMAGE_NAME}debug:amd64_${DOCKER_IMAGE_TAG}"
+      --amend "${DOCKER_IMAGE_NAME}debug:arm64_${DOCKER_IMAGE_TAG}"
+    - docker manifest push "${DOCKER_IMAGE_NAME}debug:${DOCKER_IMAGE_TAG}"
+
+    - docker manifest create "${DOCKER_IMAGE_NAME}debug:${DOCKER_IMAGE_TAG}_${CI_COMMIT_SHORT_SHA}_${LAST_COMMIT_DATE_TIME}"
+      --amend "${DOCKER_IMAGE_NAME}debug:amd64_${DOCKER_IMAGE_TAG}"
+      --amend "${DOCKER_IMAGE_NAME}debug:arm64_${DOCKER_IMAGE_TAG}"
+    - docker manifest push "${DOCKER_IMAGE_NAME}debug:${DOCKER_IMAGE_TAG}_${CI_COMMIT_SHORT_SHA}_${LAST_COMMIT_DATE_TIME}"
+
+    - docker pull "${DOCKER_IMAGE_NAME%?}:amd64_${DOCKER_IMAGE_TAG}"
+    - docker pull "${DOCKER_IMAGE_NAME%?}:arm64_${DOCKER_IMAGE_TAG}"
+    - docker manifest create "${DOCKER_IMAGE_NAME%?}:${DOCKER_IMAGE_TAG}"
+      --amend "${DOCKER_IMAGE_NAME%?}:amd64_${DOCKER_IMAGE_TAG}"
+      --amend "${DOCKER_IMAGE_NAME%?}:arm64_${DOCKER_IMAGE_TAG}"
+    - docker manifest push "${DOCKER_IMAGE_NAME%?}:${DOCKER_IMAGE_TAG}"
+
+    - docker manifest create "${DOCKER_IMAGE_NAME%?}:${DOCKER_IMAGE_TAG}_${CI_COMMIT_SHORT_SHA}_${LAST_COMMIT_DATE_TIME}"
+      --amend "${DOCKER_IMAGE_NAME%?}:amd64_${DOCKER_IMAGE_TAG}"
+      --amend "${DOCKER_IMAGE_NAME%?}:arm64_${DOCKER_IMAGE_TAG}"
+    - docker manifest push "${DOCKER_IMAGE_NAME%?}:${DOCKER_IMAGE_TAG}_${CI_COMMIT_SHORT_SHA}_${LAST_COMMIT_DATE_TIME}"

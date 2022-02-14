@@ -2,7 +2,7 @@
 (*                                                                           *)
 (* Open Source License                                                       *)
 (* Copyright (c) 2018 Dynamic Ledger Solutions, Inc. <contact@tezos.com>     *)
-(* Copyright (c) 2019-2020 Nomadic Labs <contact@nomadic-labs.com>           *)
+(* Copyright (c) 2019-2022 Nomadic Labs <contact@nomadic-labs.com>           *)
 (*                                                                           *)
 (* Permission is hereby granted, free of charge, to any person obtaining a   *)
 (* copy of this software and associated documentation files (the "Software"),*)
@@ -52,9 +52,18 @@ end
 module Slot = struct
   include Slot_repr
 
-  let slot_range = List.slot_range
+  type slot_range = List.t
+
+  let slot_range ~min ~count = List.slot_range ~min ~count
 end
 
+module Sc_rollup = struct
+  include Sc_rollup_repr
+  include Sc_rollup_storage
+  module Inbox = Sc_rollup_inbox
+end
+
+module Entrypoint = Entrypoint_repr
 include Operation_repr
 
 module Operation = struct
@@ -135,7 +144,7 @@ module Constants = struct
 
   let round_durations ctxt = Raw_context.round_durations ctxt
 
-  let all ctxt = all (parametric ctxt)
+  let all ctxt = all_of_parametric (parametric ctxt)
 end
 
 module Voting_period = struct
@@ -185,7 +194,7 @@ module Gas = struct
     Raw_context.update_remaining_operation_gas
 
   let reset_block_gas ctxt =
-    let gas = Constants.hard_gas_limit_per_block ctxt in
+    let gas = Arith.fp @@ Constants.hard_gas_limit_per_block ctxt in
     Raw_context.update_remaining_block_gas ctxt gas
 
   let level = Raw_context.gas_level
@@ -223,6 +232,8 @@ module Origination_nonce = struct
   module Internal_for_tests = Origination_nonce
 end
 
+module Destination = Destination_repr
+
 module Contract = struct
   include Contract_repr
   include Contract_storage
@@ -240,6 +251,29 @@ module Tx_rollup = struct
   include Tx_rollup_repr
   include Tx_rollup_storage
   module Internal_for_tests = Tx_rollup_repr
+end
+
+module Tx_rollup_state = struct
+  include Tx_rollup_state_repr
+  include Tx_rollup_state_storage
+
+  module Internal_for_tests = struct
+    include Tx_rollup_state_repr
+    include Tx_rollup_state_repr.Internal_for_tests
+  end
+end
+
+module Tx_rollup_message = struct
+  include Tx_rollup_message_repr
+
+  let make_batch string =
+    let message = Batch string in
+    (message, size message)
+end
+
+module Tx_rollup_inbox = struct
+  include Tx_rollup_inbox_repr
+  include Tx_rollup_inbox_storage
 end
 
 module Global_constants_storage = Global_constants_storage
@@ -439,6 +473,11 @@ let description = Raw_context.description
 
 module Parameters = Parameters_repr
 module Liquidity_baking = Liquidity_baking_repr
+
+module Ticket_hash = struct
+  include Ticket_hash_repr
+  include Ticket_hash_builder
+end
 
 module Ticket_balance = struct
   include Ticket_storage

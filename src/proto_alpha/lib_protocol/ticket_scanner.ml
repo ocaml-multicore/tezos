@@ -2,6 +2,7 @@
 (*                                                                           *)
 (* Open Source License                                                       *)
 (* Copyright (c) 2021 Trili Tech, <contact@trili.tech>                       *)
+(* Copyright (c) 2021-2022 Nomadic Labs <contact@nomadic-labs.com>           *)
 (*                                                                           *)
 (* Permission is hereby granted, free of charge, to any person obtaining a   *)
 (* copy of this software and associated documentation files (the "Software"),*)
@@ -24,9 +25,6 @@
 (*****************************************************************************)
 
 open Alpha_context
-
-(* Impossible error *)
-type error += Unsupported_type_invariant_violated
 
 type error += Unsupported_non_empty_overlay | Unsupported_type_operation
 
@@ -111,22 +109,22 @@ module Ticket_inspection = struct
    fun key_ty k ->
     let open Script_typed_ir in
     match key_ty with
-    | Unit_key _ -> (k [@ocaml.tailcall]) False_ht
-    | Never_key _ -> (k [@ocaml.tailcall]) False_ht
-    | Int_key _ -> (k [@ocaml.tailcall]) False_ht
-    | Nat_key _ -> (k [@ocaml.tailcall]) False_ht
-    | Signature_key _ -> (k [@ocaml.tailcall]) False_ht
-    | String_key _ -> (k [@ocaml.tailcall]) False_ht
-    | Bytes_key _ -> (k [@ocaml.tailcall]) False_ht
-    | Mutez_key _ -> (k [@ocaml.tailcall]) False_ht
-    | Bool_key _ -> (k [@ocaml.tailcall]) False_ht
-    | Key_hash_key _ -> (k [@ocaml.tailcall]) False_ht
-    | Key_key _ -> (k [@ocaml.tailcall]) False_ht
-    | Timestamp_key _ -> (k [@ocaml.tailcall]) False_ht
-    | Chain_id_key _ -> (k [@ocaml.tailcall]) False_ht
-    | Address_key _ -> (k [@ocaml.tailcall]) False_ht
-    | Pair_key ((_, _), (_, _), _) -> (k [@ocaml.tailcall]) False_ht
-    | Union_key (_, (_, _), _) -> (k [@ocaml.tailcall]) False_ht
+    | Unit_key -> (k [@ocaml.tailcall]) False_ht
+    | Never_key -> (k [@ocaml.tailcall]) False_ht
+    | Int_key -> (k [@ocaml.tailcall]) False_ht
+    | Nat_key -> (k [@ocaml.tailcall]) False_ht
+    | Signature_key -> (k [@ocaml.tailcall]) False_ht
+    | String_key -> (k [@ocaml.tailcall]) False_ht
+    | Bytes_key -> (k [@ocaml.tailcall]) False_ht
+    | Mutez_key -> (k [@ocaml.tailcall]) False_ht
+    | Bool_key -> (k [@ocaml.tailcall]) False_ht
+    | Key_hash_key -> (k [@ocaml.tailcall]) False_ht
+    | Key_key -> (k [@ocaml.tailcall]) False_ht
+    | Timestamp_key -> (k [@ocaml.tailcall]) False_ht
+    | Chain_id_key -> (k [@ocaml.tailcall]) False_ht
+    | Address_key -> (k [@ocaml.tailcall]) False_ht
+    | Pair_key (_, _, _) -> (k [@ocaml.tailcall]) False_ht
+    | Union_key (_, _, _) -> (k [@ocaml.tailcall]) False_ht
     | Option_key (_, _) -> (k [@ocaml.tailcall]) False_ht
 
   (* Short circuit pairing of two [has_tickets] values.
@@ -151,25 +149,25 @@ module Ticket_inspection = struct
     let open Script_typed_ir in
     match ty with
     | Ticket_t _ -> (k [@ocaml.tailcall]) True_ht
-    | Unit_t _ -> (k [@ocaml.tailcall]) False_ht
-    | Int_t _ -> (k [@ocaml.tailcall]) False_ht
-    | Nat_t _ -> (k [@ocaml.tailcall]) False_ht
-    | Signature_t _ -> (k [@ocaml.tailcall]) False_ht
-    | String_t _ -> (k [@ocaml.tailcall]) False_ht
-    | Bytes_t _ -> (k [@ocaml.tailcall]) False_ht
-    | Mutez_t _ -> (k [@ocaml.tailcall]) False_ht
-    | Key_hash_t _ -> (k [@ocaml.tailcall]) False_ht
-    | Key_t _ -> (k [@ocaml.tailcall]) False_ht
-    | Timestamp_t _ -> (k [@ocaml.tailcall]) False_ht
-    | Address_t _ -> (k [@ocaml.tailcall]) False_ht
-    | Bool_t _ -> (k [@ocaml.tailcall]) False_ht
-    | Pair_t ((ty1, _, _), (ty2, _, _), _) ->
+    | Unit_t -> (k [@ocaml.tailcall]) False_ht
+    | Int_t -> (k [@ocaml.tailcall]) False_ht
+    | Nat_t -> (k [@ocaml.tailcall]) False_ht
+    | Signature_t -> (k [@ocaml.tailcall]) False_ht
+    | String_t -> (k [@ocaml.tailcall]) False_ht
+    | Bytes_t -> (k [@ocaml.tailcall]) False_ht
+    | Mutez_t -> (k [@ocaml.tailcall]) False_ht
+    | Key_hash_t -> (k [@ocaml.tailcall]) False_ht
+    | Key_t -> (k [@ocaml.tailcall]) False_ht
+    | Timestamp_t -> (k [@ocaml.tailcall]) False_ht
+    | Address_t -> (k [@ocaml.tailcall]) False_ht
+    | Bool_t -> (k [@ocaml.tailcall]) False_ht
+    | Pair_t (ty1, ty2, _) ->
         (has_tickets_of_pair [@ocaml.tailcall])
           ty1
           ty2
           ~pair:(fun ht1 ht2 -> Pair_ht (ht1, ht2))
           k
-    | Union_t ((ty1, _), (ty2, _), _) ->
+    | Union_t (ty1, ty2, _) ->
         (has_tickets_of_pair [@ocaml.tailcall])
           ty1
           ty2
@@ -206,17 +204,17 @@ module Ticket_inspection = struct
     | Contract_t _ -> (k [@ocaml.tailcall]) False_ht
     | Sapling_transaction_t _ -> (k [@ocaml.tailcall]) False_ht
     | Sapling_state_t _ -> (k [@ocaml.tailcall]) False_ht
-    | Operation_t _ ->
+    | Operation_t ->
         (* Operations may contain tickets but they should never be passed
            why we fail in this case. *)
         error Unsupported_type_operation
-    | Chain_id_t _ -> (k [@ocaml.tailcall]) False_ht
-    | Never_t _ -> (k [@ocaml.tailcall]) False_ht
-    | Bls12_381_g1_t _ -> (k [@ocaml.tailcall]) False_ht
-    | Bls12_381_g2_t _ -> (k [@ocaml.tailcall]) False_ht
-    | Bls12_381_fr_t _ -> (k [@ocaml.tailcall]) False_ht
-    | Chest_t _ -> (k [@ocaml.tailcall]) False_ht
-    | Chest_key_t _ -> (k [@ocaml.tailcall]) False_ht
+    | Chain_id_t -> (k [@ocaml.tailcall]) False_ht
+    | Never_t -> (k [@ocaml.tailcall]) False_ht
+    | Bls12_381_g1_t -> (k [@ocaml.tailcall]) False_ht
+    | Bls12_381_g2_t -> (k [@ocaml.tailcall]) False_ht
+    | Bls12_381_fr_t -> (k [@ocaml.tailcall]) False_ht
+    | Chest_t -> (k [@ocaml.tailcall]) False_ht
+    | Chest_key_t -> (k [@ocaml.tailcall]) False_ht
 
   and has_tickets_of_pair :
       type a b c ret.
@@ -273,22 +271,22 @@ module Ticket_collection = struct
    fun ctxt comp_ty acc k ->
     let open Script_typed_ir in
     match comp_ty with
-    | Unit_key _ -> (k [@ocaml.tailcall]) ctxt acc
-    | Never_key _ -> (k [@ocaml.tailcall]) ctxt acc
-    | Int_key _ -> (k [@ocaml.tailcall]) ctxt acc
-    | Nat_key _ -> (k [@ocaml.tailcall]) ctxt acc
-    | Signature_key _ -> (k [@ocaml.tailcall]) ctxt acc
-    | String_key _ -> (k [@ocaml.tailcall]) ctxt acc
-    | Bytes_key _ -> (k [@ocaml.tailcall]) ctxt acc
-    | Mutez_key _ -> (k [@ocaml.tailcall]) ctxt acc
-    | Bool_key _ -> (k [@ocaml.tailcall]) ctxt acc
-    | Key_hash_key _ -> (k [@ocaml.tailcall]) ctxt acc
-    | Key_key _ -> (k [@ocaml.tailcall]) ctxt acc
-    | Timestamp_key _ -> (k [@ocaml.tailcall]) ctxt acc
-    | Chain_id_key _ -> (k [@ocaml.tailcall]) ctxt acc
-    | Address_key _ -> (k [@ocaml.tailcall]) ctxt acc
-    | Pair_key ((_, _), (_, _), _) -> (k [@ocaml.tailcall]) ctxt acc
-    | Union_key ((_, _), (_, _), _) -> (k [@ocaml.tailcall]) ctxt acc
+    | Unit_key -> (k [@ocaml.tailcall]) ctxt acc
+    | Never_key -> (k [@ocaml.tailcall]) ctxt acc
+    | Int_key -> (k [@ocaml.tailcall]) ctxt acc
+    | Nat_key -> (k [@ocaml.tailcall]) ctxt acc
+    | Signature_key -> (k [@ocaml.tailcall]) ctxt acc
+    | String_key -> (k [@ocaml.tailcall]) ctxt acc
+    | Bytes_key -> (k [@ocaml.tailcall]) ctxt acc
+    | Mutez_key -> (k [@ocaml.tailcall]) ctxt acc
+    | Bool_key -> (k [@ocaml.tailcall]) ctxt acc
+    | Key_hash_key -> (k [@ocaml.tailcall]) ctxt acc
+    | Key_key -> (k [@ocaml.tailcall]) ctxt acc
+    | Timestamp_key -> (k [@ocaml.tailcall]) ctxt acc
+    | Chain_id_key -> (k [@ocaml.tailcall]) ctxt acc
+    | Address_key -> (k [@ocaml.tailcall]) ctxt acc
+    | Pair_key (_, _, _) -> (k [@ocaml.tailcall]) ctxt acc
+    | Union_key (_, _, _) -> (k [@ocaml.tailcall]) ctxt acc
     | Option_key (_, _) -> (k [@ocaml.tailcall]) ctxt acc
 
   let tickets_of_set :
@@ -320,7 +318,7 @@ module Ticket_collection = struct
     consume_gas_steps ctxt ~num_steps:1 >>?= fun ctxt ->
     match (hty, ty) with
     | (False_ht, _) -> (k [@ocaml.tailcall]) ctxt acc
-    | (Pair_ht (hty1, hty2), Pair_t ((ty1, _, _), (ty2, _, _), _)) ->
+    | (Pair_ht (hty1, hty2), Pair_t (ty1, ty2, _)) ->
         let (l, r) = x in
         (tickets_of_value [@ocaml.tailcall])
           ~include_lazy
@@ -338,7 +336,7 @@ module Ticket_collection = struct
               r
               acc
               k)
-    | (Union_ht (htyl, htyr), Union_t ((tyl, _), (tyr, _), _)) -> (
+    | (Union_ht (htyl, htyr), Union_t (tyl, tyr, _)) -> (
         match x with
         | L v ->
             (tickets_of_value [@ocaml.tailcall])
@@ -402,7 +400,6 @@ module Ticket_collection = struct
         else (k [@ocaml.tailcall]) ctxt acc
     | (True_ht, Ticket_t (comp_ty, _)) ->
         (k [@ocaml.tailcall]) ctxt (Ex_ticket (comp_ty, x) :: acc)
-    | _ -> fail Unsupported_type_invariant_violated
 
   and tickets_of_list :
       type a ret.
@@ -446,7 +443,8 @@ module Ticket_collection = struct
       accumulator ->
       ret continuation ->
       ret tzresult Lwt.t =
-   fun ~include_lazy ctxt val_hty val_ty (module M) acc k ->
+   fun ~include_lazy ctxt val_hty val_ty map acc k ->
+    let (module M) = Script_map.get_module map in
     consume_gas_steps ctxt ~num_steps:1 >>?= fun ctxt ->
     (* Pay gas for folding over the values *)
     consume_gas_steps ctxt ~num_steps:M.size >>?= fun ctxt ->
@@ -506,10 +504,29 @@ module Ticket_collection = struct
                 k
           | None -> (k [@ocaml.tailcall]) ctxt acc)
 
-  let tickets_of_value ctxt ~include_lazy ty x =
-    Ticket_inspection.has_tickets_of_ty ctxt ty >>?= fun (ht, ctxt) ->
+  let tickets_of_value ctxt ~include_lazy ht ty x =
     tickets_of_value ctxt ~include_lazy ht ty x [] (fun ctxt ex_tickets ->
         return (ex_tickets, ctxt))
 end
 
-let tickets_of_value ctxt = Ticket_collection.tickets_of_value ctxt
+type 'a has_tickets = 'a Ticket_inspection.has_tickets * 'a Script_typed_ir.ty
+
+let type_has_tickets ctxt ty =
+  Ticket_inspection.has_tickets_of_ty ctxt ty >|? fun (has_tickets, ctxt) ->
+  ((has_tickets, ty), ctxt)
+
+let tickets_of_value ctxt ~include_lazy (ht, ty) =
+  Ticket_collection.tickets_of_value ctxt ~include_lazy ht ty
+
+let tickets_of_node ctxt ~include_lazy (ht, ty) expr =
+  match ht with
+  | Ticket_inspection.False_ht -> return ([], ctxt)
+  | _ ->
+      Script_ir_translator.parse_data
+        ctxt
+        ~legacy:true
+        ~allow_forged:true
+        ty
+        expr
+      >>=? fun (value, ctxt) ->
+      tickets_of_value ctxt ~include_lazy (ht, ty) value

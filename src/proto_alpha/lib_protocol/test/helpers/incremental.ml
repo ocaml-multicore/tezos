@@ -63,6 +63,8 @@ let rpc_ctxt =
 
 let alpha_ctxt st = st.state.ctxt
 
+let set_alpha_ctxt st ctxt = {st with state = {st.state with ctxt}}
+
 let begin_construction ?timestamp ?seed_nonce_hash ?(mempool_mode = false)
     ?(policy = Block.By_round 0) (predecessor : Block.t) =
   Block.get_next_baker ~policy predecessor
@@ -139,10 +141,9 @@ let detect_script_failure :
         | Backtracked (_, Some errs) -> Error (Environment.wrap_tztrace errs)
         | Failed (_, errs) -> Error (Environment.wrap_tztrace errs)
       in
-      List.fold_left
-        (fun acc (Internal_operation_result (_, r)) ->
-          acc >>? fun () -> detect_script_failure r)
-        (detect_script_failure operation_result)
+      detect_script_failure operation_result >>? fun () ->
+      List.iter_e
+        (fun (Internal_operation_result (_, r)) -> detect_script_failure r)
         internal_operation_results
     in
     function

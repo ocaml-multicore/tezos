@@ -64,7 +64,15 @@ let is_bootstrapped ?endpoint ?hooks ?(chain = "main") client =
   Client.rpc ?endpoint ?hooks GET path client
 
 let get_checkpoint ?endpoint ?hooks ?(chain = "main") client =
-  let path = ["chains"; chain; "checkpoint"] in
+  let path = ["chains"; chain; "levels"; "checkpoint"] in
+  Client.rpc ?endpoint ?hooks GET path client
+
+let get_savepoint ?endpoint ?hooks ?(chain = "main") client =
+  let path = ["chains"; chain; "levels"; "savepoint"] in
+  Client.rpc ?endpoint ?hooks GET path client
+
+let get_caboose ?endpoint ?hooks ?(chain = "main") client =
+  let path = ["chains"; chain; "levels"; "caboose"] in
   Client.rpc ?endpoint ?hooks GET path client
 
 let raw_protocol_data ?endpoint ?hooks ?(chain = "main") ?(block = "head")
@@ -92,33 +100,23 @@ let get_operations ?endpoint ?hooks ?(chain = "main") ?(block = "head") client =
   Client.rpc ?endpoint ?hooks GET path client
 
 let get_mempool_pending_operations ?endpoint ?hooks ?(chain = "main") ?version
-    client =
+    ?applied ?branch_delayed ?branch_refused ?refused ?outdated client =
   let path = ["chains"; chain; "mempool"; "pending_operations"] in
-  Client.rpc
-    ?endpoint
-    ?hooks
-    ~query_string:(match version with None -> [] | Some v -> [("version", v)])
-    GET
-    path
-    client
-
-let get_mempool ?endpoint ?hooks ?chain client =
-  let* pending_ops =
-    get_mempool_pending_operations ?endpoint ?hooks ?chain ~version:"1" client
+  let query_parameter param param_s =
+    match param with
+    | None -> []
+    | Some true -> [(param_s, "true")]
+    | Some false -> [(param_s, "false")]
   in
-  let get_hash op = JSON.(op |-> "hash" |> as_string) in
-  let get_hashes classification =
-    List.map get_hash JSON.(pending_ops |-> classification |> as_list)
+  let query_string =
+    (match version with None -> [] | Some v -> [("version", v)])
+    @ query_parameter applied "applied"
+    @ query_parameter refused "refused"
+    @ query_parameter outdated "outdated"
+    @ query_parameter branch_delayed "branch_delayed"
+    @ query_parameter branch_refused "branch_refused"
   in
-  let applied = get_hashes "applied" in
-  let branch_delayed = get_hashes "branch_delayed" in
-  let branch_refused = get_hashes "branch_refused" in
-  let refused = get_hashes "refused" in
-  let outdated = get_hashes "outdated" in
-  let unprocessed = get_hashes "unprocessed" in
-  return
-    Mempool.
-      {applied; branch_delayed; branch_refused; refused; outdated; unprocessed}
+  Client.rpc ?endpoint ?hooks ~query_string GET path client
 
 let mempool_request_operations ?endpoint ?(chain = "main") ?peer client =
   let path = ["chains"; chain; "mempool"; "request_operations"] in
@@ -618,21 +616,61 @@ module Votes = struct
     Client.rpc ?endpoint ?hooks GET path client
 end
 
+module Script_cache = struct
+  let get_cached_contracts ?endpoint ?hooks ?(chain = "main") ?(block = "head")
+      client =
+    let path =
+      ["chains"; chain; "blocks"; block; "context"; "cache"; "contracts"; "all"]
+    in
+    Client.rpc ?endpoint ?hooks GET path client
+end
+
 module Tx_rollup = struct
-  let sub_path ~chain ~block ~tx_rollup_hash sub =
+  let sub_path ?(chain = "main") ?(block = "head") ~tx_rollup sub =
+    ["chains"; chain; "blocks"; block; "context"; "tx_rollup"; tx_rollup; sub]
+
+  let get_state ?endpoint ?hooks ?chain ?block ~tx_rollup client =
+    let path = sub_path ?chain ?block ~tx_rollup "state" in
+    Client.rpc ?endpoint ?hooks GET path client
+
+  let get_inbox ?endpoint ?hooks ?chain ?block ~tx_rollup client =
+    let path = sub_path ?chain ?block ~tx_rollup "inbox" in
+    Client.rpc ?endpoint ?hooks GET path client
+
+  let spawn_get_inbox ?endpoint ?hooks ?chain ?block ~tx_rollup client =
+    let path = sub_path ?chain ?block ~tx_rollup "inbox" in
+    Client.spawn_rpc ?endpoint ?hooks GET path client
+end
+
+module Sc_rollup = struct
+  let path ~chain ~block ~sc_rollup_address =
     [
-      "chains";
-      chain;
-      "blocks";
-      block;
-      "context";
-      "tx_rollup";
-      tx_rollup_hash;
-      sub;
+      "chains"; chain; "blocks"; block; "context"; "sc_rollup"; sc_rollup_address;
     ]
 
-  let get_state ?endpoint ?hooks ?(chain = "main") ?(block = "head")
-      ~tx_rollup_hash client =
-    let path = sub_path ~chain ~block ~tx_rollup_hash "state" in
+  let get_inbox ?endpoint ?hooks ?(chain = "main") ?(block = "head")
+      ~sc_rollup_address client =
+    let path = path ~chain ~block ~sc_rollup_address @ ["inbox"] in
     Client.rpc ?endpoint ?hooks GET path client
+end
+
+module Curl = struct
+  let curl_path_cache = ref None
+
+  let get () =
+    Process.(
+      try
+        let* curl_path =
+          match !curl_path_cache with
+          | Some curl_path -> return curl_path
+          | None ->
+              let* curl_path =
+                run_and_read_stdout "sh" ["-c"; "command -v curl"]
+              in
+              let curl_path = String.trim curl_path in
+              curl_path_cache := Some curl_path ;
+              return curl_path
+        in
+        return @@ Some (fun ~url -> run_and_read_stdout curl_path ["-s"; url])
+      with _ -> return @@ None)
 end

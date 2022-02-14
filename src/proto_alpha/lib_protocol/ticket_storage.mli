@@ -23,37 +23,15 @@
 (*                                                                           *)
 (*****************************************************************************)
 
-(** A value of type [key_hash] is a hashed combination of:
-  - Ticketer
-  - Content type
-  - Content
-  - Owner
-*)
-type key_hash
-
-(** [script_expr_hash_of_key_hash key_hash] returns a [Script_expr_hash.t] value
-    representation of the given [key_hash]. This is useful for comparing and
-    pretty-printing key-hash values. *)
-val script_expr_hash_of_key_hash : key_hash -> Script_expr_hash.t
-
-(** [make_key_hash ctxt ~ticketer ~typ ~contents ~owner] creates a hashed
-    representation of the given [ticketer], [typ], [contents] and [owner].
-*)
-val make_key_hash :
-  Raw_context.t ->
-  ticketer:Script_repr.node ->
-  typ:Script_repr.node ->
-  contents:Script_repr.node ->
-  owner:Script_repr.node ->
-  (key_hash * Raw_context.t) tzresult
-
 (** [get_balance ctxt key] receives the ticket balance for the given
     [key] in the context [ctxt]. The [key] represents a ticket content and a
     ticket creator pair. In case there exists no value for the given [key],
     [None] is returned.
     *)
 val get_balance :
-  Raw_context.t -> key_hash -> (Z.t option * Raw_context.t) tzresult Lwt.t
+  Raw_context.t ->
+  Ticket_hash_repr.t ->
+  (Z.t option * Raw_context.t) tzresult Lwt.t
 
 (** [adjust_balance ctxt key ~delta] adjusts the balance of the
     given key (representing a ticket content, creator and owner pair)
@@ -68,4 +46,7 @@ val get_balance :
     in case the resulting balance is negative.
  *)
 val adjust_balance :
-  Raw_context.t -> key_hash -> delta:Z.t -> (Z.t * Raw_context.t) tzresult Lwt.t
+  Raw_context.t ->
+  Ticket_hash_repr.t ->
+  delta:Z.t ->
+  (Z.t * Raw_context.t) tzresult Lwt.t

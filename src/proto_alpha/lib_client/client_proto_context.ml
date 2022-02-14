@@ -94,8 +94,9 @@ let parse_arg_transfer arg =
   return
     (Option.fold ~some:Script.lazy_expr ~none:Script.unit_parameter parameters)
 
-let build_transaction_operation ~amount ~parameters ?(entrypoint = "default")
-    ?fee ?gas_limit ?storage_limit destination =
+let build_transaction_operation ~amount ~parameters
+    ?(entrypoint = Entrypoint.default) ?fee ?gas_limit ?storage_limit
+    destination =
   let operation = Transaction {amount; parameters; destination; entrypoint} in
   Injection.prepare_manager_operation
     ~fee:(Limit.of_option fee)
@@ -103,11 +104,10 @@ let build_transaction_operation ~amount ~parameters ?(entrypoint = "default")
     ~storage_limit:(Limit.of_option storage_limit)
     operation
 
-let transfer (cctxt : #full) ~chain ~block ?confirmations ?dry_run
-    ?verbose_signing ?simulation ?branch ~source ~src_pk ~src_sk ~destination
-    ?(entrypoint = "default") ?arg ~amount ?fee ?gas_limit ?storage_limit
-    ?counter ~fee_parameter () =
-  parse_arg_transfer arg >>=? fun parameters ->
+let transfer_with_script (cctxt : #full) ~chain ~block ?confirmations ?dry_run
+    ?verbose_signing ?simulation ?(force = false) ?branch ~source ~src_pk
+    ~src_sk ~destination ?(entrypoint = Entrypoint.default) ~parameters ~amount
+    ?fee ?gas_limit ?storage_limit ?counter ~fee_parameter ?replace_by_fees () =
   let contents =
     build_transaction_operation
       ~amount
@@ -127,21 +127,54 @@ let transfer (cctxt : #full) ~chain ~block ?confirmations ?dry_run
     ?dry_run
     ?verbose_signing
     ?simulation
+    ~force
     ?branch
     ~source
     ~fee:(Limit.of_option fee)
     ~gas_limit:(Limit.of_option gas_limit)
     ~storage_limit:(Limit.of_option storage_limit)
     ?counter
+    ?replace_by_fees
     ~src_pk
     ~src_sk
     ~fee_parameter
     contents
   >>=? fun (oph, op, result) ->
-  Lwt.return (Injection.originated_contracts result) >>=? fun contracts ->
+  Lwt.return (Injection.originated_contracts ~force result)
+  >>=? fun contracts ->
   match Apply_results.pack_contents_list op result with
   | Apply_results.Single_and_result ((Manager_operation _ as op), result) ->
       return ((oph, op, result), contracts)
+
+let transfer (cctxt : #full) ~chain ~block ?confirmations ?dry_run
+    ?verbose_signing ?simulation ?(force = false) ?branch ~source ~src_pk
+    ~src_sk ~destination ?entrypoint ?arg ~amount ?fee ?gas_limit ?storage_limit
+    ?counter ~fee_parameter ?replace_by_fees () =
+  parse_arg_transfer arg >>=? fun parameters ->
+  transfer_with_script
+    (cctxt : #full)
+    ~chain
+    ~block
+    ?confirmations
+    ?dry_run
+    ?verbose_signing
+    ?simulation
+    ~force
+    ?branch
+    ~source
+    ~src_pk
+    ~src_sk
+    ~destination
+    ?entrypoint
+    ~parameters
+    ~amount
+    ?fee
+    ?gas_limit
+    ?storage_limit
+    ?counter
+    ~fee_parameter
+    ?replace_by_fees
+    ()
 
 let build_reveal_operation ?fee ?gas_limit ?storage_limit pk =
   let operation = Reveal pk in
@@ -374,7 +407,7 @@ let originate_contract (cctxt : #full) ~chain ~block ?confirmations ?dry_run
   | Apply_results.Single_and_result ((Manager_operation _ as op), result) ->
       return (oph, op, result))
   >>=? fun res ->
-  Lwt.return (Injection.originated_contracts result) >>=? function
+  Lwt.return (Injection.originated_contracts ~force:false result) >>=? function
   | [contract] -> return (res, contract)
   | contracts ->
       failwith
@@ -484,7 +517,7 @@ type batch_transfer_operation = {
   storage_limit : Z.t option;
   amount : string;
   arg : string option;
-  entrypoint : string option;
+  entrypoint : Entrypoint.t option;
 }
 
 let batch_transfer_operation_encoding =
@@ -501,7 +534,7 @@ let batch_transfer_operation_encoding =
        (opt "storage-limit" z)
        (req "amount" string)
        (opt "arg" string)
-       (opt "entrypoint" string))
+       (opt "entrypoint" Entrypoint.simple_encoding))
 
 let read_key key =
   match Bip39.of_words key.mnemonic with
@@ -611,7 +644,7 @@ type period_info = {
 type ballots_info = {
   current_quorum : Int32.t;
   participation : Int32.t;
-  supermajority : Int32.t;
+  supermajority : Int64.t;
   ballots : Vote.ballots;
 }
 
@@ -620,13 +653,17 @@ let get_ballots_info (cctxt : #full) ~chain ~block =
   let cb = (chain, block) in
   Alpha_services.Voting.ballots cctxt cb >>=? fun ballots ->
   Alpha_services.Voting.current_quorum cctxt cb >>=? fun current_quorum ->
-  Alpha_services.Voting.listings cctxt cb >>=? fun listings ->
-  let max_participation =
-    List.fold_left (fun acc (_, w) -> Int32.add w acc) 0l listings
+  Alpha_services.Voting.total_voting_power cctxt cb
+  >>=? fun max_participation ->
+  let all_votes = Int64.(add (add ballots.yay ballots.nay) ballots.pass) in
+  let participation =
+    Z.(
+      to_int32
+        (div
+           (mul (of_int64 all_votes) (of_int 100_00))
+           (of_int64 max_participation)))
   in
-  let all_votes = Int32.(add (add ballots.yay ballots.nay) ballots.pass) in
-  let participation = Int32.(div (mul all_votes 100_00l) max_participation) in
-  let supermajority = Int32.(div (mul 8l (add ballots.yay ballots.nay)) 10l) in
+  let supermajority = Int64.(div (mul 8L (add ballots.yay ballots.nay)) 10L) in
   return {current_quorum; participation; supermajority; ballots}
 
 let get_period_info ?(successor = false) (cctxt : #full) ~chain ~block =
@@ -775,6 +812,113 @@ let originate_tx_rollup (cctxt : #full) ~chain ~block ?confirmations ?dry_run
     ~src_sk
     ~fee_parameter
     contents
+  >>=? fun (oph, op, result) ->
+  match Apply_results.pack_contents_list op result with
+  | Apply_results.Single_and_result ((Manager_operation _ as op), result) ->
+      return (oph, op, result)
+
+let submit_tx_rollup_batch (cctxt : #full) ~chain ~block ?confirmations ?dry_run
+    ?verbose_signing ?simulation ?fee ?gas_limit ?storage_limit ?counter ~source
+    ~src_pk ~src_sk ~fee_parameter ~content ~tx_rollup () =
+  (match Hex.to_string (`Hex content) with
+  | Some content -> return content
+  | None ->
+      failwith
+        "%s is not a valid binary text encoded using the hexadecimal notation"
+        content)
+  >>=? fun content ->
+  let contents :
+      Kind.tx_rollup_submit_batch Annotated_manager_operation.annotated_list =
+    Annotated_manager_operation.Single_manager
+      (Injection.prepare_manager_operation
+         ~fee:(Limit.of_option fee)
+         ~gas_limit:(Limit.of_option gas_limit)
+         ~storage_limit:(Limit.of_option storage_limit)
+         (Tx_rollup_submit_batch {tx_rollup; content}))
+  in
+  Injection.inject_manager_operation
+    cctxt
+    ~chain
+    ~block
+    ?confirmations
+    ?dry_run
+    ?verbose_signing
+    ?simulation
+    ?counter
+    ~source
+    ~fee:(Limit.of_option fee)
+    ~storage_limit:(Limit.of_option storage_limit)
+    ~gas_limit:(Limit.of_option gas_limit)
+    ~src_pk
+    ~src_sk
+    ~fee_parameter
+    contents
+  >>=? fun (oph, op, result) ->
+  match Apply_results.pack_contents_list op result with
+  | Apply_results.Single_and_result ((Manager_operation _ as op), result) ->
+      return (oph, op, result)
+
+let sc_rollup_originate (cctxt : #full) ~chain ~block ?confirmations ?dry_run
+    ?verbose_signing ?simulation ?fee ?gas_limit ?storage_limit ?counter ~source
+    ~kind ~boot_sector ~src_pk ~src_sk ~fee_parameter () =
+  let op =
+    Annotated_manager_operation.Single_manager
+      (Injection.prepare_manager_operation
+         ~fee:(Limit.of_option fee)
+         ~gas_limit:(Limit.of_option gas_limit)
+         ~storage_limit:(Limit.of_option storage_limit)
+         (Sc_rollup_originate {kind; boot_sector}))
+  in
+  Injection.inject_manager_operation
+    cctxt
+    ~chain
+    ~block
+    ?confirmations
+    ?dry_run
+    ?verbose_signing
+    ?simulation
+    ?counter
+    ~source
+    ~fee:(Limit.of_option fee)
+    ~storage_limit:(Limit.of_option storage_limit)
+    ~gas_limit:(Limit.of_option gas_limit)
+    ~src_pk
+    ~src_sk
+    ~fee_parameter
+    op
+  >>=? fun (oph, op, result) ->
+  match Apply_results.pack_contents_list op result with
+  | Apply_results.Single_and_result ((Manager_operation _ as op), result) ->
+      return (oph, op, result)
+
+let sc_rollup_add_messages (cctxt : #full) ~chain ~block ?confirmations ?dry_run
+    ?verbose_signing ?simulation ?fee ?gas_limit ?storage_limit ?counter ~source
+    ~rollup ~messages ~src_pk ~src_sk ~fee_parameter () =
+  let op =
+    Annotated_manager_operation.Single_manager
+      (Injection.prepare_manager_operation
+         ~fee:(Limit.of_option fee)
+         ~gas_limit:(Limit.of_option gas_limit)
+         ~storage_limit:(Limit.of_option storage_limit)
+         (Sc_rollup_add_messages {rollup; messages}))
+  in
+  Injection.inject_manager_operation
+    cctxt
+    ~chain
+    ~block
+    ?confirmations
+    ?dry_run
+    ?verbose_signing
+    ?simulation
+    ?counter
+    ~source
+    ~fee:(Limit.of_option fee)
+    ~storage_limit:(Limit.of_option storage_limit)
+    ~gas_limit:(Limit.of_option gas_limit)
+    ~src_pk
+    ~src_sk
+    ~fee_parameter
+    op
   >>=? fun (oph, op, result) ->
   match Apply_results.pack_contents_list op result with
   | Apply_results.Single_and_result ((Manager_operation _ as op), result) ->

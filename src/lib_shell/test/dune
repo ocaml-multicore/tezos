@@ -1,3 +1,6 @@
+; This file was automatically generated, do not edit.
+; Edit file manifest/main.ml instead.
+
 (tests
  (names
   test_shell
@@ -6,7 +9,8 @@
   test_prevalidation
   test_prevalidation_t
   test_prevalidator_classification
-  test_prevalidator_classification_operations)
+  test_prevalidator_classification_operations
+  test_prevalidator_pending_operations)
  (package tezos-shell)
  (libraries
   tezos-base
@@ -14,9 +18,9 @@
   tezos-store
   tezos-context
   tezos-shell-context
+  tezos-protocol-updater
   tezos-p2p
   tezos-p2p-services
-  tezos-protocol-updater
   tezos-requester
   tezos-shell
   tezos-shell-services
@@ -28,7 +32,7 @@
   alcotest-lwt)
  (flags
   (:standard
-   -open Tezos_base__TzPervasives
+   -open Tezos_base.TzPervasives
    -open Tezos_base_test_helpers
    -open Tezos_store
    -open Tezos_context

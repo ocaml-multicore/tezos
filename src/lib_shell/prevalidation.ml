@@ -27,10 +27,11 @@
 
 open Validation_errors
 
-type 'operation_data operation = {
+type 'protocol_operation operation = {
   hash : Operation_hash.t;
   raw : Operation.t;
-  protocol_data : 'operation_data;
+  protocol : 'protocol_operation;
+  count_successful_prechecks : int;
 }
 
 type error += Endorsement_branch_not_live
@@ -56,7 +57,7 @@ module type CHAIN_STORE = sig
 end
 
 module type T = sig
-  type operation_data
+  type protocol_operation
 
   type operation_receipt
 
@@ -66,9 +67,11 @@ module type T = sig
 
   type t
 
-  val parse : Operation.t -> operation_data operation tzresult
+  val parse :
+    Operation_hash.t -> Operation.t -> protocol_operation operation tzresult
 
-  val parse_unsafe : bytes -> operation_data tzresult
+  val increment_successful_precheck :
+    protocol_operation operation -> protocol_operation operation
 
   val create :
     chain_store ->
@@ -86,14 +89,15 @@ module type T = sig
     | Refused of tztrace
     | Outdated of tztrace
 
-  val apply_operation : t -> operation_data operation -> result Lwt.t
+  val apply_operation : t -> protocol_operation operation -> result Lwt.t
 
   val validation_state : t -> validation_state
 
   val pp_result : Format.formatter -> result -> unit
 
   module Internal_for_tests : sig
-    val to_applied : t -> (operation_data operation * operation_receipt) list
+    val to_applied :
+      t -> (protocol_operation operation * operation_receipt) list
   end
 end
 
@@ -108,11 +112,11 @@ module MakeAbstract
     (Chain_store : CHAIN_STORE)
     (Proto : Tezos_protocol_environment.PROTOCOL) :
   T
-    with type operation_data = Proto.operation_data
+    with type protocol_operation = Proto.operation
      and type operation_receipt = Proto.operation_receipt
      and type validation_state = Proto.validation_state
      and type chain_store = Chain_store.chain_store = struct
-  type operation_data = Proto.operation_data
+  type protocol_operation = Proto.operation
 
   type operation_receipt = Proto.operation_receipt
 
@@ -122,7 +126,7 @@ module MakeAbstract
 
   type t = {
     state : Proto.validation_state;
-    applied : (Proto.operation_data operation * Proto.operation_receipt) list;
+    applied : (protocol_operation operation * Proto.operation_receipt) list;
     live_operations : Operation_hash.Set.t;
   }
 
@@ -136,13 +140,30 @@ module MakeAbstract
   let parse_unsafe (proto : bytes) : Proto.operation_data tzresult =
     safe_binary_of_bytes Proto.operation_data_encoding proto
 
-  let parse (raw : Operation.t) =
-    let hash = Operation.hash raw in
+  let parse hash (raw : Operation.t) =
     let size = Data_encoding.Binary.length Operation.encoding raw in
     if size > Proto.max_operation_data_length then
       error (Oversized_operation {size; max = Proto.max_operation_data_length})
     else
-      parse_unsafe raw.proto >|? fun protocol_data -> {hash; raw; protocol_data}
+      parse_unsafe raw.proto >|? fun protocol_data ->
+      {
+        hash;
+        raw;
+        protocol = {Proto.shell = raw.Operation.shell; protocol_data};
+        (* When an operation is parsed, we assume that it has never been
+           successfully prechecked. *)
+        count_successful_prechecks = 0;
+      }
+
+  let increment_successful_precheck op =
+    (* We avoid {op with ...} to get feedback from the compiler if the record
+       type is extended/modified in the future. *)
+    {
+      hash = op.hash;
+      raw = op.raw;
+      protocol = op.protocol;
+      count_successful_prechecks = op.count_successful_prechecks + 1;
+    }
 
   let create chain_store ?protocol_data ~predecessor ~live_operations ~timestamp
       () =
@@ -201,10 +222,7 @@ module MakeAbstract
          hence the returned error. *)
       Lwt.return (Outdated [Endorsement_branch_not_live])
     else
-      protect (fun () ->
-          Proto.apply_operation
-            pv.state
-            {shell = op.raw.shell; protocol_data = op.protocol_data})
+      protect (fun () -> Proto.apply_operation pv.state op.protocol)
       >|= function
       | Ok (state, receipt) -> (
           let pv =
@@ -260,7 +278,7 @@ end
 
 module Make (Proto : Tezos_protocol_environment.PROTOCOL) :
   T
-    with type operation_data = Proto.operation_data
+    with type protocol_operation = Proto.operation
      and type operation_receipt = Proto.operation_receipt
      and type validation_state = Proto.validation_state
      and type chain_store = Production_chain_store.chain_store =
@@ -268,6 +286,11 @@ module Make (Proto : Tezos_protocol_environment.PROTOCOL) :
 
 module Internal_for_tests = struct
   let to_raw {raw; _} = raw
+
+  let make_operation op oph data =
+    (* When we build an operation, we assume that it has never been
+       successfully prechecked. *)
+    {hash = oph; raw = op; protocol = data; count_successful_prechecks = 0}
 
   let safe_binary_of_bytes = safe_binary_of_bytes
 

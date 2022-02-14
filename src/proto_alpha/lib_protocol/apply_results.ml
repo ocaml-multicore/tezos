@@ -46,12 +46,8 @@ let error_encoding =
 
 let trace_encoding = make_trace_encoding error_encoding
 
-type _ successful_manager_operation_result =
-  | Reveal_result : {
-      consumed_gas : Gas.Arith.fp;
-    }
-      -> Kind.reveal successful_manager_operation_result
-  | Transaction_result : {
+type successful_transaction_result =
+  | Transaction_to_contract_result of {
       storage : Script.expr option;
       lazy_storage_diff : Lazy_storage.diffs option;
       balance_updates : Receipt.balance_updates;
@@ -61,6 +57,14 @@ type _ successful_manager_operation_result =
       paid_storage_size_diff : Z.t;
       allocated_destination_contract : bool;
     }
+
+type _ successful_manager_operation_result =
+  | Reveal_result : {
+      consumed_gas : Gas.Arith.fp;
+    }
+      -> Kind.reveal successful_manager_operation_result
+  | Transaction_result :
+      successful_transaction_result
       -> Kind.transaction successful_manager_operation_result
   | Origination_result : {
       lazy_storage_diff : Lazy_storage.diffs option;
@@ -92,6 +96,23 @@ type _ successful_manager_operation_result =
       originated_tx_rollup : Tx_rollup.t;
     }
       -> Kind.tx_rollup_origination successful_manager_operation_result
+  | Tx_rollup_submit_batch_result : {
+      balance_updates : Receipt.balance_updates;
+      consumed_gas : Gas.Arith.fp;
+    }
+      -> Kind.tx_rollup_submit_batch successful_manager_operation_result
+  | Sc_rollup_originate_result : {
+      balance_updates : Receipt.balance_updates;
+      address : Sc_rollup.Address.t;
+      consumed_gas : Gas.Arith.fp;
+      size : Z.t;
+    }
+      -> Kind.sc_rollup_originate successful_manager_operation_result
+  | Sc_rollup_add_messages_result : {
+      consumed_gas : Gas.Arith.fp;
+      inbox_after : Sc_rollup.Inbox.t;
+    }
+      -> Kind.sc_rollup_add_messages successful_manager_operation_result
 
 let migration_origination_result_to_successful_manager_operation_result
     ({
@@ -230,27 +251,83 @@ module Manager_result = struct
         assert (Gas.Arith.(equal (ceil consumed_milligas) consumed_gas)) ;
         Reveal_result {consumed_gas = consumed_milligas})
 
+  let[@coq_axiom_with_reason "gadt"] transaction_to_contract_case =
+    union
+      [
+        case
+          ~title:"To_contract"
+          (Tag 0)
+          (obj10
+             (opt "storage" Script.expr_encoding)
+             (opt
+                (* The field [big_map_diff] is deprecated since 008, use [lazy_storage_diff] instead.
+                   It is kept here for a transitional period, for tools like indexers to update. *)
+                (* TODO: https://gitlab.com/tezos/tezos/-/issues/1948
+                   Remove it in 009 or later. *)
+                "big_map_diff"
+                Lazy_storage.legacy_big_map_diff_encoding)
+             (dft "balance_updates" Receipt.balance_updates_encoding [])
+             (dft "originated_contracts" (list Contract.encoding) [])
+             (dft "consumed_gas" Gas.Arith.n_integral_encoding Gas.Arith.zero)
+             (dft "consumed_milligas" Gas.Arith.n_fp_encoding Gas.Arith.zero)
+             (dft "storage_size" z Z.zero)
+             (dft "paid_storage_size_diff" z Z.zero)
+             (dft "allocated_destination_contract" bool false)
+             (opt "lazy_storage_diff" Lazy_storage.encoding))
+          (function
+            | Transaction_to_contract_result
+                {
+                  storage;
+                  lazy_storage_diff;
+                  balance_updates;
+                  originated_contracts;
+                  consumed_gas;
+                  storage_size;
+                  paid_storage_size_diff;
+                  allocated_destination_contract;
+                } ->
+                Some
+                  ( storage,
+                    lazy_storage_diff,
+                    balance_updates,
+                    originated_contracts,
+                    Gas.Arith.ceil consumed_gas,
+                    consumed_gas,
+                    storage_size,
+                    paid_storage_size_diff,
+                    allocated_destination_contract,
+                    lazy_storage_diff ))
+          (fun ( storage,
+                 legacy_lazy_storage_diff,
+                 balance_updates,
+                 originated_contracts,
+                 consumed_gas,
+                 consumed_milligas,
+                 storage_size,
+                 paid_storage_size_diff,
+                 allocated_destination_contract,
+                 lazy_storage_diff ) ->
+            assert (Gas.Arith.(equal (ceil consumed_milligas) consumed_gas)) ;
+            let lazy_storage_diff =
+              Option.either lazy_storage_diff legacy_lazy_storage_diff
+            in
+            Transaction_to_contract_result
+              {
+                storage;
+                lazy_storage_diff;
+                balance_updates;
+                originated_contracts;
+                consumed_gas = consumed_milligas;
+                storage_size;
+                paid_storage_size_diff;
+                allocated_destination_contract;
+              });
+      ]
+
   let[@coq_axiom_with_reason "gadt"] transaction_case =
     make
       ~op_case:Operation.Encoding.Manager_operations.transaction_case
-      ~encoding:
-        (obj10
-           (opt "storage" Script.expr_encoding)
-           (opt
-              (* The field [big_map_diff] is deprecated since 008, use [lazy_storage_diff] instead.
-                 It is kept here for a transitional period, for tools like indexers to update. *)
-              (* TODO: https://gitlab.com/tezos/tezos/-/issues/1948
-                 Remove it in 009 or later. *)
-              "big_map_diff"
-              Lazy_storage.legacy_big_map_diff_encoding)
-           (dft "balance_updates" Receipt.balance_updates_encoding [])
-           (dft "originated_contracts" (list Contract.encoding) [])
-           (dft "consumed_gas" Gas.Arith.n_integral_encoding Gas.Arith.zero)
-           (dft "consumed_milligas" Gas.Arith.n_fp_encoding Gas.Arith.zero)
-           (dft "storage_size" z Z.zero)
-           (dft "paid_storage_size_diff" z Z.zero)
-           (dft "allocated_destination_contract" bool false)
-           (opt "lazy_storage_diff" Lazy_storage.encoding))
+      ~encoding:transaction_to_contract_case
       ~iselect:(function
         | Internal_operation_result (({operation = Transaction _; _} as op), res)
           ->
@@ -260,54 +337,8 @@ module Manager_result = struct
         | Successful_manager_result (Transaction_result _ as op) -> Some op
         | _ -> None)
       ~kind:Kind.Transaction_manager_kind
-      ~proj:(function
-        | Transaction_result
-            {
-              storage;
-              lazy_storage_diff;
-              balance_updates;
-              originated_contracts;
-              consumed_gas;
-              storage_size;
-              paid_storage_size_diff;
-              allocated_destination_contract;
-            } ->
-            ( storage,
-              lazy_storage_diff,
-              balance_updates,
-              originated_contracts,
-              Gas.Arith.ceil consumed_gas,
-              consumed_gas,
-              storage_size,
-              paid_storage_size_diff,
-              allocated_destination_contract,
-              lazy_storage_diff ))
-      ~inj:
-        (fun ( storage,
-               legacy_lazy_storage_diff,
-               balance_updates,
-               originated_contracts,
-               consumed_gas,
-               consumed_milligas,
-               storage_size,
-               paid_storage_size_diff,
-               allocated_destination_contract,
-               lazy_storage_diff ) ->
-        assert (Gas.Arith.(equal (ceil consumed_milligas) consumed_gas)) ;
-        let lazy_storage_diff =
-          Option.either lazy_storage_diff legacy_lazy_storage_diff
-        in
-        Transaction_result
-          {
-            storage;
-            lazy_storage_diff;
-            balance_updates;
-            originated_contracts;
-            consumed_gas = consumed_milligas;
-            storage_size;
-            paid_storage_size_diff;
-            allocated_destination_contract;
-          })
+      ~proj:(function Transaction_result x -> x)
+      ~inj:(fun x -> Transaction_result x)
 
   let[@coq_axiom_with_reason "gadt"] origination_case =
     make
@@ -383,10 +414,11 @@ module Manager_result = struct
       ~op_case:
         Operation.Encoding.Manager_operations.register_global_constant_case
       ~encoding:
-        (obj4
-           (req "balance_updates" Receipt.balance_updates_encoding)
-           (req "consumed_gas" Gas.Arith.n_integral_encoding)
-           (req "storage_size" z)
+        (obj5
+           (dft "balance_updates" Receipt.balance_updates_encoding [])
+           (dft "consumed_gas" Gas.Arith.n_integral_encoding Gas.Arith.zero)
+           (dft "consumed_milligas" Gas.Arith.n_fp_encoding Gas.Arith.zero)
+           (dft "storage_size" z Z.zero)
            (req "global_address" Script_expr_hash.encoding))
       ~iselect:(function
         | Internal_operation_result
@@ -400,12 +432,26 @@ module Manager_result = struct
       ~proj:(function
         | Register_global_constant_result
             {balance_updates; consumed_gas; size_of_constant; global_address} ->
-            (balance_updates, consumed_gas, size_of_constant, global_address))
+            ( balance_updates,
+              Gas.Arith.ceil consumed_gas,
+              consumed_gas,
+              size_of_constant,
+              global_address ))
       ~kind:Kind.Register_global_constant_manager_kind
       ~inj:
-        (fun (balance_updates, consumed_gas, size_of_constant, global_address) ->
+        (fun ( balance_updates,
+               consumed_gas,
+               consumed_milligas,
+               size_of_constant,
+               global_address ) ->
+        assert (Gas.Arith.(equal (ceil consumed_milligas) consumed_gas)) ;
         Register_global_constant_result
-          {balance_updates; consumed_gas; size_of_constant; global_address})
+          {
+            balance_updates;
+            consumed_gas = consumed_milligas;
+            size_of_constant;
+            global_address;
+          })
 
   let delegation_case =
     make
@@ -495,6 +541,93 @@ module Manager_result = struct
             consumed_gas = consumed_milligas;
             originated_tx_rollup;
           })
+
+  let[@coq_axiom_with_reason "gadt"] tx_rollup_submit_batch_case =
+    make
+      ~op_case:Operation.Encoding.Manager_operations.tx_rollup_submit_batch_case
+      ~encoding:
+        Data_encoding.(
+          obj3
+            (req "balance_updates" Receipt.balance_updates_encoding)
+            (dft "consumed_gas" Gas.Arith.n_integral_encoding Gas.Arith.zero)
+            (dft "consumed_milligas" Gas.Arith.n_fp_encoding Gas.Arith.zero))
+      ~iselect:(function
+        | Internal_operation_result
+            (({operation = Tx_rollup_submit_batch _; _} as op), res) ->
+            Some (op, res)
+        | _ -> None)
+      ~select:(function
+        | Successful_manager_result (Tx_rollup_submit_batch_result _ as op) ->
+            Some op
+        | _ -> None)
+      ~kind:Kind.Tx_rollup_submit_batch_manager_kind
+      ~proj:(function
+        | Tx_rollup_submit_batch_result {balance_updates; consumed_gas} ->
+            (balance_updates, Gas.Arith.ceil consumed_gas, consumed_gas))
+      ~inj:(fun (balance_updates, consumed_gas, consumed_milligas) ->
+        assert (Gas.Arith.(equal (ceil consumed_milligas) consumed_gas)) ;
+        Tx_rollup_submit_batch_result
+          {balance_updates; consumed_gas = consumed_milligas})
+
+  let[@coq_axiom_with_reason "gadt"] sc_rollup_originate_case =
+    make
+      ~op_case:Operation.Encoding.Manager_operations.sc_rollup_originate_case
+      ~encoding:
+        (obj5
+           (req "balance_updates" Receipt.balance_updates_encoding)
+           (req "address" Sc_rollup.Address.encoding)
+           (dft "consumed_gas" Gas.Arith.n_integral_encoding Gas.Arith.zero)
+           (dft "consumed_milligas" Gas.Arith.n_fp_encoding Gas.Arith.zero)
+           (req "size" z))
+      ~iselect:(function
+        | Internal_operation_result
+            (({operation = Sc_rollup_originate _; _} as op), res) ->
+            Some (op, res)
+        | _ -> None)
+      ~select:(function
+        | Successful_manager_result (Sc_rollup_originate_result _ as op) ->
+            Some op
+        | _ -> None)
+      ~proj:(function
+        | Sc_rollup_originate_result
+            {balance_updates; address; consumed_gas; size} ->
+            ( balance_updates,
+              address,
+              Gas.Arith.ceil consumed_gas,
+              consumed_gas,
+              size ))
+      ~kind:Kind.Sc_rollup_originate_manager_kind
+      ~inj:
+        (fun (balance_updates, address, consumed_gas, consumed_milligas, size) ->
+        assert (Gas.Arith.(equal (ceil consumed_milligas) consumed_gas)) ;
+        Sc_rollup_originate_result
+          {balance_updates; address; consumed_gas = consumed_milligas; size})
+
+  let sc_rollup_add_messages_case =
+    make
+      ~op_case:Operation.Encoding.Manager_operations.sc_rollup_add_messages_case
+      ~encoding:
+        (obj3
+           (req "consumed_gas" Gas.Arith.n_integral_encoding)
+           (dft "consumed_milligas" Gas.Arith.n_fp_encoding Gas.Arith.zero)
+           (req "inbox_after" Sc_rollup.Inbox.encoding))
+      ~iselect:(function
+        | Internal_operation_result
+            (({operation = Sc_rollup_add_messages _; _} as op), res) ->
+            Some (op, res)
+        | _ -> None)
+      ~select:(function
+        | Successful_manager_result (Sc_rollup_add_messages_result _ as op) ->
+            Some op
+        | _ -> None)
+      ~proj:(function
+        | Sc_rollup_add_messages_result {consumed_gas; inbox_after} ->
+            (Gas.Arith.ceil consumed_gas, consumed_gas, inbox_after))
+      ~kind:Kind.Sc_rollup_add_messages_manager_kind
+      ~inj:(fun (consumed_gas, consumed_milligas, inbox_after) ->
+        assert (Gas.Arith.(equal (ceil consumed_milligas) consumed_gas)) ;
+        Sc_rollup_add_messages_result
+          {consumed_gas = consumed_milligas; inbox_after})
 end
 
 let internal_operation_result_encoding :
@@ -532,6 +665,9 @@ let internal_operation_result_encoding :
          make Manager_result.register_global_constant_case;
          make Manager_result.set_deposits_limit_case;
          make Manager_result.tx_rollup_origination_case;
+         make Manager_result.tx_rollup_submit_batch_case;
+         make Manager_result.sc_rollup_originate_case;
+         make Manager_result.sc_rollup_add_messages_case;
        ]
 
 let successful_manager_operation_result_encoding :
@@ -559,6 +695,7 @@ let successful_manager_operation_result_encoding :
          make Manager_result.origination_case;
          make Manager_result.delegation_case;
          make Manager_result.set_deposits_limit_case;
+         make Manager_result.sc_rollup_originate_case;
        ]
 
 type 'kind contents_result =
@@ -632,6 +769,18 @@ let equal_manager_kind :
       Kind.Tx_rollup_origination_manager_kind ) ->
       Some Eq
   | (Kind.Tx_rollup_origination_manager_kind, _) -> None
+  | ( Kind.Tx_rollup_submit_batch_manager_kind,
+      Kind.Tx_rollup_submit_batch_manager_kind ) ->
+      Some Eq
+  | (Kind.Tx_rollup_submit_batch_manager_kind, _) -> None
+  | ( Kind.Sc_rollup_originate_manager_kind,
+      Kind.Sc_rollup_originate_manager_kind ) ->
+      Some Eq
+  | (Kind.Sc_rollup_originate_manager_kind, _) -> None
+  | ( Kind.Sc_rollup_add_messages_manager_kind,
+      Kind.Sc_rollup_add_messages_manager_kind ) ->
+      Some Eq
+  | (Kind.Sc_rollup_add_messages_manager_kind, _) -> None
 
 module Encoding = struct
   type 'kind case =
@@ -662,7 +811,7 @@ module Encoding = struct
         op_case = Operation.Encoding.preendorsement_case;
         encoding =
           obj3
-            (req "balance_updates" Receipt.balance_updates_encoding)
+            (dft "balance_updates" Receipt.balance_updates_encoding [])
             (req "delegate" Signature.Public_key_hash.encoding)
             (req "preendorsement_power" int31);
         select =
@@ -690,7 +839,7 @@ module Encoding = struct
         op_case = Operation.Encoding.endorsement_case;
         encoding =
           obj3
-            (req "balance_updates" Receipt.balance_updates_encoding)
+            (dft "balance_updates" Receipt.balance_updates_encoding [])
             (req "delegate" Signature.Public_key_hash.encoding)
             (req "endorsement_power" int31);
         select =
@@ -713,7 +862,8 @@ module Encoding = struct
     Case
       {
         op_case = Operation.Encoding.seed_nonce_revelation_case;
-        encoding = obj1 (req "balance_updates" Receipt.balance_updates_encoding);
+        encoding =
+          obj1 (dft "balance_updates" Receipt.balance_updates_encoding []);
         select =
           (function
           | Contents_result (Seed_nonce_revelation_result _ as op) -> Some op
@@ -731,7 +881,8 @@ module Encoding = struct
     Case
       {
         op_case = Operation.Encoding.double_endorsement_evidence_case;
-        encoding = obj1 (req "balance_updates" Receipt.balance_updates_encoding);
+        encoding =
+          obj1 (dft "balance_updates" Receipt.balance_updates_encoding []);
         select =
           (function
           | Contents_result (Double_endorsement_evidence_result _ as op) ->
@@ -750,7 +901,8 @@ module Encoding = struct
     Case
       {
         op_case = Operation.Encoding.double_preendorsement_evidence_case;
-        encoding = obj1 (req "balance_updates" Receipt.balance_updates_encoding);
+        encoding =
+          obj1 (dft "balance_updates" Receipt.balance_updates_encoding []);
         select =
           (function
           | Contents_result (Double_preendorsement_evidence_result _ as op) ->
@@ -770,7 +922,8 @@ module Encoding = struct
     Case
       {
         op_case = Operation.Encoding.double_baking_evidence_case;
-        encoding = obj1 (req "balance_updates" Receipt.balance_updates_encoding);
+        encoding =
+          obj1 (dft "balance_updates" Receipt.balance_updates_encoding []);
         select =
           (function
           | Contents_result (Double_baking_evidence_result _ as op) -> Some op
@@ -788,7 +941,8 @@ module Encoding = struct
     Case
       {
         op_case = Operation.Encoding.activate_account_case;
-        encoding = obj1 (req "balance_updates" Receipt.balance_updates_encoding);
+        encoding =
+          obj1 (dft "balance_updates" Receipt.balance_updates_encoding []);
         select =
           (function
           | Contents_result (Activate_account_result _ as op) -> Some op
@@ -843,7 +997,7 @@ module Encoding = struct
         op_case = Operation.Encoding.Case op_case;
         encoding =
           obj3
-            (req "balance_updates" Receipt.balance_updates_encoding)
+            (dft "balance_updates" Receipt.balance_updates_encoding [])
             (req "operation_result" res_case.t)
             (dft
                "internal_operation_results"
@@ -988,6 +1142,39 @@ module Encoding = struct
               res ) ->
             Some (op, res)
         | _ -> None)
+
+  let[@coq_axiom_with_reason "gadt"] tx_rollup_submit_batch_case =
+    make_manager_case
+      Operation.Encoding.tx_rollup_submit_batch_case
+      Manager_result.tx_rollup_submit_batch_case
+      (function
+        | Contents_and_result
+            ( (Manager_operation {operation = Tx_rollup_submit_batch _; _} as op),
+              res ) ->
+            Some (op, res)
+        | _ -> None)
+
+  let[@coq_axiom_with_reason "gadt"] sc_rollup_originate_case =
+    make_manager_case
+      Operation.Encoding.sc_rollup_originate_case
+      Manager_result.sc_rollup_originate_case
+      (function
+        | Contents_and_result
+            ( (Manager_operation {operation = Sc_rollup_originate _; _} as op),
+              res ) ->
+            Some (op, res)
+        | _ -> None)
+
+  let[@coq_axiom_with_reason "gadt"] sc_rollup_add_messages_case =
+    make_manager_case
+      Operation.Encoding.sc_rollup_add_messages_case
+      Manager_result.sc_rollup_add_messages_case
+      (function
+        | Contents_and_result
+            ( (Manager_operation {operation = Sc_rollup_add_messages _; _} as op),
+              res ) ->
+            Some (op, res)
+        | _ -> None)
 end
 
 let contents_result_encoding =
@@ -1025,6 +1212,9 @@ let contents_result_encoding =
          make register_global_constant_case;
          make set_deposits_limit_case;
          make tx_rollup_origination_case;
+         make tx_rollup_submit_batch_case;
+         make sc_rollup_originate_case;
+         make sc_rollup_add_messages_case;
        ]
 
 let contents_and_result_encoding =
@@ -1067,6 +1257,9 @@ let contents_and_result_encoding =
          make register_global_constant_case;
          make set_deposits_limit_case;
          make tx_rollup_origination_case;
+         make tx_rollup_submit_batch_case;
+         make sc_rollup_originate_case;
+         make sc_rollup_add_messages_case;
        ]
 
 type 'kind contents_result_list =
@@ -1370,6 +1563,84 @@ let kind_equal :
         } ) ->
       Some Eq
   | (Manager_operation {operation = Tx_rollup_origination; _}, _) -> None
+  | ( Manager_operation {operation = Tx_rollup_submit_batch _; _},
+      Manager_operation_result
+        {operation_result = Applied (Tx_rollup_submit_batch_result _); _} ) ->
+      Some Eq
+  | ( Manager_operation {operation = Tx_rollup_submit_batch _; _},
+      Manager_operation_result
+        {operation_result = Backtracked (Tx_rollup_submit_batch_result _, _); _}
+    ) ->
+      Some Eq
+  | ( Manager_operation {operation = Tx_rollup_submit_batch _; _},
+      Manager_operation_result
+        {
+          operation_result =
+            Failed (Alpha_context.Kind.Tx_rollup_submit_batch_manager_kind, _);
+          _;
+        } ) ->
+      Some Eq
+  | ( Manager_operation {operation = Tx_rollup_submit_batch _; _},
+      Manager_operation_result
+        {
+          operation_result =
+            Skipped Alpha_context.Kind.Tx_rollup_submit_batch_manager_kind;
+          _;
+        } ) ->
+      Some Eq
+  | (Manager_operation {operation = Tx_rollup_submit_batch _; _}, _) -> None
+  | ( Manager_operation {operation = Sc_rollup_originate _; _},
+      Manager_operation_result
+        {operation_result = Applied (Sc_rollup_originate_result _); _} ) ->
+      Some Eq
+  | ( Manager_operation {operation = Sc_rollup_originate _; _},
+      Manager_operation_result
+        {operation_result = Backtracked (Sc_rollup_originate_result _, _); _} )
+    ->
+      Some Eq
+  | ( Manager_operation {operation = Sc_rollup_originate _; _},
+      Manager_operation_result
+        {
+          operation_result =
+            Failed (Alpha_context.Kind.Sc_rollup_originate_manager_kind, _);
+          _;
+        } ) ->
+      Some Eq
+  | ( Manager_operation {operation = Sc_rollup_originate _; _},
+      Manager_operation_result
+        {
+          operation_result =
+            Skipped Alpha_context.Kind.Sc_rollup_originate_manager_kind;
+          _;
+        } ) ->
+      Some Eq
+  | (Manager_operation {operation = Sc_rollup_originate _; _}, _) -> None
+  | ( Manager_operation {operation = Sc_rollup_add_messages _; _},
+      Manager_operation_result
+        {operation_result = Applied (Sc_rollup_add_messages_result _); _} ) ->
+      Some Eq
+  | ( Manager_operation {operation = Sc_rollup_add_messages _; _},
+      Manager_operation_result
+        {operation_result = Backtracked (Sc_rollup_add_messages_result _, _); _}
+    ) ->
+      Some Eq
+  | ( Manager_operation {operation = Sc_rollup_add_messages _; _},
+      Manager_operation_result
+        {
+          operation_result =
+            Failed (Alpha_context.Kind.Sc_rollup_add_messages_manager_kind, _);
+          _;
+        } ) ->
+      Some Eq
+  | ( Manager_operation {operation = Sc_rollup_add_messages _; _},
+      Manager_operation_result
+        {
+          operation_result =
+            Skipped Alpha_context.Kind.Sc_rollup_add_messages_manager_kind;
+          _;
+        } ) ->
+      Some Eq
+  | (Manager_operation {operation = Sc_rollup_add_messages _; _}, _) -> None
 
 let rec kind_equal_list :
     type kind kind2.
@@ -1502,26 +1773,28 @@ let block_metadata_encoding =
               liquidity_baking_escape_ema;
               implicit_operations_results;
             } ->
-         ( proposer,
-           baker,
-           level_info,
-           voting_period_info,
-           nonce_hash,
-           consumed_gas,
-           deactivated,
-           balance_updates,
-           liquidity_baking_escape_ema,
-           implicit_operations_results ))
-       (fun ( proposer,
-              baker,
-              level_info,
-              voting_period_info,
-              nonce_hash,
-              consumed_gas,
-              deactivated,
-              balance_updates,
-              liquidity_baking_escape_ema,
-              implicit_operations_results ) ->
+         ( ( proposer,
+             baker,
+             level_info,
+             voting_period_info,
+             nonce_hash,
+             consumed_gas,
+             deactivated,
+             balance_updates,
+             liquidity_baking_escape_ema,
+             implicit_operations_results ),
+           consumed_gas ))
+       (fun ( ( proposer,
+                baker,
+                level_info,
+                voting_period_info,
+                nonce_hash,
+                consumed_gas,
+                deactivated,
+                balance_updates,
+                liquidity_baking_escape_ema,
+                implicit_operations_results ),
+              _consumed_millgas ) ->
          {
            proposer;
            baker;
@@ -1534,19 +1807,21 @@ let block_metadata_encoding =
            liquidity_baking_escape_ema;
            implicit_operations_results;
          })
-       (obj10
-          (req "proposer" Signature.Public_key_hash.encoding)
-          (req "baker" Signature.Public_key_hash.encoding)
-          (req "level_info" Level.encoding)
-          (req "voting_period_info" Voting_period.info_encoding)
-          (req "nonce_hash" (option Nonce_hash.encoding))
-          (req "consumed_gas" Gas.Arith.n_fp_encoding)
-          (req "deactivated" (list Signature.Public_key_hash.encoding))
-          (req "balance_updates" Receipt.balance_updates_encoding)
-          (req "liquidity_baking_escape_ema" int32)
-          (req
-             "implicit_operations_results"
-             (list successful_manager_operation_result_encoding)))
+       (merge_objs
+          (obj10
+             (req "proposer" Signature.Public_key_hash.encoding)
+             (req "baker" Signature.Public_key_hash.encoding)
+             (req "level_info" Level.encoding)
+             (req "voting_period_info" Voting_period.info_encoding)
+             (req "nonce_hash" (option Nonce_hash.encoding))
+             (req "consumed_gas" Gas.Arith.n_fp_encoding)
+             (req "deactivated" (list Signature.Public_key_hash.encoding))
+             (dft "balance_updates" Receipt.balance_updates_encoding [])
+             (req "liquidity_baking_escape_ema" int32)
+             (req
+                "implicit_operations_results"
+                (list successful_manager_operation_result_encoding)))
+          (obj1 (req "consumed_milligas" Gas.Arith.n_fp_encoding)))
 
 type precheck_result = {
   consumed_gas : Gas.Arith.fp;

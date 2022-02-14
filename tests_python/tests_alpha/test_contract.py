@@ -506,7 +506,10 @@ class TestContracts:
                 "invalid_self_entrypoint.tz",
                 r'Contract has no entrypoint named D',
             ),
-            ("contract_annotation_default.tz", r'unexpected annotation'),
+            (
+                "contract_annotation_default.tz",
+                r'unexpected_default_entrypoint',
+            ),
             # Missing field
             (
                 "missing_only_storage_field.tz",
@@ -554,11 +557,6 @@ class TestContracts:
             ),
             # error message for attempting to push a value of type never
             ("never_literal.tz", r'type never has no inhabitant.'),
-            # field annotation mismatch with UNPAIR
-            (
-                "unpair_field_annotation_mismatch.tz",
-                r'The field access annotation does not match',
-            ),
             # COMB, UNCOMB, and DUP cannot take 0 as argument
             ("comb0.tz", r"PAIR expects an argument of at least 2"),
             ("comb1.tz", r"PAIR expects an argument of at least 2"),
@@ -1413,7 +1411,7 @@ class TestMiniScenarios:
 
     def test_vote_for_delegate_wrong_identity1(self, client: Client):
         # We check failure of CHECK_SIGNATURE ; ASSERT in the script.
-        with utils.assert_run_failure("At line 15 characters 57 to 61"):
+        with utils.assert_run_failure("At line 14 characters 9 to 12"):
             client.transfer(
                 0,
                 "bootstrap1",
@@ -1423,7 +1421,7 @@ class TestMiniScenarios:
 
     def test_vote_for_delegate_wrong_identity2(self, client: Client):
         # We check failure of CHECK_SIGNATURE ; ASSERT in the script.
-        with utils.assert_run_failure("At line 15 characters 57 to 61"):
+        with utils.assert_run_failure("At line 14 characters 9 to 12"):
             client.transfer(
                 0,
                 "bootstrap2",
@@ -1983,14 +1981,11 @@ expruat2BS4KCwn9kbopeX1ZwxtrtJbyFhpnpnG6A5KdCBCwHNsdod
     def test_contract_hashes_for_script(
         self, client: Client, for_script, display_names, results
     ):
-        assert (
-            client.hash_script(
-                [ID_SCRIPT_LITERAL],
-                display_names=display_names,
-                for_script=for_script,
-            )
-            == [results]
-        )
+        assert client.hash_script(
+            [ID_SCRIPT_LITERAL],
+            display_names=display_names,
+            for_script=for_script,
+        ) == [results]
 
 
 @pytest.mark.contract
@@ -2123,13 +2118,14 @@ class TestContractTypeChecking:
         client.typecheck_data(f'{address_opt}', 'address')
         client.typecheck_data(f'{address_opt_a}', 'address')
 
-        unexpected_annotation_error = "unexpected annotation."
+        unexpected_default_error = "unexpected_default_entrypoint"
+        not_an_address_error = "not an expression of type address"
 
-        with utils.assert_run_failure(unexpected_annotation_error):
+        with utils.assert_run_failure(unexpected_default_error):
             client.typecheck_data(f'"{address}%default"', 'address')
 
         # 64656661756c74 is "default" in hexa
-        with utils.assert_run_failure(unexpected_annotation_error):
+        with utils.assert_run_failure(not_an_address_error):
             client.typecheck_data(address_opt + '64656661756c74', 'address')
 
     def check_contract_ok(self, client, address, entrypoint, typ):

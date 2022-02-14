@@ -1,8 +1,9 @@
 (*****************************************************************************)
 (*                                                                           *)
 (* Open Source License                                                       *)
-(* Copyright (c) 2021 Marigold <contact@marigold.dev>                        *)
-(* Copyright (c) 2021 Nomadic Labs <contact@nomadic-labs.com>                *)
+(* Copyright (c) 2021-2022 Marigold <contact@marigold.dev>                   *)
+(* Copyright (c) 2021-2022 Nomadic Labs <contact@nomadic-labs.com>           *)
+(* Copyright (c) 2022 Oxhead Alpha <info@oxhead-alpha.com>                   *)
 (*                                                                           *)
 (* Permission is hereby granted, free of charge, to any person obtaining a   *)
 (* copy of this software and associated documentation files (the "Software"),*)
@@ -74,9 +75,12 @@ end)
 
 let to_b58check rollup = Hash.to_b58check rollup
 
+let of_b58check_opt s =
+  match Base58.decode s with Some (Hash.Data hash) -> Some hash | _ -> None
+
 let of_b58check s =
-  match Base58.decode s with
-  | Some (Hash.Data hash) -> ok hash
+  match of_b58check_opt s with
+  | Some hash -> ok hash
   | _ -> error (Invalid_rollup_notation s)
 
 let pp ppf hash = Hash.pp ppf hash
@@ -141,11 +145,3 @@ module Index = struct
 
   let compare = compare
 end
-
-type state = unit
-
-let state_encoding = Data_encoding.(obj1 (req "state" Data_encoding.unit))
-
-let empty_state = ()
-
-let pp_state fmt _state = Format.fprintf fmt "state"

@@ -219,7 +219,7 @@ type back = {
   remaining_block_gas : Gas_limit_repr.Arith.fp;
   unlimited_operation_gas : bool;
   consensus : Raw_consensus.t;
-  non_consensus_operations : Operation_hash.t list;
+  non_consensus_operations_rev : Operation_hash.t list;
   sampler_state :
     (Seed_repr.seed
     * (Signature.Public_key.t * Signature.Public_key_hash.t) Sampler.t)
@@ -281,7 +281,8 @@ let[@inline] temporary_lazy_storage_ids ctxt =
 
 let[@inline] remaining_operation_gas ctxt = ctxt.remaining_operation_gas
 
-let[@inline] non_consensus_operations ctxt = ctxt.back.non_consensus_operations
+let[@inline] non_consensus_operations_rev ctxt =
+  ctxt.back.non_consensus_operations_rev
 
 let[@inline] sampler_state ctxt = ctxt.back.sampler_state
 
@@ -316,8 +317,9 @@ let[@inline] update_fees ctxt fees = update_back ctxt {ctxt.back with fees}
 let[@inline] update_temporary_lazy_storage_ids ctxt temporary_lazy_storage_ids =
   update_back ctxt {ctxt.back with temporary_lazy_storage_ids}
 
-let[@inline] update_non_consensus_operations ctxt non_consensus_operations =
-  update_back ctxt {ctxt.back with non_consensus_operations}
+let[@inline] update_non_consensus_operations_rev ctxt
+    non_consensus_operations_rev =
+  update_back ctxt {ctxt.back with non_consensus_operations_rev}
 
 let[@inline] update_sampler_state ctxt sampler_state =
   update_back ctxt {ctxt.back with sampler_state}
@@ -736,7 +738,7 @@ let prepare ~level ~predecessor_timestamp ~timestamp ctxt =
   >>?= fun round_durations ->
   get_cycle_eras ctxt >|=? fun cycle_eras ->
   check_cycle_eras cycle_eras constants ;
-  let level = Level_repr.from_raw ~cycle_eras level in
+  let level = Level_repr.level_from_raw ~cycle_eras level in
   {
     remaining_operation_gas = Gas_limit_repr.Arith.zero;
     back =
@@ -758,13 +760,13 @@ let prepare ~level ~predecessor_timestamp ~timestamp ctxt =
             constants.Constants_repr.hard_gas_limit_per_block;
         unlimited_operation_gas = true;
         consensus = Raw_consensus.empty;
-        non_consensus_operations = [];
+        non_consensus_operations_rev = [];
         sampler_state = Cycle_repr.Map.empty;
         stake_distribution_for_current_cycle = None;
       };
   }
 
-type previous_protocol = Genesis of Parameters_repr.t | Hangzhou_011
+type previous_protocol = Genesis of Parameters_repr.t | Ithaca_012
 
 let check_and_update_protocol_version ctxt =
   (Context.find ctxt version_key >>= function
@@ -776,8 +778,7 @@ let check_and_update_protocol_version ctxt =
          failwith "Internal error: previously initialized context."
        else if Compare.String.(s = "genesis") then
          get_proto_param ctxt >|=? fun (param, ctxt) -> (Genesis param, ctxt)
-       else if Compare.String.(s = "hangzhou_011") then
-         return (Hangzhou_011, ctxt)
+       else if Compare.String.(s = "ithaca_012") then return (Ithaca_012, ctxt)
        else Lwt.return @@ storage_error (Incompatible_protocol_version s))
   >>=? fun (previous_proto, ctxt) ->
   Context.add ctxt version_key (Bytes.of_string version_value) >|= fun ctxt ->
@@ -828,64 +829,26 @@ let prepare_first_block ~level ~timestamp ctxt =
       Level_repr.create_cycle_eras [cycle_era] >>?= fun cycle_eras ->
       set_cycle_eras ctxt cycle_eras >>=? fun ctxt ->
       add_constants ctxt param.constants >|= ok
-  | Hangzhou_011 ->
+  | Ithaca_012 ->
       get_previous_protocol_constants ctxt >>= fun c ->
-      let minimal_block_delay = c.minimal_block_delay in
-      let minimal_block_delay_s = Period_repr.to_seconds minimal_block_delay in
-      (if Compare.Int64.(minimal_block_delay_s = 30L) then
-       (* that's the mainnet value of the constant; so we're
-          probably on the mainnet: do no inherit this constant's
-          value (as done in the else case below) *)
-       Period_repr.of_seconds 15L
-      else
-        match c.time_between_blocks with
-        | first_time_between_blocks :: _ ->
-            let delay_increment_per_round_s =
-              let m =
-                Int64.sub
-                  (Period_repr.to_seconds first_time_between_blocks)
-                  minimal_block_delay_s
-              in
-              if Compare.Int64.(m < 1L) then 1L else m
-            in
-            Period_repr.of_seconds delay_increment_per_round_s
-        | [] -> ok minimal_block_delay)
-      >>?= fun delay_increment_per_round ->
       let constants =
-        let consensus_committee_size = 7000 in
-        let Constants_repr.Generated.
-              {
-                consensus_threshold;
-                baking_reward_fixed_portion;
-                baking_reward_bonus_per_slot;
-                endorsing_reward_per_slot;
-              } =
-          Constants_repr.Generated.generate
-            ~consensus_committee_size
-            ~blocks_per_minute:
-              {numerator = 60; denominator = Int64.to_int minimal_block_delay_s}
-        in
         Constants_repr.
           {
             preserved_cycles = c.preserved_cycles;
             blocks_per_cycle = c.blocks_per_cycle;
             blocks_per_commitment = c.blocks_per_commitment;
-            blocks_per_stake_snapshot = c.blocks_per_roll_snapshot;
+            blocks_per_stake_snapshot = c.blocks_per_stake_snapshot;
             blocks_per_voting_period = c.blocks_per_voting_period;
             hard_gas_limit_per_operation = c.hard_gas_limit_per_operation;
             hard_gas_limit_per_block = c.hard_gas_limit_per_block;
             proof_of_work_threshold = c.proof_of_work_threshold;
-            tokens_per_roll =
-              (* NB: the old value is used during the migration, and
-                 changed to a new value there *)
-              c.tokens_per_roll;
+            tokens_per_roll = c.tokens_per_roll;
             seed_nonce_revelation_tip = c.seed_nonce_revelation_tip;
             origination_size = c.origination_size;
-            (* Same value as in the previous protocol. *)
-            max_operations_time_to_live = 120;
-            baking_reward_fixed_portion;
-            baking_reward_bonus_per_slot;
-            endorsing_reward_per_slot;
+            max_operations_time_to_live = c.max_operations_time_to_live;
+            baking_reward_fixed_portion = c.baking_reward_fixed_portion;
+            baking_reward_bonus_per_slot = c.baking_reward_bonus_per_slot;
+            endorsing_reward_per_slot = c.endorsing_reward_per_slot;
             cost_per_byte = c.cost_per_byte;
             hard_storage_limit_per_operation =
               c.hard_storage_limit_per_operation;
@@ -893,26 +856,34 @@ let prepare_first_block ~level ~timestamp ctxt =
             quorum_max = c.quorum_max;
             min_proposal_quorum = c.min_proposal_quorum;
             liquidity_baking_subsidy = c.liquidity_baking_subsidy;
-            liquidity_baking_sunset_level =
-              (* preserve a lower level for testnets *)
-              (if Compare.Int32.(c.liquidity_baking_sunset_level = 2_244_609l)
-              then 3_063_809l
-              else c.liquidity_baking_sunset_level);
-            liquidity_baking_escape_ema_threshold = 666_667l;
-            minimal_block_delay;
-            delay_increment_per_round;
-            consensus_committee_size;
-            consensus_threshold;
-            minimal_participation_ratio = {numerator = 2; denominator = 3};
-            max_slashing_period = 2;
-            frozen_deposits_percentage = 10;
-            double_baking_punishment = Tez_repr.(mul_exn one 640);
+            liquidity_baking_sunset_level = c.liquidity_baking_sunset_level;
+            liquidity_baking_escape_ema_threshold =
+              c.liquidity_baking_escape_ema_threshold;
+            minimal_block_delay = c.minimal_block_delay;
+            delay_increment_per_round = c.delay_increment_per_round;
+            consensus_committee_size = c.consensus_committee_size;
+            consensus_threshold = c.consensus_threshold;
+            minimal_participation_ratio = c.minimal_participation_ratio;
+            max_slashing_period = c.max_slashing_period;
+            frozen_deposits_percentage = c.frozen_deposits_percentage;
+            double_baking_punishment = c.double_baking_punishment;
             ratio_of_frozen_deposits_slashed_per_double_endorsement =
-              {numerator = 1; denominator = 2};
-            delegate_selection = Random;
+              c.ratio_of_frozen_deposits_slashed_per_double_endorsement;
+            initial_seed = None;
+            cache_script_size = 100_000_000;
+            cache_stake_distribution_cycles = 8;
+            cache_sampler_state_cycles = 8;
             tx_rollup_enable = false;
-            (* TODO: https://gitlab.com/tezos/tezos/-/issues/2152 *)
+            (* TODO: https://gitlab.com/tezos/tezos/-/issues/2152
+               Transaction rollups parameters need to be refined,
+               currently the following values are merely
+               placeholders. *)
             tx_rollup_origination_size = 60_000;
+            tx_rollup_hard_size_limit_per_inbox = 100_000;
+            tx_rollup_hard_size_limit_per_message = 5_000;
+            sc_rollup_enable = false;
+            (* The following value is chosen to prevent spam. *)
+            sc_rollup_origination_size = 6_314;
           }
       in
       add_constants ctxt constants >>= fun ctxt -> return ctxt)
@@ -1136,11 +1107,11 @@ module Cache = struct
 end
 
 let record_non_consensus_operation_hash ctxt operation_hash =
-  update_non_consensus_operations
+  update_non_consensus_operations_rev
     ctxt
-    (operation_hash :: non_consensus_operations ctxt)
+    (operation_hash :: non_consensus_operations_rev ctxt)
 
-let non_consensus_operations ctxt = List.rev (non_consensus_operations ctxt)
+let non_consensus_operations ctxt = List.rev (non_consensus_operations_rev ctxt)
 
 let set_sampler_for_cycle ctxt cycle sampler_with_seed =
   let map = sampler_state ctxt in

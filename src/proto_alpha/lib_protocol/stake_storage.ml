@@ -46,7 +46,7 @@ module Selected_distribution_for_cycle = struct
     let id = identifier_of_cycle cycle in
     Storage.Stake.Selected_distribution_for_cycle.init ctxt cycle stakes
     >>=? fun ctxt ->
-    let size = Constants_repr.stake_distribution_size in
+    let size = 1 (* that's symbolic: 1 cycle = 1 entry *) in
     Cache.update ctxt id (Some (stakes, size)) >>?= fun ctxt -> return ctxt
 
   let get ctxt cycle =
@@ -86,7 +86,7 @@ module Delegate_sampler_state = struct
     let id = identifier_of_cycle cycle in
     Storage.Delegate_sampler_state.init ctxt cycle sampler_state
     >>=? fun ctxt ->
-    let size = Constants_repr.sampler_state_size in
+    let size = 1 (* that's symbolic: 1 cycle = 1 entry *) in
     Cache.update ctxt id (Some (sampler_state, size)) >>?= fun ctxt ->
     return ctxt
 
@@ -120,9 +120,9 @@ let remove_stake ctxt delegate amount =
   Tez_repr.(staking_balance_before -? amount) >>?= fun staking_balance ->
   Storage.Stake.Staking_balance.update ctxt delegate staking_balance
   >>=? fun ctxt ->
-  Delegate_activation_storage.is_inactive ctxt delegate >>=? fun inactive ->
-  if (not inactive) && Tez_repr.(staking_balance_before >= tokens_per_roll) then
-    if Tez_repr.(staking_balance < tokens_per_roll) then
+  if Tez_repr.(staking_balance_before >= tokens_per_roll) then
+    Delegate_activation_storage.is_inactive ctxt delegate >>=? fun inactive ->
+    if (not inactive) && Tez_repr.(staking_balance < tokens_per_roll) then
       Storage.Stake.Active_delegate_with_one_roll.remove ctxt delegate
       >>= fun ctxt -> return ctxt
     else return ctxt
@@ -267,12 +267,11 @@ let init_first_cycles ctxt pubkey =
     (fun ctxt c ->
       let cycle = Cycle_repr.of_int32_exn (Int32.of_int c) in
       snapshot ctxt >>=? fun ctxt ->
+      (* NB: we need to take several snapshots because
+         select_distribution_for_cycle deletes the snapshots *)
       select_distribution_for_cycle ctxt cycle pubkey)
     ctxt
     (0 --> preserved)
-  >>=? fun ctxt ->
-  (* Precompute a snapshot for cycle (preserved_cycles + 1) *)
-  snapshot ctxt
 
 let fold ctxt ~f ~order init =
   Storage.Stake.Active_delegate_with_one_roll.fold

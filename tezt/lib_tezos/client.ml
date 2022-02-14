@@ -50,6 +50,8 @@ type t = {
   mutable mode : mode;
 }
 
+type stresstest_gas_estimation = {regular : int}
+
 let name t = t.name
 
 let base_dir t = t.base_dir
@@ -77,6 +79,9 @@ let address ?(hostname = false) ?from peer =
   | None -> Runner.address ~hostname (runner peer)
   | Some endpoint ->
       Runner.address ~hostname ?from:(runner endpoint) (runner peer)
+
+let optional_arg ~name f =
+  Option.fold ~none:[] ~some:(fun x -> ["--" ^ name; f x])
 
 let create_with_mode ?(path = Constant.tezos_client)
     ?(admin_path = Constant.tezos_admin_client) ?name
@@ -373,9 +378,7 @@ let activate_protocol ?endpoint ~protocol ?fitness ?key ?timestamp
   |> Process.check
 
 let empty_mempool_file ?(filename = "mempool.json") () =
-  let mempool_str =
-    {|{"applied":[],"refused":[],"outdated":[],"branch_refused":[],"branch_delayed":[],"unprocessed":[]}|}
-  in
+  let mempool_str = "[]" in
   (* TODO: https://gitlab.com/tezos/tezos/-/issues/1928
      a write_file function should be added to the tezt base module *)
   let mempool = Temp.file filename in
@@ -411,16 +414,16 @@ let spawn_bake_for ?endpoint ?protocol ?(keys = [Constant.bootstrap1.alias])
         ~some:(fun nanotez ->
           ["--minimal-nanotez-per-byte"; string_of_int nanotez])
         minimal_nanotez_per_byte
-    @ (if minimal_timestamp then ["--minimal-timestamp"] else [])
     @ Option.fold
         ~none:[]
-        ~some:(fun mempool_json -> ["--mempool"; mempool_json])
+        ~some:(fun operations_json -> ["--operations-pool"; operations_json])
         mempool
     @ (match protocol with
-      | Some Alpha ->
+      | Some (Ithaca | Alpha) ->
           (* Only Alpha/Tenderbake supports this switch *)
           if ignore_node_mempool then ["--ignore-node-mempool"] else []
-      | None | Some (Granada | Hangzhou) -> [])
+      | None | Some Hangzhou -> [])
+    @ (if minimal_timestamp then ["--minimal-timestamp"] else [])
     @ (match force with None | Some false -> [] | Some true -> ["--force"])
     @ Option.fold ~none:[] ~some:(fun path -> ["--context"; path]) context_path
     )
@@ -468,10 +471,12 @@ let spawn_tenderbake_action_for ~tenderbake_action ?endpoint ?protocol
     else
       []
       @
-      match force with
-      | None | Some false -> []
-      | Some true when protocol = Some Protocol.Alpha -> ["--force"]
-      | Some true -> [] (* --force is not supported prior to Tenderbake *))
+      match (force, protocol) with
+      | (None, _) | (Some false, _) -> []
+      | (Some true, Some Protocol.Ithaca) | (Some true, Some Protocol.Alpha) ->
+          ["--force"]
+      | (Some true, Some Protocol.Hangzhou) | (Some true, None) -> []
+      (* --force is not supported prior to Tenderbake *))
 
 let spawn_endorse_for ?endpoint ?protocol ?key ?force client =
   spawn_tenderbake_action_for
@@ -567,10 +572,12 @@ let gen_and_show_keys ?alias client =
   let* alias = gen_keys ?alias client in
   show_address ~alias client
 
-let spawn_transfer ?endpoint ?(wait = "none") ?burn_cap ?fee ?gas_limit
-    ?storage_limit ?counter ?arg ~amount ~giver ~receiver client =
+let spawn_transfer ?hooks ?endpoint ?(wait = "none") ?burn_cap ?fee ?gas_limit
+    ?storage_limit ?counter ?arg ?(force = false) ~amount ~giver ~receiver
+    client =
   spawn_command
     ?endpoint
+    ?hooks
     client
     (["--wait"; wait]
     @ ["transfer"; Tez.to_string amount; "from"; giver; "to"; receiver]
@@ -594,12 +601,14 @@ let spawn_transfer ?endpoint ?(wait = "none") ?burn_cap ?fee ?gas_limit
         ~none:[]
         ~some:(fun s -> ["--counter"; string_of_int s])
         counter
-    @ Option.fold ~none:[] ~some:(fun p -> ["--arg"; p]) arg)
+    @ Option.fold ~none:[] ~some:(fun p -> ["--arg"; p]) arg
+    @ if force then ["--force"] else [])
 
-let transfer ?endpoint ?wait ?burn_cap ?fee ?gas_limit ?storage_limit ?counter
-    ?arg ~amount ~giver ~receiver client =
+let transfer ?hooks ?endpoint ?wait ?burn_cap ?fee ?gas_limit ?storage_limit
+    ?counter ?arg ?force ~amount ~giver ~receiver client =
   spawn_transfer
     ?endpoint
+    ?hooks
     ?wait
     ?burn_cap
     ?fee
@@ -607,13 +616,14 @@ let transfer ?endpoint ?wait ?burn_cap ?fee ?gas_limit ?storage_limit ?counter
     ?storage_limit
     ?counter
     ?arg
+    ?force
     ~amount
     ~giver
     ~receiver
     client
   |> Process.check
 
-let spawn_multiple_transfers ?endpoint ?(wait = "none") ?burn_cap ?fee
+let spawn_multiple_transfers ?endpoint ?(wait = "none") ?burn_cap ?fee_cap
     ?gas_limit ?storage_limit ?counter ?arg ~giver ~json_batch client =
   spawn_command
     ?endpoint
@@ -622,8 +632,8 @@ let spawn_multiple_transfers ?endpoint ?(wait = "none") ?burn_cap ?fee
     @ ["multiple"; "transfers"; "from"; giver; "using"; json_batch]
     @ Option.fold
         ~none:[]
-        ~some:(fun f -> ["--fee"; Tez.to_string f; "--force-low-fee"])
-        fee
+        ~some:(fun f -> ["--fee-cap"; Tez.to_string f; "--force-low-fee"])
+        fee_cap
     @ Option.fold
         ~none:[]
         ~some:(fun b -> ["--burn-cap"; Tez.to_string b])
@@ -642,13 +652,13 @@ let spawn_multiple_transfers ?endpoint ?(wait = "none") ?burn_cap ?fee
         counter
     @ Option.fold ~none:[] ~some:(fun p -> ["--arg"; p]) arg)
 
-let multiple_transfers ?endpoint ?wait ?burn_cap ?fee ?gas_limit ?storage_limit
-    ?counter ?arg ~giver ~json_batch client =
+let multiple_transfers ?endpoint ?wait ?burn_cap ?fee_cap ?gas_limit
+    ?storage_limit ?counter ?arg ~giver ~json_batch client =
   spawn_multiple_transfers
     ?endpoint
     ?wait
     ?burn_cap
-    ?fee
+    ?fee_cap
     ?gas_limit
     ?storage_limit
     ?counter
@@ -743,9 +753,10 @@ let spawn_submit_ballot ?(key = Constant.bootstrap1.alias) ?(wait = "none")
 let submit_ballot ?key ?wait ~proto_hash vote client =
   spawn_submit_ballot ?key ?wait ~proto_hash vote client |> Process.check
 
-let spawn_originate_contract ?endpoint ?(wait = "none") ?init ?burn_cap ~alias
-    ~amount ~src ~prg client =
+let spawn_originate_contract ?hooks ?endpoint ?(wait = "none") ?init ?burn_cap
+    ~alias ~amount ~src ~prg client =
   spawn_command
+    ?hooks
     ?endpoint
     client
     (["--wait"; wait]
@@ -782,11 +793,12 @@ let convert_script_to_json ?endpoint ~script client =
 let convert_data_to_json ?endpoint ~data client =
   convert_michelson_to_json ~kind:"data" ?endpoint ~input:data client
 
-let originate_contract ?endpoint ?wait ?init ?burn_cap ~alias ~amount ~src ~prg
-    client =
+let originate_contract ?hooks ?endpoint ?wait ?init ?burn_cap ~alias ~amount
+    ~src ~prg client =
   let* client_output =
     spawn_originate_contract
       ?endpoint
+      ?hooks
       ?wait
       ?init
       ?burn_cap
@@ -805,8 +817,8 @@ let originate_contract ?endpoint ?wait ?init ?burn_cap ~alias ~amount ~src ~prg
   | Some hash -> return hash
 
 let spawn_stresstest ?endpoint ?(source_aliases = []) ?(source_pkhs = [])
-    ?(source_accounts = []) ?seed ?transfers ?tps
-    ?(single_op_per_pkh_per_block = false) client =
+    ?(source_accounts = []) ?seed ?fee ?gas_limit ?transfers ?tps
+    ?(single_op_per_pkh_per_block = false) ?fresh_probability client =
   let sources =
     (* [sources] is a string containing all the [source_aliases],
        [source_pkhs], and [source_accounts] in JSON format, as
@@ -858,35 +870,74 @@ let spawn_stresstest ?endpoint ?(source_aliases = []) ?(source_pkhs = [])
     | Some (arg : int) -> [name; Int.to_string arg]
     | None -> []
   in
+  let make_float_opt_arg (name : string) = function
+    | Some (arg : float) -> [name; Float.to_string arg]
+    | None -> []
+  in
+  let fee_arg =
+    match fee with None -> [] | Some x -> ["--fee"; Tez.to_string x]
+  in
   spawn_command ?endpoint client
   @@ ["stresstest"; "transfer"; "using"; sources; "--seed"; seed]
+  @ fee_arg
+  @ make_int_opt_arg "--gas-limit" gas_limit
   @ make_int_opt_arg "--transfers" transfers
   @ make_int_opt_arg "--tps" tps
+  @ make_float_opt_arg "--fresh-probability" fresh_probability
   @
   if single_op_per_pkh_per_block then ["--single-op-per-pkh-per-block"] else []
 
 let stresstest ?endpoint ?source_aliases ?source_pkhs ?source_accounts ?seed
-    ?transfers ?tps ?single_op_per_pkh_per_block client =
+    ?fee ?gas_limit ?transfers ?tps ?single_op_per_pkh_per_block
+    ?fresh_probability client =
   spawn_stresstest
     ?endpoint
     ?source_aliases
     ?source_pkhs
     ?source_accounts
     ?seed
+    ?fee
+    ?gas_limit
     ?transfers
     ?tps
     ?single_op_per_pkh_per_block
+    ?fresh_probability
     client
   |> Process.check
 
-let spawn_run_script ~src ~storage ~input client =
+let spawn_run_script ?hooks ?balance ?self_address ?source ?payer ~prg ~storage
+    ~input client =
   spawn_command
+    ?hooks
     client
-    ["run"; "script"; src; "on"; "storage"; storage; "and"; "input"; input]
+    (["run"; "script"; prg; "on"; "storage"; storage; "and"; "input"; input]
+    @ optional_arg ~name:"payer" Fun.id payer
+    @ optional_arg ~name:"source" Fun.id source
+    @ optional_arg ~name:"balance" Tez.to_string balance
+    @ optional_arg ~name:"self-address" Fun.id self_address)
 
-let run_script ~src ~storage ~input client =
+let stresstest_estimate_gas ?endpoint client =
+  let* output =
+    spawn_command ?endpoint client ["stresstest"; "estimate"; "gas"]
+    |> Process.check_and_read_stdout
+  in
+  let json = JSON.parse ~origin:"transaction_costs" output in
+  let regular = (JSON.get "regular" json |> JSON.as_int) / 1000 in
+  Lwt.return {regular}
+
+let run_script ?hooks ?balance ?self_address ?source ?payer ~prg ~storage ~input
+    client =
   let* client_output =
-    spawn_run_script ~src ~storage ~input client
+    spawn_run_script
+      ?hooks
+      ?balance
+      ?source
+      ?payer
+      ?self_address
+      ~prg
+      ~storage
+      ~input
+      client
     |> Process.check_and_read_stdout
   in
   match client_output =~* rex "storage\n(.*)" with
@@ -1064,6 +1115,45 @@ let originate_tx_rollup ?wait ?burn_cap ?storage_limit ~src client =
   =~* rex "Originated tx rollup: ?(\\w*)"
   |> mandatory "tx rollup hash" |> Lwt.return
 
+let spawn_submit_tx_rollup_batch ?(wait = "none") ?burn_cap ?storage_limit
+    ?hooks ~content ~tx_rollup ~src client =
+  spawn_command
+    ?hooks
+    client
+    (["--wait"; wait]
+    @ [
+        "submit";
+        "tx";
+        "rollup";
+        "batch";
+        Hex.(of_string content |> show);
+        "to";
+        tx_rollup;
+        "from";
+        src;
+      ]
+    @ Option.fold
+        ~none:[]
+        ~some:(fun burn_cap -> ["--burn-cap"; Tez.to_string burn_cap])
+        burn_cap
+    @ Option.fold
+        ~none:[]
+        ~some:(fun s -> ["--storage-limit"; string_of_int s])
+        storage_limit)
+
+let submit_tx_rollup_batch ?wait ?burn_cap ?storage_limit ?hooks ~content
+    ~tx_rollup ~src client =
+  spawn_submit_tx_rollup_batch
+    ?wait
+    ?burn_cap
+    ?storage_limit
+    ?hooks
+    ~content
+    ~tx_rollup
+    ~src
+    client
+  |> Process.check
+
 let spawn_show_voting_period ?endpoint client =
   spawn_command ?endpoint client (mode_arg client @ ["show"; "voting"; "period"])
 
@@ -1076,6 +1166,58 @@ let show_voting_period ?endpoint client =
       Test.fail
         "tezos-client show voting period did not print the current period"
   | Some period -> return period
+
+let spawn_originate_sc_rollup ?(wait = "none") ?burn_cap ~src ~kind ~boot_sector
+    client =
+  spawn_command
+    client
+    (["--wait"; wait]
+    @ [
+        "originate";
+        "sc";
+        "rollup";
+        "from";
+        src;
+        "of";
+        "kind";
+        kind;
+        "booting";
+        "with";
+        boot_sector;
+      ]
+    @ Option.fold
+        ~none:[]
+        ~some:(fun burn_cap -> ["--burn-cap"; Tez.to_string burn_cap])
+        burn_cap)
+
+let parse_rollup_address_in_receipt output =
+  match output =~* rex "Address: (.*)" with
+  | None -> Test.fail "Cannot extract rollup address from receipt."
+  | Some x -> return x
+
+let originate_sc_rollup ?wait ?burn_cap ~src ~kind ~boot_sector client =
+  let process =
+    spawn_originate_sc_rollup ?wait ?burn_cap ~src ~kind ~boot_sector client
+  in
+  let* output = Process.check_and_read_stdout process in
+  parse_rollup_address_in_receipt output
+
+let spawn_send_sc_rollup_message ?(wait = "none") ?burn_cap ~msg ~src ~dst
+    client =
+  spawn_command
+    client
+    (["--wait"; wait]
+    @ ["send"; "sc"; "rollup"; "message"; msg; "from"; src; "to"; dst]
+    @ Option.fold
+        ~none:[]
+        ~some:(fun burn_cap -> ["--burn-cap"; Tez.to_string burn_cap])
+        burn_cap)
+
+let send_sc_rollup_message ?wait ?burn_cap ~msg ~src ~dst client =
+  let process =
+    spawn_send_sc_rollup_message ?wait ?burn_cap ~msg ~src ~dst client
+  in
+  Process.check process
 
 let init ?path ?admin_path ?name ?color ?base_dir ?endpoint ?media_type () =
   let client =
@@ -1226,7 +1368,8 @@ let init_with_node ?path ?admin_path ?name ?color ?base_dir ?event_level
 
 let init_with_protocol ?path ?admin_path ?name ?color ?base_dir ?event_level
     ?event_sections_levels ?nodes_args ?additional_bootstrap_account_count
-    ?default_accounts_balance ?parameter_file tag ~protocol () =
+    ?default_accounts_balance ?parameter_file ?timestamp_delay tag ~protocol ()
+    =
   let* (node, client) =
     init_with_node
       ?path
@@ -1245,9 +1388,11 @@ let init_with_protocol ?path ?admin_path ?name ?color ?base_dir ?event_level
       ?additional_bootstrap_account_count
       ?default_accounts_balance
       ?parameter_file
-      ~protocol
+      ~protocol:(protocol, None)
       client
   in
-  let* () = activate_protocol ?parameter_file ~protocol client in
+  let* () =
+    activate_protocol ?parameter_file ~protocol ?timestamp_delay client
+  in
   let* _ = Node.wait_for_level node 1 in
   return (node, client)

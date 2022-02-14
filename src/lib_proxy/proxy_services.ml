@@ -23,6 +23,8 @@
 (*                                                                           *)
 (*****************************************************************************)
 
+exception Rpc_dir_creation_failure of tztrace
+
 module Directory = Resto_directory.Make (RPC_encoding)
 
 module Events = struct
@@ -161,7 +163,7 @@ module Env_cache =
 module Env_cache_lwt = Ringo_lwt.Functors.Make_result (Env_cache)
 
 let schedule_clearing (printer : Tezos_client_base.Client_context.printer)
-    (rpc_context : RPC_context.json)
+    (rpc_context : RPC_context.generic)
     (proxy_env : Registration.proxy_environment) (mode : mode) envs_cache key
     chain block =
   let open Lwt_syntax in
@@ -248,7 +250,7 @@ let protocols protocol_hash =
           }))
 
 let build_directory (printer : Tezos_client_base.Client_context.printer)
-    (rpc_context : RPC_context.json) (mode : mode)
+    (rpc_context : RPC_context.generic) (mode : mode)
     (proxy_env : Registration.proxy_environment) : unit RPC_directory.t =
   let (module Proxy_environment) = proxy_env in
   let b2h : (module BLOCK_TO_HASH) =
@@ -335,7 +337,7 @@ let build_directory (printer : Tezos_client_base.Client_context.printer)
            throwing an exception. It's handled in
            [Tezos_mockup_proxy.RPC_client]. This is not ideal, but
            it's better than asserting false. *)
-        raise (Tezos_mockup_proxy.RPC_client.Rpc_dir_creation_failure trace)
+        raise (Rpc_dir_creation_failure trace)
     | Ok res -> Lwt.return res
   in
   let proto_directory =

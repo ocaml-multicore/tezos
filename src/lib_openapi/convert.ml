@@ -248,7 +248,7 @@ let gather_definitions (schema : Json_schema.schema)
   gather String_map.empty converted_schema
 
 let convert_schema (schema : Json.t) : env * Openapi.Schema.t =
-  let schema = Json_schema.of_json schema in
+  let schema = Json_schema.of_json (Json.unannotate schema) in
   let converted_schema = convert_element (Json_schema.root schema) in
   let env = gather_definitions schema converted_schema in
   (env, converted_schema)
@@ -285,8 +285,8 @@ let convert_service expected_path expected_method
   if expected_method <> meth then
     fail
       "expected method %s but found %s"
-      (Api.show_method expected_method)
-      (Api.show_method meth) ;
+      (Method.to_http_string expected_method)
+      (Method.to_http_string meth) ;
   (* TODO: in practice [expected_path <> path]. Investigate why. *)
   if expected_path <> path then
     warn

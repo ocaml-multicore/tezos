@@ -1,7 +1,10 @@
+; This file was automatically generated, do not edit.
+; Edit file manifest/main.ml instead.
+
 (library
  (name tezos_p2p_services)
  (public_name tezos-p2p-services)
  (instrumentation (backend bisect_ppx))
  (libraries
   tezos-base)
- (flags (:standard -linkall -open Tezos_base__TzPervasives)))
+ (flags (:standard -linkall -open Tezos_base.TzPervasives)))

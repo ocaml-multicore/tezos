@@ -1,9 +1,7 @@
-; See src/bin_node/dune to understand in detail how this file abuses
-; the alternative dependency mechanism of dune to implement optional
-; dependencies.
+; This file was automatically generated, do not edit.
+; Edit file manifest/main.ml instead.
 
-(env
- (static (flags (:standard -ccopt -static))))
+(env (static (flags (:standard -ccopt -static))))
 
 (executable
  (name main_proxy_server)
@@ -13,6 +11,7 @@
  (libraries
   tezos-base
   tezos-base.unix
+  tezos-stdlib-unix
   cmdliner
   lwt-exit
   tezos-proxy
@@ -66,6 +65,9 @@
   (select void_for_linking-tezos-client-011-PtHangz2 from
    (tezos-client-011-PtHangz2 -> void_for_linking-tezos-client-011-PtHangz2.empty)
    (-> void_for_linking-tezos-client-011-PtHangz2.empty))
+  (select void_for_linking-tezos-client-012-Psithaca from
+   (tezos-client-012-Psithaca -> void_for_linking-tezos-client-012-Psithaca.empty)
+   (-> void_for_linking-tezos-client-012-Psithaca.empty))
   (select void_for_linking-tezos-client-alpha from
    (tezos-client-alpha -> void_for_linking-tezos-client-alpha.empty)
    (-> void_for_linking-tezos-client-alpha.empty))
@@ -84,13 +86,16 @@
   (select void_for_linking-tezos-protocol-plugin-011-PtHangz2 from
    (tezos-protocol-plugin-011-PtHangz2 -> void_for_linking-tezos-protocol-plugin-011-PtHangz2.empty)
    (-> void_for_linking-tezos-protocol-plugin-011-PtHangz2.empty))
+  (select void_for_linking-tezos-protocol-plugin-012-Psithaca from
+   (tezos-protocol-plugin-012-Psithaca -> void_for_linking-tezos-protocol-plugin-012-Psithaca.empty)
+   (-> void_for_linking-tezos-protocol-plugin-012-Psithaca.empty))
   (select void_for_linking-tezos-protocol-plugin-alpha from
    (tezos-protocol-plugin-alpha -> void_for_linking-tezos-protocol-plugin-alpha.empty)
    (-> void_for_linking-tezos-protocol-plugin-alpha.empty)))
  (flags
   (:standard
    -linkall
-   -open Tezos_base__TzPervasives
+   -open Tezos_base.TzPervasives
    -open Tezos_base
    -open Tezos_stdlib_unix)))
 
@@ -112,10 +117,12 @@
    (write-file void_for_linking-tezos-client-009-PsFLoren.empty "")
    (write-file void_for_linking-tezos-client-010-PtGRANAD.empty "")
    (write-file void_for_linking-tezos-client-011-PtHangz2.empty "")
+   (write-file void_for_linking-tezos-client-012-Psithaca.empty "")
    (write-file void_for_linking-tezos-client-alpha.empty "")
    (write-file void_for_linking-tezos-protocol-plugin-007-PsDELPH1.empty "")
    (write-file void_for_linking-tezos-protocol-plugin-008-PtEdo2Zk.empty "")
    (write-file void_for_linking-tezos-protocol-plugin-009-PsFLoren.empty "")
    (write-file void_for_linking-tezos-protocol-plugin-010-PtGRANAD.empty "")
    (write-file void_for_linking-tezos-protocol-plugin-011-PtHangz2.empty "")
+   (write-file void_for_linking-tezos-protocol-plugin-012-Psithaca.empty "")
    (write-file void_for_linking-tezos-protocol-plugin-alpha.empty ""))))

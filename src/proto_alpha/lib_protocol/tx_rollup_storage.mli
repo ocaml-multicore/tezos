@@ -30,9 +30,12 @@
 val originate :
   Raw_context.t -> (Raw_context.t * Tx_rollup_repr.t) tzresult Lwt.t
 
-(** [state context tx_rollup] is the current state of [tx_rollup] in the
-    context. *)
-val state :
-  Raw_context.t ->
-  Tx_rollup_repr.t ->
-  Tx_rollup_repr.state option tzresult Lwt.t
+(** [update_tx_rollups_at_block_finalization ctxt] updates the state
+    of every transaction rollups which had an inbox created at the
+    current block.
+
+    As the name suggests, this function is intented to be used as part
+    of the finalization of a block. Besides, this function is not
+    supposed to fail. *)
+val update_tx_rollups_at_block_finalization :
+  Raw_context.t -> Raw_context.t tzresult Lwt.t

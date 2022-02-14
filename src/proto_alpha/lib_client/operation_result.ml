@@ -41,11 +41,10 @@ let pp_manager_operation_content (type kind) source internal pp_result ppf
         amount
         Contract.pp
         source
-        Contract.pp
+        Destination.pp
         destination ;
-      (match entrypoint with
-      | "default" -> ()
-      | _ -> Format.fprintf ppf "@,Entrypoint: %s" entrypoint) ;
+      if not (Entrypoint.is_default entrypoint) then
+        Format.fprintf ppf "@,Entrypoint: %a" Entrypoint.pp entrypoint ;
       (if not (Script_repr.is_unit_parameter parameters) then
        let expr =
          WithExceptions.Option.to_exn
@@ -174,7 +173,41 @@ let pp_manager_operation_content (type kind) source internal pp_result ppf
         Contract.pp
         source
         pp_result
+        result
+  | Tx_rollup_submit_batch {tx_rollup; content} ->
+      Format.fprintf
+        ppf
+        "@[<v 2>%s:%a, %d bytes, From: %a%a@]"
+        (if internal then "Internal tx rollup transaction"
+        else "Tx rollup transaction")
+        Tx_rollup.pp
+        tx_rollup
+        (String.length content)
+        Contract.pp
+        source
+        pp_result
+        result
+  | Sc_rollup_originate {kind; boot_sector} ->
+      let (module R : Sc_rollups.PVM.S) = Sc_rollups.of_kind kind in
+      Format.fprintf
+        ppf
+        "@[<v 2>Originate smart contract rollup of kind %s with boot sector \
+         '%a'%a@]"
+        R.name
+        R.pp_boot_sector
+        boot_sector
+        pp_result
+        result
+  | Sc_rollup_add_messages {rollup; messages = _} ->
+      Format.fprintf
+        ppf
+        "@[<v 2>Add a message to the inbox of the smart contract rollup at \
+         address %a%a@]"
+        Sc_rollup.Address.pp
+        rollup
+        pp_result
         result) ;
+
   Format.fprintf ppf "@]"
 
 let pp_balance_updates ppf = function
@@ -279,6 +312,16 @@ let pp_balance_updates ppf = function
         (Format.pp_print_list pp_one)
         balance_updates
 
+let pp_balance_updates_opt ppf balance_updates =
+  match balance_updates with
+  | [] -> ()
+  | balance_updates ->
+      Format.fprintf
+        ppf
+        "@,Balance updates:@,  %a"
+        pp_balance_updates
+        balance_updates
+
 let pp_manager_operation_contents_and_result ppf
     ( Manager_operation
         {source; fee; operation; counter; gas_limit; storage_limit},
@@ -300,8 +343,8 @@ let pp_manager_operation_contents_and_result ppf
               Michelson_v1_printer.print_big_map_diff
               lazy_storage_diff)
   in
-  let pp_transaction_result
-      (Transaction_result
+  let pp_transaction_result = function
+    | Transaction_to_contract_result
         {
           balance_updates;
           consumed_gas;
@@ -311,40 +354,36 @@ let pp_manager_operation_contents_and_result ppf
           paid_storage_size_diff;
           lazy_storage_diff;
           allocated_destination_contract = _;
-        }) =
-    (match originated_contracts with
-    | [] -> ()
-    | contracts ->
-        Format.fprintf
-          ppf
-          "@,@[<v 2>Originated contracts:@,%a@]"
-          (Format.pp_print_list Contract.pp)
-          contracts) ;
-    (match storage with
-    | None -> ()
-    | Some expr ->
-        Format.fprintf
-          ppf
-          "@,@[<hv 2>Updated storage:@ %a@]"
-          Michelson_v1_printer.print_expr
-          expr) ;
-    pp_lazy_storage_diff lazy_storage_diff ;
-    if storage_size <> Z.zero then
-      Format.fprintf ppf "@,Storage size: %s bytes" (Z.to_string storage_size) ;
-    if paid_storage_size_diff <> Z.zero then
-      Format.fprintf
-        ppf
-        "@,Paid storage size diff: %s bytes"
-        (Z.to_string paid_storage_size_diff) ;
-    Format.fprintf ppf "@,Consumed gas: %a" Gas.Arith.pp consumed_gas ;
-    match balance_updates with
-    | [] -> ()
-    | balance_updates ->
-        Format.fprintf
-          ppf
-          "@,Balance updates:@,  %a"
-          pp_balance_updates
-          balance_updates
+        } ->
+        (match originated_contracts with
+        | [] -> ()
+        | contracts ->
+            Format.fprintf
+              ppf
+              "@,@[<v 2>Originated contracts:@,%a@]"
+              (Format.pp_print_list Contract.pp)
+              contracts) ;
+        (match storage with
+        | None -> ()
+        | Some expr ->
+            Format.fprintf
+              ppf
+              "@,@[<hv 2>Updated storage:@ %a@]"
+              Michelson_v1_printer.print_expr
+              expr) ;
+        pp_lazy_storage_diff lazy_storage_diff ;
+        if storage_size <> Z.zero then
+          Format.fprintf
+            ppf
+            "@,Storage size: %s bytes"
+            (Z.to_string storage_size) ;
+        if paid_storage_size_diff <> Z.zero then
+          Format.fprintf
+            ppf
+            "@,Paid storage size diff: %s bytes"
+            (Z.to_string paid_storage_size_diff) ;
+        Format.fprintf ppf "@,Consumed gas: %a" Gas.Arith.pp consumed_gas ;
+        pp_balance_updates_opt ppf balance_updates
   in
   let pp_origination_result
       (Origination_result
@@ -373,14 +412,7 @@ let pp_manager_operation_contents_and_result ppf
         "@,Paid storage size diff: %s bytes"
         (Z.to_string paid_storage_size_diff) ;
     Format.fprintf ppf "@,Consumed gas: %a" Gas.Arith.pp consumed_gas ;
-    match balance_updates with
-    | [] -> ()
-    | balance_updates ->
-        Format.fprintf
-          ppf
-          "@,Balance updates:@,  %a"
-          pp_balance_updates
-          balance_updates
+    pp_balance_updates_opt ppf balance_updates
   in
   let pp_register_global_constant_result
       (Register_global_constant_result
@@ -390,12 +422,7 @@ let pp_manager_operation_contents_and_result ppf
         (* Not possible - register global constant operation always returns
            balance updates. *)
         assert false
-    | balance_updates ->
-        Format.fprintf
-          ppf
-          "@,Balance updates:@,  %a"
-          pp_balance_updates
-          balance_updates) ;
+    | balance_updates -> pp_balance_updates_opt ppf balance_updates) ;
     Format.fprintf ppf "@,Consumed gas: %a" Gas.Arith.pp consumed_gas ;
     Format.fprintf ppf "@,Storage size: %s bytes" (Z.to_string size_of_constant) ;
     Format.fprintf ppf "@,Global address: %a" Script_expr_hash.pp global_address
@@ -414,6 +441,32 @@ let pp_manager_operation_contents_and_result ppf
       "@,Originated tx rollup: %a"
       Tx_rollup.pp
       originated_tx_rollup
+  in
+  let pp_tx_rollup_submit_batch_result
+      (Tx_rollup_submit_batch_result {balance_updates; consumed_gas}) =
+    Format.fprintf
+      ppf
+      "@,Balance updates:@,  %a"
+      pp_balance_updates
+      balance_updates ;
+    Format.fprintf ppf "@,Consumed gas: %a" Gas.Arith.pp consumed_gas
+  in
+  let pp_sc_rollup_originate_result
+      (Sc_rollup_originate_result
+        {address; consumed_gas; size; balance_updates}) =
+    Format.fprintf ppf "@,Consumed gas: %a" Gas.Arith.pp consumed_gas ;
+    Format.fprintf ppf "@,Storage size: %s bytes" (Z.to_string size) ;
+    Format.fprintf ppf "@,Address: %a" Sc_rollup.Address.pp address ;
+    pp_balance_updates_opt ppf balance_updates
+  in
+  let pp_sc_rollup_add_messages_result
+      (Sc_rollup_add_messages_result {consumed_gas; inbox_after}) =
+    Format.fprintf ppf "@,Consumed gas: %a" Gas.Arith.pp consumed_gas ;
+    Format.fprintf
+      ppf
+      "@,Resulting inbox state: %a"
+      Sc_rollup.Inbox.pp
+      inbox_after
   in
   let pp_result (type kind) ppf (result : kind manager_operation_result) =
     Format.fprintf ppf "@," ;
@@ -444,10 +497,10 @@ let pp_manager_operation_contents_and_result ppf
           ppf
           "@[<v 0>This deposits limit modification was BACKTRACKED, its \
            expected effects were NOT applied.@]"
-    | Applied (Transaction_result _ as tx) ->
+    | Applied (Transaction_result tx) ->
         Format.fprintf ppf "This transaction was successfully applied" ;
         pp_transaction_result tx
-    | Backtracked ((Transaction_result _ as tx), _errs) ->
+    | Backtracked (Transaction_result tx, _errs) ->
         Format.fprintf
           ppf
           "@[<v 0>This transaction was BACKTRACKED, its expected effects (as \
@@ -484,6 +537,41 @@ let pp_manager_operation_contents_and_result ppf
           "@[<v 0>This rollup operation was BACKTRACKED, its expected effects \
            (as follow) were NOT applied.@]" ;
         pp_tx_rollup_result op
+    | Applied (Tx_rollup_submit_batch_result _ as op) ->
+        Format.fprintf
+          ppf
+          "This tx rollup submit operation was successfully applied" ;
+        pp_tx_rollup_submit_batch_result op
+    | Backtracked ((Tx_rollup_submit_batch_result _ as op), _err) ->
+        Format.fprintf
+          ppf
+          "@[<v 0>This rollup submit operation was BACKTRACKED, its expected \
+           effects (as follow) were NOT applied.@]" ;
+        pp_tx_rollup_submit_batch_result op
+    | Applied (Sc_rollup_originate_result _ as op) ->
+        Format.fprintf
+          ppf
+          "This smart contract rollup origination was successfully applied" ;
+        pp_sc_rollup_originate_result op
+    | Backtracked ((Sc_rollup_originate_result _ as op), _errs) ->
+        Format.fprintf
+          ppf
+          "@[<v 0>This rollup origination was BACKTRACKED, its expected \
+           effects (as follow) were NOT applied.@]" ;
+        pp_sc_rollup_originate_result op
+    | Applied (Sc_rollup_add_messages_result _ as op) ->
+        Format.fprintf
+          ppf
+          "This operation sending a message to a smart contract rollup was \
+           successfully applied" ;
+        pp_sc_rollup_add_messages_result op
+    | Backtracked ((Sc_rollup_add_messages_result _ as op), _errs) ->
+        Format.fprintf
+          ppf
+          "@[<v 0>This operation sending a message to a smart contract rollup \
+           was BACKTRACKED, its expected effects (as follow) were NOT \
+           applied.@]" ;
+        pp_sc_rollup_add_messages_result op
   in
 
   Format.fprintf
@@ -503,14 +591,7 @@ let pp_manager_operation_contents_and_result ppf
     Gas.Arith.pp_integral
     gas_limit
     (Z.to_string storage_limit) ;
-  (match balance_updates with
-  | [] -> ()
-  | balance_updates ->
-      Format.fprintf
-        ppf
-        "@,Balance updates:@,  %a"
-        pp_balance_updates
-        balance_updates) ;
+  pp_balance_updates_opt ppf balance_updates ;
   Format.fprintf
     ppf
     "@,%a"

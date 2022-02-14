@@ -1,7 +1,7 @@
 (*****************************************************************************)
 (*                                                                           *)
 (* Open Source License                                                       *)
-(* Copyright (c) 2021 Nomadic Labs, <contact@nomadic-labs.com>               *)
+(* Copyright (c) 2021-2022 Nomadic Labs <contact@nomadic-labs.com>           *)
 (*                                                                           *)
 (* Permission is hereby granted, free of charge, to any person obtaining a   *)
 (* copy of this software and associated documentation files (the "Software"),*)
@@ -366,12 +366,12 @@ let cost_of_control : type a s r f. (a, s, r, f) continuation -> Gas.cost =
 
 let consume_instr local_gas_counter k accu stack =
   let cost = cost_of_instr k accu stack in
-  update_and_check local_gas_counter cost
+  consume_opt local_gas_counter cost
   [@@ocaml.inline always]
 
 let consume_control local_gas_counter ks =
   let cost = cost_of_control ks in
-  update_and_check local_gas_counter cost
+  consume_opt local_gas_counter cost
   [@@ocaml.inline always]
 
 (*
@@ -456,14 +456,14 @@ let rec kundip :
    formal argument to [v]. The type of [v] is represented by [ty]. *)
 let apply ctxt gas capture_ty capture lam =
   let (Lam (descr, expr)) = lam in
-  let (Item_t (full_arg_ty, _, _)) = descr.kbef in
+  let (Item_t (full_arg_ty, _)) = descr.kbef in
   let ctxt = update_context gas ctxt in
   unparse_data ctxt Optimized capture_ty capture >>=? fun (const_expr, ctxt) ->
   let loc = Micheline.dummy_location in
   unparse_ty ~loc ctxt capture_ty >>?= fun (ty_expr, ctxt) ->
   match full_arg_ty with
-  | Pair_t ((capture_ty, _, _), (arg_ty, _, _), _) ->
-      let arg_stack_ty = Item_t (arg_ty, Bot_t, None) in
+  | Pair_t (capture_ty, arg_ty, _) ->
+      let arg_stack_ty = Item_t (arg_ty, Bot_t) in
       let full_descr =
         {
           kloc = descr.kloc;
@@ -474,7 +474,7 @@ let apply ctxt gas capture_ty capture lam =
              let kinfo_pair =
                {
                  iloc = descr.kloc;
-                 kstack_ty = Item_t (capture_ty, arg_stack_ty, None);
+                 kstack_ty = Item_t (capture_ty, arg_stack_ty);
                }
              in
              IConst (kinfo_const, capture, ICons_pair (kinfo_pair, descr.kinstr)));
@@ -490,9 +490,8 @@ let apply ctxt gas capture_ty capture lam =
             ] )
       in
       let lam' = Lam (full_descr, full_expr) in
-      let gas = update_local_gas_counter ctxt in
-      return (lam', outdated ctxt, gas)
-  | _ -> assert false
+      let (gas, ctxt) = local_gas_counter_and_outdated_context ctxt in
+      return (lam', ctxt, gas)
 
 (* [transfer (ctxt, sc) gas tez tp p destination entrypoint]
    creates an operation that transfers an amount of [tez] to
@@ -524,28 +523,25 @@ let transfer (ctxt, sc) gas amount tp p destination entrypoint =
   in
   fresh_internal_nonce ctxt >>?= fun (ctxt, nonce) ->
   let iop = {source = sc.self; operation; nonce} in
-  let res = (Internal_operation iop, lazy_storage_diff) in
-  let gas = update_local_gas_counter ctxt in
-  let ctxt = outdated ctxt in
+  let res = {piop = Internal_operation iop; lazy_storage_diff} in
+  let (gas, ctxt) = local_gas_counter_and_outdated_context ctxt in
   return (res, ctxt, gas)
 
-(* [create_contract (ctxt, sc) gas storage_ty param_ty code root_name
+(* [create_contract (ctxt, sc) gas storage_ty param_ty code entrypoints
    delegate credit init] creates an origination operation for a
-   contract represented by [code], with some [root_name], some initial
+   contract represented by [code], with some [entrypoints], some initial
    [credit] (taken to contract being executed), and an initial storage
    [init] of type [storage_ty]. The type of the new contract argument
    is [param_ty]. *)
 
 (* TODO: https://gitlab.com/tezos/tezos/-/issues/1688
    Refactor the sharing part of unparse_script and create_contract *)
-let create_contract (ctxt, sc) gas storage_type param_type code views root_name
-    delegate credit init =
+let create_contract (ctxt, sc) gas storage_type param_type code views
+    entrypoints delegate credit init =
   let ctxt = update_context gas ctxt in
   let loc = Micheline.dummy_location in
-  unparse_ty ~loc ctxt param_type >>?= fun (unparsed_param_type, ctxt) ->
-  let unparsed_param_type =
-    Script_ir_translator.add_field_annot root_name None unparsed_param_type
-  in
+  unparse_parameter_ty ~loc ctxt param_type ~entrypoints
+  >>?= fun (unparsed_param_type, ctxt) ->
   unparse_ty ~loc ctxt storage_type >>?= fun (unparsed_storage_type, ctxt) ->
   let open Micheline in
   let view name {input_ty; output_ty; view_code} views =
@@ -599,11 +595,9 @@ let create_contract (ctxt, sc) gas storage_type param_type code views root_name
       }
   in
   fresh_internal_nonce ctxt >>?= fun (ctxt, nonce) ->
-  let res =
-    (Internal_operation {source = sc.self; operation; nonce}, lazy_storage_diff)
-  in
-  let gas = update_local_gas_counter ctxt in
-  let ctxt = outdated ctxt in
+  let piop = Internal_operation {source = sc.self; operation; nonce} in
+  let res = {piop; lazy_storage_diff} in
+  let (gas, ctxt) = local_gas_counter_and_outdated_context ctxt in
   return (res, contract, ctxt, gas)
 
 (* [unpack ctxt ty bytes] deserialize [bytes] into a value of type [ty]. *)
@@ -696,7 +690,7 @@ type ('a, 'b, 'c, 'd, 'i, 'j) klist_exit_type =
   (('a, 'b, 'c, 'd) continuation -> ('a, 'b, 'c, 'd) continuation) ->
   outdated_context * step_constants ->
   local_gas_counter ->
-  ('i, 'a * 'b, 'j, 'a * 'b) kinstr * 'i list * 'j list * local_gas_counter ->
+  ('i, 'a * 'b, 'j, 'a * 'b) kinstr * 'i list * 'j list * int ->
   ('j boxed_list, 'a * 'b, 'c, 'd) continuation ->
   'j ->
   'a * 'b ->
@@ -706,7 +700,7 @@ type ('a, 'b, 'c, 'd, 'e, 'j) klist_enter_type =
   (('b, 'a * 'c, 'd, 'e) continuation -> ('b, 'a * 'c, 'd, 'e) continuation) ->
   outdated_context * step_constants ->
   local_gas_counter ->
-  ('j, 'a * 'c, 'b, 'a * 'c) kinstr * 'j list * 'b list * local_gas_counter ->
+  ('j, 'a * 'c, 'b, 'a * 'c) kinstr * 'j list * 'b list * int ->
   ('b boxed_list, 'a * 'c, 'd, 'e) continuation ->
   'a ->
   'c ->

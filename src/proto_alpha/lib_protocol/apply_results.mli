@@ -104,14 +104,9 @@ and 'kind manager_operation_result =
   | Skipped : 'kind Kind.manager -> 'kind manager_operation_result
 [@@coq_force_gadt]
 
-(** Result of applying a {!manager_operation_content}, either internal
-    or external. *)
-and _ successful_manager_operation_result =
-  | Reveal_result : {
-      consumed_gas : Gas.Arith.fp;
-    }
-      -> Kind.reveal successful_manager_operation_result
-  | Transaction_result : {
+(** Result of applying a transaction, either internal or external *)
+and successful_transaction_result =
+  | Transaction_to_contract_result of {
       storage : Script.expr option;
       lazy_storage_diff : Lazy_storage.diffs option;
       balance_updates : Receipt.balance_updates;
@@ -121,6 +116,16 @@ and _ successful_manager_operation_result =
       paid_storage_size_diff : Z.t;
       allocated_destination_contract : bool;
     }
+
+(** Result of applying a {!manager_operation_content}, either internal
+    or external. *)
+and _ successful_manager_operation_result =
+  | Reveal_result : {
+      consumed_gas : Gas.Arith.fp;
+    }
+      -> Kind.reveal successful_manager_operation_result
+  | Transaction_result :
+      successful_transaction_result
       -> Kind.transaction successful_manager_operation_result
   | Origination_result : {
       lazy_storage_diff : Lazy_storage.diffs option;
@@ -164,6 +169,23 @@ and _ successful_manager_operation_result =
       originated_tx_rollup : Tx_rollup.t;
     }
       -> Kind.tx_rollup_origination successful_manager_operation_result
+  | Tx_rollup_submit_batch_result : {
+      balance_updates : Receipt.balance_updates;
+      consumed_gas : Gas.Arith.fp;
+    }
+      -> Kind.tx_rollup_submit_batch successful_manager_operation_result
+  | Sc_rollup_originate_result : {
+      balance_updates : Receipt.balance_updates;
+      address : Sc_rollup.Address.t;
+      consumed_gas : Gas.Arith.fp;
+      size : Z.t;
+    }
+      -> Kind.sc_rollup_originate successful_manager_operation_result
+  | Sc_rollup_add_messages_result : {
+      consumed_gas : Gas.Arith.fp;
+      inbox_after : Sc_rollup.Inbox.t;
+    }
+      -> Kind.sc_rollup_add_messages successful_manager_operation_result
 
 and packed_successful_manager_operation_result =
   | Successful_manager_result :

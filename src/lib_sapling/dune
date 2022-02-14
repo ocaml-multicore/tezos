@@ -1,5 +1,5 @@
-;; This binding assumes that librustzcash.a is installed in the system default
-;; directories or in $OPAM_SWITCH_PREFIX/lib
+; This file was automatically generated, do not edit.
+; Edit file manifest/main.ml instead.
 
 (library
  (name tezos_sapling)
@@ -8,10 +8,9 @@
  (libraries
   integers
   ctypes
-  ctypes.stubs
   data-encoding
-  tezos-crypto
   tezos-stdlib
+  tezos-crypto
   tezos-error-monad
   tezos-lwt-result-stdlib)
  (flags

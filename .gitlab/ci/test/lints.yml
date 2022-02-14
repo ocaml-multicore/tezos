@@ -1,0 +1,84 @@
+misc_checks:
+  extends: .build_template
+  stage: test
+  needs: []
+  script:
+    # checks that all deps of opam packages are already installed
+    - ./scripts/opam-check.sh
+    # misc linting
+    - find . ! -path "./_opam/*" -name "*.opam" -exec opam lint {} +;
+    - make check-linting
+    - make check-python-linting
+    # python checks
+    - make -C tests_python typecheck
+    # Ensure that all unit tests are restricted to their opam package
+    - make lint-tests-pkg
+    # check that the hack-module patch applies cleanly
+    - git apply devtools/protocol-print/add-hack-module.patch
+    # check that yes-wallet builds correctly
+    - dune build scripts/yes-wallet/yes_wallet.exe
+  artifacts:
+    when: always
+    paths:
+      - opam_repo.patch
+    expire_in: 1 days
+
+semgrep:
+  extends:
+    - .rules_template__development
+  # We specify the image by hash to avoid flakiness. Indeed, if we took the
+  # latest release, then an update in the parser or analyser could result in new
+  # errors being found even if the code doesn't change. This would place the
+  # burden for fixing the code on the wrong dev (the devs who happen to open an
+  # MR coinciding with the semgrep update rather than the dev who wrote the
+  # infringing code in the first place).
+  # Update the hash in scripts/semgrep/README.md too when updating it here
+  # Last update: 20212-01-03
+  image: returntocorp/semgrep-agent:sha-c6cd7cf
+  stage: test
+  needs: []
+  script:
+    - echo "OCaml code linting. For information on how to reproduce locally, check out scripts/semgrep/README.md"
+    - sh ./scripts/semgrep/lint-all-ocaml-sources.sh
+
+check_precommit_hook:
+  extends: .build_template
+  stage: test
+  needs: []
+  script:
+    - ./scripts/pre_commit/pre_commit.py --test-itself
+    - poetry run pylint scripts/pre_commit/pre_commit.py
+    - poetry run pycodestyle scripts/pre_commit/pre_commit.py
+    - poetry run mypy scripts/pre_commit/pre_commit.py
+
+check_scripts_b58_prefix:
+  # Can be changed to a python image, but using the build docker image to keep
+  # in sync with the python version used for the tests
+  extends: .test_template
+  needs: []
+  before_script:
+    - . $HOME/.venv/bin/activate
+  script:
+    - poetry run pylint scripts/b58_prefix/b58_prefix.py --disable=missing-docstring --disable=invalid-name
+    - poetry run pytest scripts/b58_prefix/test_b58_prefix.py -v
+
+ometrics-code-quality-default:
+  stage: test
+  extends:
+    - .template__code_quality
+  rules:
+    # See https://gitlab.com/gitlab-org/gitlab/-/issues/215279
+    # In short, GitLab requires a code quality report from the target branch.
+    # As ometrics tries to find code quality issues against the target branch
+    # (i.e. previously introduced issues will not be reported), we create a fake
+    # empty report on the default branch which is supposed to be the target branch
+    # in most cases.
+    - if: '$CI_COMMIT_BRANCH == $TEZOS_DEFAULT_BRANCH'
+      when: always
+    - when: never
+  script:
+    - mkdir -p _reports/
+    - echo "[]" > $CODE_QUALITY_REPORT
+  artifacts:
+    paths:
+      - $CODE_QUALITY_REPORT

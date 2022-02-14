@@ -1,3 +1,5 @@
+# This file was automatically generated, do not edit.
+# Edit file manifest/main.ml instead.
 opam-version: "2.0"
 maintainer: "contact@tezos.com"
 authors: ["Tezos devteam"]
@@ -9,16 +11,18 @@ depends: [
   "dune" { >= "2.9" }
   "lwt-watcher" { = "0.1" }
   "lwt-canceler" { >= "0.3" & < "0.4" }
-  "ringo" { = "0.5" }
+  "ringo" { = "0.7" }
   "tezos-base"
-  "tezos-stdlib"
   "tezos-stdlib-unix"
+  "tezos-stdlib"
   "tezos-p2p-services"
+  "bisect_ppx" { with-test & >= "2.7.0" }
   "tezos-test-helpers" {with-test}
   "tezos-base-test-helpers" {with-test}
   "tezos-event-logging-test-helpers" {with-test}
   "alcotest-lwt" { with-test & >= "1.5.0" }
   "astring" {with-test}
+  "tezos-tooling" {with-test}
 ]
 build: [
   ["dune" "build" "-p" name "-j" jobs]

@@ -1,7 +1,7 @@
 (*****************************************************************************)
 (*                                                                           *)
 (* Open Source License                                                       *)
-(* Copyright (c) 2021 Nomadic Labs <contact@nomadic-labs.com>                *)
+(* Copyright (c) 2021-2022 Nomadic Labs <contact@nomadic-labs.com>           *)
 (*                                                                           *)
 (* Permission is hereby granted, free of charge, to any person obtaining a   *)
 (* copy of this software and associated documentation files (the "Software"),*)
@@ -69,9 +69,9 @@ module Parameter = struct
     | Approve p -> Format.asprintf "Approve %s" (approve_to_string p)
     | MintOrBurn p -> Format.asprintf "MintOrBurn %s" (mint_or_burn_to_string p)
 
-  let entrypoint_of_parameter : t -> string = function
-    | Approve _ -> "approve"
-    | MintOrBurn _ -> "mintOrBurn"
+  let entrypoint_of_parameter : t -> Entrypoint.t = function
+    | Approve _ -> Entrypoint.of_string_strict_exn "approve"
+    | MintOrBurn _ -> Entrypoint.of_string_strict_exn "mintOrBurn"
 
   let pp fmt s = Format.fprintf fmt "%s" (to_string s)
 
@@ -216,10 +216,7 @@ module Storage = struct
     get ctxt ~contract >>=? fun storage ->
     let tokens = storage.tokens in
     get_alpha_context ctxt >>=? fun ctxt ->
-    Script_ir_translator.hash_data
-      ctxt
-      Script_typed_ir.(address_t ~annot:None)
-      owner
+    Script_ir_translator.hash_data ctxt Script_typed_ir.address_t owner
     >|= Environment.wrap_tzresult
     >>=? fun (address_hash, ctxt) ->
     Big_map.get_opt ctxt tokens address_hash >|= Environment.wrap_tzresult

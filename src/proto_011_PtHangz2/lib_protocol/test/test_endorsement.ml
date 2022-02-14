@@ -26,7 +26,7 @@
 (** Testing
     -------
     Component:  Protocol (endorsement)
-    Invocation: dune exec src/proto_alpha/lib_protocol/test/main.exe -- test "^endorsement$"
+    Invocation: dune exec src/proto_011_PtHangz2/lib_protocol/test/main.exe -- test "^endorsement$"
     Subject:    Endorsing a block adds an extra layer of confidence to the
                 Tezos' PoS algorithm. The block endorsing operation must be
                 included in the following block. Each endorser possesses a
@@ -129,10 +129,9 @@ let test_max_endorsement () =
   Assert.equal_bool
     ~loc:__LOC__
     Compare.List_length_with.(
-      List.concat
-        (List.map
-           (fun {Plugin.RPC.Endorsing_rights.slots; _} -> slots)
-           endorsers)
+      List.concat_map
+        (fun {Plugin.RPC.Endorsing_rights.slots; _} -> slots)
+        endorsers
       = endorsers_per_block)
     true
   >>=? fun () ->

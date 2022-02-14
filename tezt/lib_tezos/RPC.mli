@@ -92,8 +92,24 @@ val is_bootstrapped :
   Client.t ->
   JSON.t Lwt.t
 
-(** Call RPC /chain/[chain]/checkpoint *)
+(** Call RPC /chain/[chain]/levels/checkpoint *)
 val get_checkpoint :
+  ?endpoint:Client.endpoint ->
+  ?hooks:Process.hooks ->
+  ?chain:string ->
+  Client.t ->
+  JSON.t Lwt.t
+
+(** Call RPC /chain/[chain]/levels/savepoint *)
+val get_savepoint :
+  ?endpoint:Client.endpoint ->
+  ?hooks:Process.hooks ->
+  ?chain:string ->
+  Client.t ->
+  JSON.t Lwt.t
+
+(** Call RPC /chain/[chain]/levels/caboose *)
+val get_caboose :
   ?endpoint:Client.endpoint ->
   ?hooks:Process.hooks ->
   ?chain:string ->
@@ -187,16 +203,13 @@ val get_mempool_pending_operations :
   ?hooks:Process.hooks ->
   ?chain:string ->
   ?version:string ->
+  ?applied:bool ->
+  ?branch_delayed:bool ->
+  ?branch_refused:bool ->
+  ?refused:bool ->
+  ?outdated:bool ->
   Client.t ->
   JSON.t Lwt.t
-
-(** Call RPC /chains/[chain]/mempool/pending_operations *)
-val get_mempool :
-  ?endpoint:Client.endpoint ->
-  ?hooks:Process.hooks ->
-  ?chain:string ->
-  Client.t ->
-  Mempool.t Lwt.t
 
 (** Call RPC /chains/[chain]/mempool/request_operations *)
 val mempool_request_operations :
@@ -952,14 +965,63 @@ module Votes : sig
     JSON.t Lwt.t
 end
 
+module Script_cache : sig
+  (** Call RPC /chain/[chain]/blocks/[block]/context/cache/contracts/all *)
+  val get_cached_contracts :
+    ?endpoint:Client.endpoint ->
+    ?hooks:Process.hooks ->
+    ?chain:string ->
+    ?block:string ->
+    Client.t ->
+    JSON.t Lwt.t
+end
+
 module Tx_rollup : sig
-  (** Call RPC /chain/[chain]/blocks/[block]/context/[rollup_hash]/state *)
+  (** Call RPC /chain/[chain]/blocks/[block]/context/tx_rollup/[tx_rollup_id]/state *)
   val get_state :
     ?endpoint:Client.endpoint ->
     ?hooks:Process.hooks ->
     ?chain:string ->
     ?block:string ->
-    tx_rollup_hash:string ->
+    tx_rollup:string ->
     Client.t ->
     JSON.t Lwt.t
+
+  (** Call RPC /chain/[chain]/blocks/[block]/context/tx_rollup/[tx_rollup_id]/inbox *)
+  val get_inbox :
+    ?endpoint:Client.endpoint ->
+    ?hooks:Process.hooks ->
+    ?chain:string ->
+    ?block:string ->
+    tx_rollup:string ->
+    Client.t ->
+    JSON.t Lwt.t
+
+  (** Same as [get_inbox], but do not wait for the process to exit. *)
+  val spawn_get_inbox :
+    ?endpoint:Client.endpoint ->
+    ?hooks:Process.hooks ->
+    ?chain:string ->
+    ?block:string ->
+    tx_rollup:string ->
+    Client.t ->
+    Process.t
+end
+
+module Sc_rollup : sig
+  (** Call RPC /chain/[chain]/blocks/[block]/context/sc_rollup/[rollup_hash]/state *)
+  val get_inbox :
+    ?endpoint:Client.endpoint ->
+    ?hooks:Process.hooks ->
+    ?chain:string ->
+    ?block:string ->
+    sc_rollup_address:string ->
+    Client.t ->
+    JSON.t Lwt.t
+end
+
+module Curl : sig
+  (** [get ()] returns [Some curl] where [curl ~url] returns the raw response obtained
+      by curl when requesting [url]. Returns [None] if [curl] cannot be found. *)
+  val get : unit -> (url:string -> string Lwt.t) option Lwt.t
 end

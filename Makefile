@@ -30,7 +30,14 @@ TEZOS_BIN=tezos-node tezos-validator tezos-client tezos-admin-client tezos-signe
     $(foreach p, $(active_protocol_versions), tezos-accuser-$(p)) \
     $(foreach p, $(active_protocol_versions), \
 		  $(shell if [ -f $(call directory_of_version,$p)/bin_endorser/dune ]; then \
-		             echo tezos-endorser-$(p); fi))
+		             echo tezos-endorser-$(p); fi)) \
+    $(shell if [ ${PROFILE} = "dev" ]; then echo \
+	tezos-sc-rollup-node-alpha \
+	tezos-sc-rollup-client-alpha; \
+    fi)
+    # TODO: <https://gitlab.com/tezos/tezos/-/issues/2305>
+    # Build sc rollup binaries for all the active protocols, not just alpha,
+    # and for every profile.
 
 ifeq ($(filter ${opam_version}.%,${current_opam_version}),)
 $(error Unexpected opam version (found: ${current_opam_version}, expected: ${opam_version}.*))
@@ -115,19 +122,19 @@ enable-time-measurement:
 
 .PHONY: build-sandbox
 build-sandbox:
-	@dune build --profile=$(PROFILE) src/bin_sandbox/main.exe
+	@dune build --profile=$(PROFILE) $(COVERAGE_OPTIONS) src/bin_sandbox/main.exe
 	@cp -f _build/default/src/bin_sandbox/main.exe tezos-sandbox
 
 .PHONY: build-test
 build-test: build-sandbox
-	@dune build --profile=$(PROFILE) @buildtest
+	@dune build --profile=$(PROFILE) $(COVERAGE_OPTIONS) @buildtest
 
 .PHONY: test-protocol-compile
 test-protocol-compile:
 	@dune build --profile=$(PROFILE) $(COVERAGE_OPTIONS) @runtest_compile_protocol
 	@dune build --profile=$(PROFILE) $(COVERAGE_OPTIONS) @runtest_out_of_opam
 
-PROTO_LIBS := $(shell find src/ -path src/proto_\* -name test -type d -exec test -f \{\}/dune \; -print 2>/dev/null | LC_COLLATE=C sort)
+PROTO_LIBS := $(shell find src/ -path src/proto_\* -name test -type d 2>/dev/null | LC_COLLATE=C sort)
 PROTO_LIBS_NAMES := $(patsubst %/test,%,$(PROTO_LIBS))
 PROTO_TARGETS := $(addsuffix .test_proto,${PROTO_LIBS_NAMES})
 
@@ -175,6 +182,10 @@ test-flextesa:
 test-js:
 	@dune build @runtest_js
 	@dune exec ./src/tooling/run_js_inline_tests.exe
+
+.PHONY: build-tezt
+build-tezt:
+	@dune build tezt
 
 .PHONY: test-tezt test-tezt-i test-tezt-c test-tezt-v
 test-tezt:
@@ -236,6 +247,9 @@ check-python-linting:
 	@$(MAKE) -C tests_python lint
 	@$(MAKE) -C docs lint
 
+check-ocaml-linting:
+	@./scripts/semgrep/lint-all-ocaml-sources.sh
+
 .PHONY: fmt fmt-ocaml fmt-python
 fmt: fmt-ocaml fmt-python
 
@@ -253,14 +267,19 @@ build-deps:
 build-dev-deps:
 	@./scripts/install_build_deps.sh --dev
 
+.PHONY: lift-protocol-limits-patch
+lift-protocol-limits-patch:
+	@git apply -R ./src/bin_tps_evaluation/lift_limits.patch || true
+	@git apply ./src/bin_tps_evaluation/lift_limits.patch
+
 .PHONY: build-tps-deps
 build-tps-deps:
 	@./scripts/install_build_deps.sh --tps
 
 .PHONY: build-tps
-build-tps:
+build-tps: lift-protocol-limits-patch build build-tezt
 	@dune build ./src/bin_tps_evaluation
-	@cp ./_build/install/default/bin/tezos-tps-evaluation .
+	@cp -f ./_build/install/default/bin/tezos-tps-evaluation .
 
 .PHONY: docker-image-build
 docker-image-build:

@@ -26,7 +26,7 @@
 (** Testing
     -------
     Component:    Prevalidation
-    Invocation:   dune build @src/lib_shell/test/runtest
+    Invocation:   dune exec src/lib_shell/test/test_prevalidation.exe
     Subject:      Unit tests for [Prevalidation]
 *)
 
@@ -119,9 +119,10 @@ let test_db_leak f (nb_ops : int) (_ : unit) =
   let handle i =
     let op = mk_operation i in
     let oph = Operation.hash op in
+    let op = Prevalidation.Internal_for_tests.make_operation op oph () in
     let injected = Lwt_main.run @@ Test_Requester.inject requester oph i in
     assert injected ;
-    f [] oph op classes
+    f [] op classes
   in
   List.iter handle (1 -- nb_ops) ;
   let actual_table_size = Test_Requester.memory_table_length requester in
@@ -155,9 +156,10 @@ let test_in_mempool_leak f (nb_ops : int) (_ : unit) =
   let handle i =
     let op = mk_operation i in
     let oph = Operation.hash op in
+    let op = Prevalidation.Internal_for_tests.make_operation op oph () in
     let injected = Lwt_main.run @@ Test_Requester.inject requester oph i in
     assert injected ;
-    f [] oph op classes
+    f [] op classes
   in
   List.iter handle (1 -- nb_ops) ;
   let actual_in_mempool_size = Operation_hash.Map.cardinal classes.in_mempool in
@@ -190,10 +192,11 @@ let test_db_do_not_clear_right_away f (nb_ops : int) (_ : unit) =
   let handle i =
     let op = mk_operation i in
     let oph = Operation.hash op in
+    let op = Prevalidation.Internal_for_tests.make_operation op oph () in
     Format.printf "Injecting op: %a\n" Operation_hash.pp oph ;
     let injected = Lwt_main.run @@ Test_Requester.inject requester oph i in
     assert injected ;
-    f [] oph op classes ;
+    f [] op classes ;
     Alcotest.(
       check
         bool
@@ -234,17 +237,17 @@ let () =
       nb_ops
   in
   let all_ddb_leak_tests =
-    List.map (mk_test_cases ~test:test_db_leak) applier_funs |> List.concat
+    List.concat_map (mk_test_cases ~test:test_db_leak) applier_funs
   in
   let in_mempool_leak_test =
-    List.map (mk_test_cases ~test:test_in_mempool_leak) handle_refused_pair
-    |> List.concat
+    List.concat_map
+      (mk_test_cases ~test:test_in_mempool_leak)
+      handle_refused_pair
   in
   let ddb_clearing_tests =
-    List.map
+    List.concat_map
       (mk_test_cases ~test:test_db_do_not_clear_right_away)
       handle_branch_pairs
-    |> List.concat
   in
   Alcotest.run
     "Prevalidation"

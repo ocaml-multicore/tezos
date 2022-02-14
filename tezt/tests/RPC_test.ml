@@ -27,7 +27,7 @@
 (* Testing
    -------
    Component: RPC regression tests
-   Invocation: dune exec tezt/tests/main.exe rpc regression
+   Invocation: dune exec tezt/tests/main.exe -- -f RPC_test.ml
 
                Note that to reset the regression outputs, one can use
                the [--reset-regressions] option. When doing so, it is
@@ -104,7 +104,7 @@ let check_rpc ~group_name ~protocols ~test_mode_tag
         | Some overrides ->
             let* file =
               Protocol.write_parameter_file
-                ~base:(Either.right protocol)
+                ~base:(Either.right (protocol, None))
                 overrides
             in
             Lwt.return_some file
@@ -356,7 +356,7 @@ let test_delegates_on_registered_alpha ~contracts ?endpoint client =
 
   unit
 
-let test_delegates_on_registered_granada ~contracts ?endpoint client =
+let test_delegates_on_registered_hangzhou ~contracts ?endpoint client =
   Log.info "Test implicit baker contract" ;
 
   let bootstrap = List.hd contracts in
@@ -393,7 +393,7 @@ let test_delegates_on_registered_granada ~contracts ?endpoint client =
 
   unit
 
-(* Test the delegates RPC with unregistered baker for protocol Alpha. *)
+(* Test the delegates RPC with unregistered baker for Tenderbake protocols. *)
 let test_delegates_on_unregistered_alpha ~contracts ?endpoint client =
   Log.info "Test with a PKH that is not a registered baker contract" ;
 
@@ -469,8 +469,8 @@ let test_delegates_on_unregistered_alpha ~contracts ?endpoint client =
   in
   unit
 
-(* Test the delegates RPC with unregistered baker for protocol Granada. *)
-let test_delegates_on_unregistered_granada ~contracts ?endpoint client =
+(* Test the delegates RPC with unregistered baker for Emmy protocols. *)
+let test_delegates_on_unregistered_hangzhou ~contracts ?endpoint client =
   Log.info "Test with a PKH that is not a registered baker contract" ;
 
   let unregistered_baker = "tz1c5BVkpwCiaPHJBzyjg7UHpJEMPTYA1bHG" in
@@ -489,11 +489,12 @@ let test_delegates_on_unregistered_granada ~contracts ?endpoint client =
     |> Process.check ~expect_failure:true
   in
   let* _ =
-    RPC.Delegates.get_deactivated
+    RPC.Delegates.spawn_get_deactivated
       ?endpoint
       ~hooks
       ~pkh:unregistered_baker
       client
+    |> Process.check ~expect_failure:true
   in
   let* _ =
     RPC.Delegates.spawn_get_delegated_balance
@@ -504,25 +505,28 @@ let test_delegates_on_unregistered_granada ~contracts ?endpoint client =
     |> Process.check ~expect_failure:true
   in
   let* _ =
-    RPC.Delegates.get_delegated_contracts
+    RPC.Delegates.spawn_get_delegated_contracts
       ?endpoint
       ~hooks
       ~pkh:unregistered_baker
       client
+    |> Process.check ~expect_failure:true
   in
   let* _ =
-    RPC.Delegates.get_frozen_balance
+    RPC.Delegates.spawn_get_frozen_balance
       ?endpoint
       ~hooks
       ~pkh:unregistered_baker
       client
+    |> Process.check ~expect_failure:true
   in
   let* _ =
-    RPC.Delegates.get_frozen_balance_by_cycle
+    RPC.Delegates.spawn_get_frozen_balance_by_cycle
       ?endpoint
       ~hooks
       ~pkh:unregistered_baker
       client
+    |> Process.check ~expect_failure:true
   in
   let* _ =
     RPC.Delegates.spawn_get_grace_period
@@ -533,18 +537,20 @@ let test_delegates_on_unregistered_granada ~contracts ?endpoint client =
     |> Process.check ~expect_failure:true
   in
   let* _ =
-    RPC.Delegates.get_staking_balance
+    RPC.Delegates.spawn_get_staking_balance
       ?endpoint
       ~hooks
       ~pkh:unregistered_baker
       client
+    |> Process.check ~expect_failure:true
   in
   let* _ =
-    RPC.Delegates.get_voting_power
+    RPC.Delegates.spawn_get_voting_power
       ?endpoint
       ~hooks
       ~pkh:unregistered_baker
       client
+    |> Process.check ~expect_failure:true
   in
   unit
 
@@ -559,18 +565,16 @@ let test_delegates protocol ?endpoint client =
   let* contracts = get_contracts ?endpoint client in
   let* () =
     match protocol with
-    | Protocol.Alpha ->
+    | Protocol.Ithaca | Protocol.Alpha ->
         let* () =
           test_delegates_on_registered_alpha ~contracts ?endpoint client
         in
         test_delegates_on_unregistered_alpha ~contracts ?endpoint client
-    | Protocol.Granada ->
-        let* () =
-          test_delegates_on_registered_granada ~contracts ?endpoint client
-        in
-        test_delegates_on_unregistered_granada ~contracts ?endpoint client
     | Protocol.Hangzhou ->
-        test_delegates_on_unregistered_alpha ~contracts ?endpoint client
+        let* () =
+          test_delegates_on_registered_hangzhou ~contracts ?endpoint client
+        in
+        test_delegates_on_unregistered_hangzhou ~contracts ?endpoint client
   in
 
   unit
@@ -613,7 +617,7 @@ let test_votes ?endpoint client =
 
 let test_tx_rollup ?endpoint client =
   let client_bake_for = make_client_bake_for () in
-  let* tx_rollup_hash =
+  let* tx_rollup =
     Client.originate_tx_rollup
       ~burn_cap:Tez.(of_int 9999999)
       ~storage_limit:60_000
@@ -621,7 +625,7 @@ let test_tx_rollup ?endpoint client =
       client
   in
   let* () = client_bake_for client in
-  let* _ = RPC.Tx_rollup.get_state ?endpoint ~tx_rollup_hash client in
+  let* _ = RPC.Tx_rollup.get_state ?endpoint ~tx_rollup client in
   unit
 
 (* Test the various other RPCs. *)
@@ -678,6 +682,20 @@ let mempool_node_flags =
          mempool tests *)
     ]
 
+let bake_empty_block ?endpoint client =
+  let* mempool = Client.empty_mempool_file () in
+  (* We defer to using a low-level command here since we enforce using protocol
+     in order to distinguish which form of the option we actually need, since
+     the name has changed. *)
+  Client.spawn_command
+    ?endpoint
+    client
+    (["bake"; "for"; Constant.bootstrap1.alias; "--minimal-timestamp"]
+    @
+    let option_name = "--operations-pool" in
+    [option_name; mempool])
+  |> Process.check
+
 (* Test the mempool RPCs: /chains/<chain>/mempool/...
 
    Tested RPCs:
@@ -705,7 +723,10 @@ let mempool_node_flags =
    - POST request_operations
    - POST ban_operation
    - POST unban_operation
-   - POST unban_all_operations *)
+   - POST unban_all_operations
+*)
+(* [mode] is only useful insofar as it helps adapting the test to specific
+ * `Proxy mode constraint*)
 let test_mempool protocol ?endpoint client =
   let* node = Node.init mempool_node_flags in
   let* () = Client.Admin.trust_address ?endpoint client ~peer:node in
@@ -725,10 +746,12 @@ let test_mempool protocol ?endpoint client =
   in
   let* _ = Client.bake_for ?endpoint client in
 
-  (* Outdated operation: consensus_operation_for_old_level (classified as
-     outdated after the second empty baking). *)
+  let* _ = bake_empty_block ?endpoint client in
+
+  (* Outdated operation after the second empty baking. *)
   let* () = Client.endorse_for ~protocol ~force:true client in
-  let* _ = Mempool.bake_empty_mempool ~protocol client in
+  let* _ = bake_empty_block ?endpoint client in
+
   let monitor_path =
     (* To test the monitor_operations rpc we use curl since the client does
        not support streaming RPCs yet. *)
@@ -788,18 +811,57 @@ let test_mempool protocol ?endpoint client =
   in
   let* () = Client.Admin.connect_address ?endpoint ~peer:node client in
   let flush_waiter = Node_event_level.wait_for_flush node in
-  let* _ = Mempool.bake_empty_mempool ~endpoint:(Client.Node node) client in
+  let* _ =
+    Prevalidator.bake_empty_block ~protocol ~endpoint:(Client.Node node) client
+  in
   let* _ = flush_waiter in
   let* _output_monitor = Process.check_and_read_stdout proc_monitor in
+  let* complete_mempool =
+    Mempool.get_mempool ?endpoint ~hooks:mempool_hooks client
+  in
   let* _ =
-    RPC.get_mempool_pending_operations ?endpoint ~hooks:mempool_hooks client
+    Lwt_list.iter_s
+      (fun i ->
+        let* mempool =
+          Mempool.get_mempool
+            ?endpoint
+            ~hooks:mempool_hooks
+            ~applied:(i = `Applied)
+            ~refused:(i = `Refused)
+            ~branch_delayed:(i = `Branch_delayed)
+            ~branch_refused:(i = `Branch_refused)
+            ~outdated:(i = `Outdated)
+            client
+        in
+        let may_get_field field ophs = if i = field then ophs else [] in
+        let expected_mempool =
+          Mempool.
+            {
+              applied = may_get_field `Applied complete_mempool.applied;
+              refused = may_get_field `Refused complete_mempool.refused;
+              outdated = may_get_field `Outdated complete_mempool.outdated;
+              branch_refused =
+                may_get_field `Branch_refused complete_mempool.branch_refused;
+              branch_delayed =
+                may_get_field `Branch_delayed complete_mempool.branch_delayed;
+              unprocessed = [];
+            }
+        in
+        Check.(
+          (expected_mempool = mempool)
+            Mempool.classified_typ
+            ~error_msg:"Expected mempool %L, got %R") ;
+        unit)
+      [`Applied; `Refused; `Branch_delayed; `Branch_refused; `Outdated]
   in
   (* We spawn a second monitor_operation RPC that monitor operations
      reclassified with errors. *)
   let proc_monitor =
     Process.spawn ~hooks:mempool_hooks "curl" ["-s"; monitor_path]
   in
-  let* _ = Mempool.bake_empty_mempool ~endpoint:(Client.Node node) client in
+  let* _ =
+    Prevalidator.bake_empty_block ~protocol ~endpoint:(Client.Node node) client
+  in
   let* _output_monitor = Process.check_and_read_stdout proc_monitor in
   (* Test RPCs [GET|POST /chains/main/mempool/filter] *)
   let get_filter_variations () =
@@ -838,7 +900,10 @@ let test_mempool protocol ?endpoint client =
       "http://localhost:%d/describe/chains/main/mempool?recurse=yes"
       (get_client_port client)
   in
-  let message = Log.quote_shell_command "curl" ["-s"; describe_path] in
+  let describe_path_filtered =
+    "http://localhost:[PORT]/describe/chains/main/mempool?recurse=yes"
+  in
+  let message = Log.quote_shell_command "curl" ["-s"; describe_path_filtered] in
   Regression.capture ("\n" ^ message) ;
   let proc_describe = Process.spawn "curl" ["-s"; describe_path] in
   let* output = Process.check_and_read_stdout proc_describe in
@@ -941,6 +1006,16 @@ let binary_regression_test () =
   then Lwt.return_unit
   else Test.fail "Unexpected binary answer"
 
+let test_node_binary_mode address () =
+  let node = Node.create ~media_type:Binary ~rpc_host:address [] in
+  let endpoint = Client.(Node node) in
+  let* () = Node.config_init node [] in
+  let* () = Node.identity_generate node in
+  let* () = Node.run node [] in
+  let* client = Client.init ~endpoint ~media_type:Json () in
+  Client.spawn_rpc GET ["chains"; "main"; "blocks"] client
+  |> Process.check_error ~exit_code:1
+
 let test_no_service_at_valid_prefix address () =
   let node = Node.create ~rpc_host:address [] in
   let endpoint = Client.(Node node) in
@@ -1010,13 +1085,13 @@ let register () =
   in
   let register_current_mainnet test_mode_tag =
     check_rpc
-      ~group_name:"granada"
-      ~protocols:[Granada]
+      ~group_name:"hangzhou"
+      ~protocols:[Hangzhou]
       ~test_mode_tag
       ~rpcs:
         ([
            ("contracts", test_contracts, None, None);
-           ("delegates", test_delegates Granada, None, None);
+           ("delegates", test_delegates Hangzhou, None, None);
            ( "votes",
              test_votes,
              Some
@@ -1034,7 +1109,7 @@ let register () =
         | _ ->
             [
               ( "mempool",
-                test_mempool Protocol.Granada,
+                test_mempool Protocol.Hangzhou,
                 None,
                 Some [Node.Synchronisation_threshold 0; Node.Connections 1] );
             ])
@@ -1069,5 +1144,10 @@ let register () =
         ~__FILE__
         ~title:(mk_title "no_service_at_valid_prefix" addr)
         ~tags:["rpc"]
-        (test_no_service_at_valid_prefix addr))
+        (test_no_service_at_valid_prefix addr) ;
+      Test.register
+        ~__FILE__
+        ~title:(mk_title "node_binary_mode" addr)
+        ~tags:["rpc"; "binary"]
+        (test_node_binary_mode addr))
     addresses

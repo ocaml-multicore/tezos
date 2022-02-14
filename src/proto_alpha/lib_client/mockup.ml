@@ -23,7 +23,8 @@
 (*                                                                           *)
 (*****************************************************************************)
 
-open Protocol.Alpha_context
+open Protocol
+open Alpha_context
 
 (* ------------------------------------------------------------------------- *)
 (* Mockup protocol parameters *)
@@ -62,17 +63,24 @@ module Protocol_constants_overrides = struct
     minimal_participation_ratio : Constants.ratio option;
     consensus_committee_size : int option;
     consensus_threshold : int option;
-    delegate_selection : Constants.delegate_selection option;
     max_slashing_period : int option;
     frozen_deposits_percentage : int option;
     double_baking_punishment : Tez.t option;
     ratio_of_frozen_deposits_slashed_per_double_endorsement :
       Constants.ratio option;
+    cache_script_size : int option;
+    cache_stake_distribution_cycles : int option;
+    cache_sampler_state_cycles : int option;
     tx_rollup_enable : bool option;
     tx_rollup_origination_size : int option;
+    tx_rollup_hard_size_limit_per_inbox : int option;
+    tx_rollup_hard_size_limit_per_message : int option;
+    sc_rollup_enable : bool option;
+    sc_rollup_origination_size : int option;
     (* Additional, "bastard" parameters (they are not protocol constants but partially treated the same way). *)
     chain_id : Chain_id.t option;
     timestamp : Time.Protocol.t option;
+    initial_seed : State_hash.t option option;
   }
 
   (** Shamefully copied from [Constants_repr.parametric_encoding] and adapted ([opt] instead of [req]). *)
@@ -107,15 +115,23 @@ module Protocol_constants_overrides = struct
                 c.delay_increment_per_round,
                 c.consensus_committee_size,
                 c.consensus_threshold ),
-              ( ( c.delegate_selection,
-                  c.minimal_participation_ratio,
+              ( ( c.minimal_participation_ratio,
                   c.max_slashing_period,
                   c.frozen_deposits_percentage,
                   c.double_baking_punishment,
                   c.ratio_of_frozen_deposits_slashed_per_double_endorsement,
                   c.chain_id,
-                  c.timestamp ),
-                (c.tx_rollup_enable, c.tx_rollup_origination_size) ) ) ) ))
+                  c.timestamp,
+                  c.initial_seed ),
+                ( ( c.cache_script_size,
+                    c.cache_stake_distribution_cycles,
+                    c.cache_sampler_state_cycles ),
+                  ( ( c.tx_rollup_enable,
+                      c.tx_rollup_origination_size,
+                      c.tx_rollup_hard_size_limit_per_inbox,
+                      c.tx_rollup_hard_size_limit_per_message ),
+                    (c.sc_rollup_enable, c.sc_rollup_origination_size) ) ) ) )
+          ) ))
       (fun ( ( preserved_cycles,
                blocks_per_cycle,
                blocks_per_commitment,
@@ -143,15 +159,23 @@ module Protocol_constants_overrides = struct
                    delay_increment_per_round,
                    consensus_committee_size,
                    consensus_threshold ),
-                 ( ( delegate_selection,
-                     minimal_participation_ratio,
+                 ( ( minimal_participation_ratio,
                      max_slashing_period,
                      frozen_deposits_percentage,
                      double_baking_punishment,
                      ratio_of_frozen_deposits_slashed_per_double_endorsement,
                      chain_id,
-                     timestamp ),
-                   (tx_rollup_enable, tx_rollup_origination_size) ) ) ) ) ->
+                     timestamp,
+                     initial_seed ),
+                   ( ( cache_script_size,
+                       cache_stake_distribution_cycles,
+                       cache_sampler_state_cycles ),
+                     ( ( tx_rollup_enable,
+                         tx_rollup_origination_size,
+                         tx_rollup_hard_size_limit_per_inbox,
+                         tx_rollup_hard_size_limit_per_message ),
+                       (sc_rollup_enable, sc_rollup_origination_size) ) ) ) ) )
+           ) ->
         {
           preserved_cycles;
           blocks_per_cycle;
@@ -183,13 +207,20 @@ module Protocol_constants_overrides = struct
           frozen_deposits_percentage;
           consensus_committee_size;
           consensus_threshold;
-          delegate_selection;
           double_baking_punishment;
           ratio_of_frozen_deposits_slashed_per_double_endorsement;
-          chain_id;
-          timestamp;
+          cache_script_size;
+          cache_stake_distribution_cycles;
+          cache_sampler_state_cycles;
           tx_rollup_enable;
           tx_rollup_origination_size;
+          tx_rollup_hard_size_limit_per_inbox;
+          tx_rollup_hard_size_limit_per_message;
+          sc_rollup_enable;
+          sc_rollup_origination_size;
+          chain_id;
+          timestamp;
+          initial_seed;
         })
       (merge_objs
          (obj9
@@ -227,9 +258,6 @@ module Protocol_constants_overrides = struct
                (merge_objs
                   (obj8
                      (opt
-                        "delegate_selection"
-                        Constants.delegate_selection_encoding)
-                     (opt
                         "minimal_participation_ratio"
                         Constants.ratio_encoding)
                      (opt "max_slashing_period" int31)
@@ -239,10 +267,22 @@ module Protocol_constants_overrides = struct
                         "ratio_of_frozen_deposits_slashed_per_double_endorsement"
                         Constants.ratio_encoding)
                      (opt "chain_id" Chain_id.encoding)
-                     (opt "initial_timestamp" Time.Protocol.encoding))
-                  (obj2
-                     (opt "tx_rollup_enable" Data_encoding.bool)
-                     (opt "tx_rollup_origination_size" int31))))))
+                     (opt "initial_timestamp" Time.Protocol.encoding)
+                     (opt "initial_seed" (option State_hash.encoding)))
+                  (merge_objs
+                     (obj3
+                        (opt "cache_script_size" int31)
+                        (opt "cache_stake_distribution_cycles" int8)
+                        (opt "cache_sampler_state_cycles" int8))
+                     (merge_objs
+                        (obj4
+                           (opt "tx_rollup_enable" Data_encoding.bool)
+                           (opt "tx_rollup_origination_size" int31)
+                           (opt "tx_rollup_hard_size_limit_per_inbox" int31)
+                           (opt "tx_rollup_hard_size_limit_per_message" int31))
+                        (obj2
+                           (opt "sc_rollup_enable" bool)
+                           (opt "sc_rollup_origination_size" int31))))))))
 
   let default_value (cctxt : Tezos_client_base.Client_context.full) :
       t tzresult Lwt.t =
@@ -295,18 +335,28 @@ module Protocol_constants_overrides = struct
         consensus_committee_size = Some parametric.consensus_committee_size;
         (* mockup mode does not support endorsing commands *)
         consensus_threshold = Some 0;
-        delegate_selection = Some Random;
         max_slashing_period = Some parametric.max_slashing_period;
         frozen_deposits_percentage = Some parametric.frozen_deposits_percentage;
         double_baking_punishment = Some parametric.double_baking_punishment;
         ratio_of_frozen_deposits_slashed_per_double_endorsement =
           Some
             parametric.ratio_of_frozen_deposits_slashed_per_double_endorsement;
+        cache_script_size = Some parametric.cache_script_size;
+        cache_stake_distribution_cycles =
+          Some parametric.cache_stake_distribution_cycles;
+        cache_sampler_state_cycles = Some parametric.cache_sampler_state_cycles;
         tx_rollup_enable = Some parametric.tx_rollup_enable;
         tx_rollup_origination_size = Some parametric.tx_rollup_origination_size;
+        tx_rollup_hard_size_limit_per_inbox =
+          Some parametric.tx_rollup_hard_size_limit_per_inbox;
+        tx_rollup_hard_size_limit_per_message =
+          Some parametric.tx_rollup_hard_size_limit_per_message;
+        sc_rollup_enable = Some parametric.sc_rollup_enable;
+        sc_rollup_origination_size = Some parametric.sc_rollup_origination_size;
         (* Bastard additional parameters. *)
         chain_id = to_chain_id_opt cpctxt#chain;
         timestamp = Some header.timestamp;
+        initial_seed = Some parametric.initial_seed;
       }
 
   let no_overrides : t =
@@ -341,15 +391,22 @@ module Protocol_constants_overrides = struct
       (* Let consensus threshold be overridable for Tenderbake mockup
          simulator tests. *)
       consensus_threshold = None;
-      delegate_selection = None;
       max_slashing_period = None;
       frozen_deposits_percentage = None;
       double_baking_punishment = None;
       ratio_of_frozen_deposits_slashed_per_double_endorsement = None;
+      cache_script_size = None;
+      cache_stake_distribution_cycles = None;
+      cache_sampler_state_cycles = None;
       tx_rollup_enable = None;
       tx_rollup_origination_size = None;
+      tx_rollup_hard_size_limit_per_inbox = None;
+      tx_rollup_hard_size_limit_per_message = None;
+      sc_rollup_enable = None;
+      sc_rollup_origination_size = None;
       chain_id = None;
       timestamp = None;
+      initial_seed = None;
     }
 
   (** Existential wrapper to support heterogeneous lists/maps. *)
@@ -560,6 +617,18 @@ module Protocol_constants_overrides = struct
               o.ratio_of_frozen_deposits_slashed_per_double_endorsement;
             pp = Constants.pp_ratio;
           };
+        O
+          {
+            name = "sc_rollup_enable";
+            override_value = o.sc_rollup_enable;
+            pp = pp_print_bool;
+          };
+        O
+          {
+            name = "sc_rollup_origination_size";
+            override_value = o.sc_rollup_origination_size;
+            pp = pp_print_int;
+          };
         O {name = "chain_id"; override_value = o.chain_id; pp = Chain_id.pp};
         O
           {
@@ -577,6 +646,18 @@ module Protocol_constants_overrides = struct
           {
             name = "tx_rollup_origination_size";
             override_value = o.tx_rollup_origination_size;
+            pp = pp_print_int;
+          };
+        O
+          {
+            name = "tx_rollup_hard_size_limit_per_inbox";
+            override_value = o.tx_rollup_hard_size_limit_per_inbox;
+            pp = pp_print_int;
+          };
+        O
+          {
+            name = "tx_rollup_hard_size_limit_per_message";
+            override_value = o.tx_rollup_hard_size_limit_per_message;
             pp = pp_print_int;
           };
       ]
@@ -607,8 +688,7 @@ module Protocol_constants_overrides = struct
              o.consensus_committee_size;
          consensus_threshold =
            Option.value ~default:c.consensus_threshold o.consensus_threshold;
-         delegate_selection =
-           Option.value ~default:c.delegate_selection o.delegate_selection;
+         initial_seed = Option.value ~default:c.initial_seed o.initial_seed;
          preserved_cycles =
            Option.value ~default:c.preserved_cycles o.preserved_cycles;
          blocks_per_cycle =
@@ -697,15 +777,39 @@ module Protocol_constants_overrides = struct
          ratio_of_frozen_deposits_slashed_per_double_endorsement =
            Option.value
              ~default:c.ratio_of_frozen_deposits_slashed_per_double_endorsement
-             o.ratio_of_frozen_deposits_slashed_per_double_endorsement
-           (* Notice that the chain_id and the timestamp are not used here
-              as they are not protocol constants... *);
+             o.ratio_of_frozen_deposits_slashed_per_double_endorsement;
+         (* Notice that the chain_id and the timestamp are not used here
+            as they are not protocol constants... *)
+         cache_script_size =
+           Option.value ~default:c.cache_script_size o.cache_script_size;
+         cache_stake_distribution_cycles =
+           Option.value
+             ~default:c.cache_stake_distribution_cycles
+             o.cache_stake_distribution_cycles;
+         cache_sampler_state_cycles =
+           Option.value
+             ~default:c.cache_sampler_state_cycles
+             o.cache_sampler_state_cycles;
          tx_rollup_enable =
            Option.value ~default:c.tx_rollup_enable o.tx_rollup_enable;
          tx_rollup_origination_size =
            Option.value
              ~default:c.tx_rollup_origination_size
              o.tx_rollup_origination_size;
+         tx_rollup_hard_size_limit_per_inbox =
+           Option.value
+             ~default:c.tx_rollup_hard_size_limit_per_inbox
+             o.tx_rollup_hard_size_limit_per_inbox;
+         tx_rollup_hard_size_limit_per_message =
+           Option.value
+             ~default:c.tx_rollup_hard_size_limit_per_message
+             o.tx_rollup_hard_size_limit_per_message;
+         sc_rollup_enable =
+           Option.value ~default:c.sc_rollup_enable o.sc_rollup_enable;
+         sc_rollup_origination_size =
+           Option.value
+             ~default:c.sc_rollup_origination_size
+             o.sc_rollup_origination_size;
        }
         : Constants.parametric)
 end
@@ -945,6 +1049,7 @@ let initial_context chain_id (header : Block_header.shell_header)
     add empty ["version"] (Bytes.of_string "genesis") >>= fun ctxt ->
     add ctxt ["protocol_parameters"] proto_params)
   >>= fun ctxt ->
+  Protocol.Environment.Updater.activate ctxt Protocol.hash >>= fun ctxt ->
   Protocol.Main.init ctxt header >|= Protocol.Environment.wrap_tzresult
   >>=? fun {context; _} ->
   let ({
@@ -1141,6 +1246,7 @@ let migrate :
   let Tezos_protocol_environment.{block_hash; context; block_header} =
     rpc_context
   in
+  Protocol.Environment.Updater.activate context Protocol.hash >>= fun context ->
   Protocol.Main.init context block_header >|= Protocol.Environment.wrap_tzresult
   >>=? fun {context; _} ->
   let rpc_context =

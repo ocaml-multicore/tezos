@@ -1,14 +1,18 @@
+; This file was automatically generated, do not edit.
+; Edit file manifest/main.ml instead.
+
 (tests
- (names test_time test_protocol)
+ (names test_bounded test_time test_protocol)
  (package tezos-base)
  (libraries
   tezos-base
   tezos-base.unix
+  tezos-error-monad
   data-encoding
   qcheck-alcotest
   tezos-test-helpers)
  (flags (:standard -open Tezos_base -open Tezos_error_monad))
- (modules test_time test_protocol))
+ (modules test_bounded test_time test_protocol))
 
 (test
  (name test_p2p_addr)
@@ -16,6 +20,7 @@
  (libraries
   tezos-base
   tezos-base.unix
+  tezos-error-monad
   data-encoding
   qcheck-alcotest
   tezos-test-helpers)

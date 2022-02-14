@@ -295,7 +295,7 @@ let expected_slots_for_given_active_stake ctxt ~total_active_stake ~active_stake
   let number_of_endorsements_per_cycle =
     blocks_per_cycle * consensus_committee_size
   in
-  return
+  Result.return
     (Z.to_int
        (Z.div
           (Z.mul
@@ -338,7 +338,7 @@ let distribute_endorsing_rewards ctxt last_cycle unrevealed_nonces =
         ctxt
         ~total_active_stake
         ~active_stake
-      >>=? fun expected_slots ->
+      >>?= fun expected_slots ->
       let rewards = Tez_repr.mul_exn endorsing_reward_per_slot expected_slots in
       (if sufficient_participation && has_revealed_nonces then
        (* Sufficient participation: we pay the rewards *)
@@ -430,7 +430,9 @@ let freeze_deposits ?(origin = Receipt_repr.Block_application) ctxt ~new_cycle
       Storage.Tenderbake.First_level.get ctxt
       >>=? fun first_level_of_tenderbake ->
       let cycle_eras = Raw_context.cycle_eras ctxt in
-      let level = Level_repr.from_raw ~cycle_eras first_level_of_tenderbake in
+      let level =
+        Level_repr.level_from_raw ~cycle_eras first_level_of_tenderbake
+      in
       return level.cycle
   | Some cycle -> return cycle)
   >>=? fun from_cycle ->
@@ -444,11 +446,13 @@ let freeze_deposits ?(origin = Receipt_repr.Block_application) ctxt ~new_cycle
          maximum_stake_to_be_deposited <= frozen_deposits + balance
          See select_distribution_for_cycle *)
       let delegate_contract = Contract_repr.implicit_contract delegate in
-      Frozen_deposits_storage.update_deposits_cap
+      Frozen_deposits_storage.update_initial_amount
         ctxt
         delegate_contract
         maximum_stake_to_be_deposited
-      >>=? fun (ctxt, current_amount) ->
+      >>=? fun ctxt ->
+      Frozen_deposits_storage.get ctxt delegate_contract >>=? fun deposits ->
+      let current_amount = deposits.current_amount in
       if Tez_repr.(current_amount > maximum_stake_to_be_deposited) then
         Tez_repr.(current_amount -? maximum_stake_to_be_deposited)
         >>?= fun to_reimburse ->
@@ -491,14 +495,14 @@ let freeze_deposits ?(origin = Receipt_repr.Block_application) ctxt ~new_cycle
   Signature.Public_key_hash.Set.fold_es
     (fun delegate (ctxt, balance_updates) ->
       let delegate_contract = Contract_repr.implicit_contract delegate in
+      Frozen_deposits_storage.update_initial_amount
+        ctxt
+        delegate_contract
+        Tez_repr.zero
+      >>=? fun ctxt ->
       Frozen_deposits_storage.get ctxt delegate_contract
       >>=? fun frozen_deposits ->
       if Tez_repr.(frozen_deposits.current_amount > zero) then
-        Frozen_deposits_storage.update_deposits_cap
-          ctxt
-          delegate_contract
-          Tez_repr.zero
-        >>=? fun (ctxt, (_current_amount : Tez_repr.t)) ->
         Token.transfer
           ~origin
           ctxt
@@ -629,43 +633,13 @@ module Random = struct
     return (c, (pk, pkh))
 end
 
-(* Round robin delegate selection. This is only used for testing purposes. *)
-module Round_robin = struct
-  let over level slot delegates =
-    let nth_mod n l =
-      match List.nth_opt l (n mod List.length l) with
-      | None -> assert false
-      | Some x -> x
-    in
-    let level_int = Int32.to_int level.Level_repr.level_position in
-    if Compare.Int.(level_int = 0) then
-      (* dummy case for level 0 *)
-      nth_mod 0 delegates |> nth_mod 0 |> return
-    else
-      let adjusted_level = level_int - 1 in
-      let n_defined_levels = List.length delegates in
-      if Compare.Int.(adjusted_level < n_defined_levels) then
-        nth_mod adjusted_level delegates |> nth_mod slot |> return
-      else
-        let delegates =
-          match List.rev delegates with [] -> assert false | last :: _ -> last
-        in
-        nth_mod (level_int - n_defined_levels + slot) delegates |> return
-end
-
-let slot_owner c level slot =
-  match (Constants_storage.parametric c).delegate_selection with
-  | Random -> Random.owner c level (Slot_repr.to_int slot)
-  | Round_robin_over delegates ->
-      Round_robin.over level (Slot_repr.to_int slot) delegates >|=? fun pk ->
-      (c, (pk, Signature.Public_key.hash pk))
+let slot_owner c level slot = Random.owner c level (Slot_repr.to_int slot)
 
 let baking_rights_owner c (level : Level_repr.t) ~round =
   Round_repr.to_int round >>?= fun round ->
   let consensus_committee_size = Constants_storage.consensus_committee_size c in
-  let pos = round mod consensus_committee_size in
-  slot_owner c level pos >>=? fun (ctxt, pk) ->
-  return (ctxt, Slot_repr.of_int_do_not_use_except_for_parameters pos, pk)
+  Slot_repr.of_int (round mod consensus_committee_size) >>?= fun slot ->
+  slot_owner c level slot >>=? fun (ctxt, pk) -> return (ctxt, slot, pk)
 
 let already_slashed_for_double_endorsing ctxt delegate (level : Level_repr.t) =
   Storage.Slashed_deposits.find (ctxt, level.cycle) (level.level, delegate)
@@ -787,7 +761,7 @@ let record_endorsing_participation ctxt ~delegate ~participation
                 ctxt
                 ~total_active_stake
                 ~active_stake
-              >>=? fun expected_slots ->
+              >>?= fun expected_slots ->
               let Constants_repr.{numerator; denominator} =
                 Constants_storage.minimal_participation_ratio ctxt
               in
@@ -865,7 +839,7 @@ let delegate_participation_info ctxt delegate =
         ctxt
         ~total_active_stake
         ~active_stake
-      >>=? fun expected_cycle_activity ->
+      >>?= fun expected_cycle_activity ->
       let Constants_repr.{numerator; denominator} =
         Constants_storage.minimal_participation_ratio ctxt
       in

@@ -1,7 +1,7 @@
 (*****************************************************************************)
 (*                                                                           *)
 (* Open Source License                                                       *)
-(* Copyright (c) 2021 Nomadic Labs, <contact@nomadic-labs.com>               *)
+(* Copyright (c) 2021-2022 Nomadic Labs, <contact@nomadic-labs.com>          *)
 (*                                                                           *)
 (* Permission is hereby granted, free of charge, to any person obtaining a   *)
 (* copy of this software and associated documentation files (the "Software"),*)
@@ -361,7 +361,7 @@ module Typechecking_code : Benchmark.S = struct
           let result =
             Lwt_main.run
               (Script_ir_translator.parse_instr
-                 Script_ir_translator.Lambda
+                 Script_tc_context.data
                  ctxt
                  ~legacy:false
                  (Micheline.root node)
@@ -435,7 +435,7 @@ module Unparsing_code : Benchmark.S = struct
         let (Script_ir_translator.Ex_stack_ty bef) = ex_stack_ty in
         (* We parse the code just to check it is well-typed. *)
         Script_ir_translator.parse_instr
-          Script_ir_translator.Lambda
+          Script_tc_context.data
           ctxt
           ~legacy:false
           (Micheline.root node)
@@ -619,29 +619,24 @@ let () = Registration_helpers.register (module Merge_types)
 let rec dummy_type_generator size =
   let open Script_ir_translator in
   let open Script_typed_ir in
-  if size <= 1 then Ex_ty (unit_t ~annot:None)
+  if size <= 1 then Ex_ty unit_t
   else
     match dummy_type_generator (size - 2) with
     | Ex_ty r ->
-        let l = unit_t ~annot:None in
-        Ex_ty
-          (match pair_t (-1) (l, None, None) (r, None, None) ~annot:None with
-          | Error _ -> assert false
-          | Ok t -> t)
+        let l = unit_t in
+        Ex_ty (match pair_t (-1) l r with Error _ -> assert false | Ok t -> t)
 
 (* A dummy comparable type generator, sampling linear terms of a given size. *)
 let rec dummy_comparable_type_generator size =
   let open Script_ir_translator in
   let open Script_typed_ir in
-  if size <= 0 then Ex_comparable_ty (unit_key ~annot:None)
+  if size <= 0 then Ex_comparable_ty unit_key
   else
     match dummy_comparable_type_generator (size - 2) with
     | Ex_comparable_ty r ->
-        let l = unit_key ~annot:None in
+        let l = unit_key in
         Ex_comparable_ty
-          (match pair_key (-1) (l, None) (r, None) ~annot:None with
-          | Error _ -> assert false
-          | Ok t -> t)
+          (match pair_key (-1) l r with Error _ -> assert false | Ok t -> t)
 
 module Parse_type_shared = struct
   type config = {max_size : int}

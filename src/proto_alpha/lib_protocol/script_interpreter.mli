@@ -40,7 +40,7 @@ type error += Reject of Script.location * Script.expr * execution_trace option
 
 type error += Overflow of Script.location * execution_trace option
 
-type error += Runtime_contract_error : Contract.t * Script.expr -> error
+type error += Runtime_contract_error of Contract.t
 
 type error += Bad_contract_parameter of Contract.t (* `Permanent *)
 
@@ -62,6 +62,7 @@ type step_constants = Script_typed_ir.step_constants = {
   payer : Contract.t;
   self : Contract.t;
   amount : Tez.t;
+  balance : Tez.t;
   chain_id : Chain_id.t;
   now : Script_timestamp.t;
   level : Script_int.n Script_int.num;
@@ -104,7 +105,7 @@ val execute :
   Script_ir_translator.unparsing_mode ->
   step_constants ->
   script:Script.t ->
-  entrypoint:string ->
+  entrypoint:Entrypoint.t ->
   parameter:Script.expr ->
   internal:bool ->
   (execution_result * (Script_ir_translator.ex_script * int)) tzresult Lwt.t
@@ -140,29 +141,34 @@ val kstep :
 
 module Internals : sig
   (** Internally, the interpretation loop uses a local gas counter. *)
-  type local_gas_counter = int
-
-  (** During the evaluation, the gas level in the context is outdated.
-      See comments in the implementation file for more details. *)
-  type outdated_context = OutDatedContext of context [@@unboxed]
 
   (** [next logger (ctxt, step_constants) local_gas_counter ks accu
       stack] is an internal function which interprets the continuation
       [ks] to execute the interpreter on the current A-stack. *)
   val next :
     logger option ->
-    outdated_context * step_constants ->
-    local_gas_counter ->
+    Local_gas_counter.outdated_context * step_constants ->
+    Local_gas_counter.local_gas_counter ->
     ('a, 's, 'r, 'f) continuation ->
     'a ->
     's ->
-    ('r * 'f * outdated_context * local_gas_counter) tzresult Lwt.t
+    ('r
+    * 'f
+    * Local_gas_counter.outdated_context
+    * Local_gas_counter.local_gas_counter)
+    tzresult
+    Lwt.t
 
   val step :
-    outdated_context * step_constants ->
-    local_gas_counter ->
+    Local_gas_counter.outdated_context * step_constants ->
+    Local_gas_counter.local_gas_counter ->
     ('a, 's, 'r, 'f) Script_typed_ir.kinstr ->
     'a ->
     's ->
-    ('r * 'f * outdated_context * local_gas_counter) tzresult Lwt.t
+    ('r
+    * 'f
+    * Local_gas_counter.outdated_context
+    * Local_gas_counter.local_gas_counter)
+    tzresult
+    Lwt.t
 end

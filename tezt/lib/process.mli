@@ -95,11 +95,20 @@ val kill : t -> unit
 (** Wait until a process terminates and return its status. *)
 val wait : t -> Unix.process_status Lwt.t
 
-(** Wait until a process terminates and check its status.
+(** Check the exit status of a process.
 
     If [not expect_failure] and exit code is not 0,
     or if [expect_failure] and exit code is 0,
-    or if the process was killed, fail the test. *)
+    or if the process was killed, return [Error (`Invalid_status reason)].
+    Else, return [Ok ()]. *)
+val validate_status :
+  ?expect_failure:bool ->
+  Unix.process_status ->
+  (unit, [`Invalid_status of string]) result
+
+(** Wait until a process terminates and check its status.
+
+    See [validate_status] to see status validation rules. *)
 val check : ?expect_failure:bool -> t -> unit Lwt.t
 
 (** Wait until a process terminates and check its status.
@@ -153,6 +162,9 @@ val stderr : t -> Lwt_io.input_channel
 (** Get the name which was given to {!spawn}. *)
 val name : t -> string
 
+(** Get the PID of the given process. *)
+val pid : t -> int
+
 (** Spawn a process such as [run] and return its standard output.
 
     Fail the test if the process failed, unless [expect_failure],
@@ -180,3 +192,7 @@ val run_and_read_stderr :
   string ->
   string list ->
   string Lwt.t
+
+(** [program_path p] returns [Some path] if the shell command [command -v p]
+    succeeds and prints [path]. Returns [None] otherwise. *)
+val program_path : string -> string option Lwt.t

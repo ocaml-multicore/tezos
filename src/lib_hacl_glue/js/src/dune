@@ -1,7 +1,11 @@
+; This file was automatically generated, do not edit.
+; Edit file manifest/main.ml instead.
+
 (library
  (name hacl_star_raw_empty)
  (public_name hacl-star-raw-empty)
  (instrumentation (backend bisect_ppx))
+ (js_of_ocaml)
  (modules)
  (foreign_stubs (language c) (names hacl_star)))
 
@@ -12,6 +16,5 @@
  (instrumentation (backend bisect_ppx))
  (libraries
   hacl-star-raw-empty)
+ (js_of_ocaml (javascript_files hacl_stubs.js))
  (modules hacl))
-
-(install (section lib) (package tezos-hacl-glue-js) (files hacl_stubs.js))

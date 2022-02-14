@@ -87,10 +87,26 @@ let constants_mainnet =
     double_baking_punishment = Tez.(mul_exn one 640);
     ratio_of_frozen_deposits_slashed_per_double_endorsement =
       {numerator = 1; denominator = 2};
-    delegate_selection = Constants.Random;
+    initial_seed = None;
+    (* A cache for contract source code and storage. Its size has been
+       chosen not too exceed 100 000 000 bytes. *)
+    cache_script_size = 100_000_000;
+    (* A cache for the stake distribution for all cycles stored at any
+       moment: preserved_cycles + max_slashing_period + 1 = 8 currently. *)
+    cache_stake_distribution_cycles = 8;
+    (* One for the sampler state for all cycles stored at any moment (as above). *)
+    cache_sampler_state_cycles = 8;
     tx_rollup_enable = false;
-    (* TODO: https://gitlab.com/tezos/tezos/-/issues/2152 *)
+    (* TODO: https://gitlab.com/tezos/tezos/-/issues/2152
+       Transaction rollups parameters need to be refined,
+       currently the following values are merely placeholders. *)
     tx_rollup_origination_size = 60_000;
+    (* Transaction rollup’s size limits are expressed in number of bytes *)
+    tx_rollup_hard_size_limit_per_inbox = 100_000;
+    tx_rollup_hard_size_limit_per_message = 5_000;
+    sc_rollup_enable = false;
+    (* The following value is chosen to prevent spam. *)
+    sc_rollup_origination_size = 6_314;
   }
 
 let constants_sandbox =

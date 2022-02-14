@@ -36,7 +36,7 @@ type error += Entrypoint_mismatch of string * (Script.expr * Script.expr) option
 
 type error += Action_unwrapping_error of string * Script.expr
 
-type error += Not_a_viewable_entrypoint of string
+type error += Not_a_viewable_entrypoint of Entrypoint.t
 
 type error += Not_an_entrypoint of Script.expr
 
@@ -135,8 +135,12 @@ let () =
       "A transaction made a call on an entrypoint expecting it to implement \
        the 'view' type."
     ~pp:(fun ppf entrypoint ->
-      Format.fprintf ppf "Entrypoint %s is not viewable." entrypoint)
-    Data_encoding.(obj1 (req "entrypoint" string))
+      Format.fprintf
+        ppf
+        "Entrypoint %a is not viewable."
+        Entrypoint.pp
+        entrypoint)
+    Data_encoding.(obj1 (req "entrypoint" Entrypoint.simple_encoding))
     (function Not_a_viewable_entrypoint e -> Some e | _ -> None)
     (fun e -> Not_a_viewable_entrypoint e) ;
   register_error_kind
@@ -691,12 +695,18 @@ let check_entrypoint entrypoints (name, (expected_ty, check)) =
              (name, Some (ty, Micheline.strip_locations expected_ty)))
       else Ok ()
 
-let action_to_entrypoint = function
-  | Transfer (_, _, _) -> "transfer"
-  | Approve (_, _) -> "approve"
-  | Get_allowance (_, _, _) -> "getAllowance"
-  | Get_balance (_, _) -> "getBalance"
-  | Get_total_supply _ -> "getTotalSupply"
+let action_to_entrypoint =
+  let transfer = Entrypoint.of_string_strict_exn "transfer" in
+  let approve = Entrypoint.of_string_strict_exn "approve" in
+  let get_allowance = Entrypoint.of_string_strict_exn "getAllowance" in
+  let get_balance = Entrypoint.of_string_strict_exn "getBalance" in
+  let get_total_supply = Entrypoint.of_string_strict_exn "getTotalSupply" in
+  function
+  | Transfer (_, _, _) -> transfer
+  | Approve (_, _) -> approve
+  | Get_allowance (_, _, _) -> get_allowance
+  | Get_balance (_, _) -> get_balance
+  | Get_total_supply _ -> get_total_supply
 
 let contract_has_fa12_interface :
     #Protocol_client_context.rpc_context ->
@@ -720,8 +730,11 @@ let contract_has_fa12_interface :
 
 let translate_action_to_argument action =
   let entrypoint = action_to_entrypoint action in
-  let expr = Micheline.strip_locations (action_to_expr ~loc:() action) in
-  (entrypoint, Format.asprintf "%a" Michelson_v1_printer.print_expr expr)
+  let expr =
+    Micheline.strip_locations (action_to_expr ~loc:() action)
+    |> Script.lazy_expr
+  in
+  (entrypoint, expr)
 
 let parse_error =
   let open Micheline in
@@ -756,8 +769,8 @@ let call_contract (cctxt : #Protocol_client_context.full) ~chain ~block
     ~contract ~action ~tez_amount ?fee ?gas_limit ?storage_limit ?counter
     ~fee_parameter () =
   contract_has_fa12_interface cctxt ~chain ~block ~contract () >>=? fun () ->
-  let (entrypoint, arg) = translate_action_to_argument action in
-  Client_proto_context.transfer
+  let (entrypoint, parameters) = translate_action_to_argument action in
+  Client_proto_context.transfer_with_script
     cctxt
     ~chain
     ~block
@@ -767,8 +780,8 @@ let call_contract (cctxt : #Protocol_client_context.full) ~chain ~block
     ~source
     ~src_pk
     ~src_sk
-    ~destination:contract
-    ~arg
+    ~destination:(Contract contract)
+    ~parameters
     ~amount:tez_amount
     ~entrypoint
     ?fee
@@ -896,7 +909,7 @@ let prepare_single_token_transfer cctxt ?default_fee ?default_gas_limit
       ?fee
       ?gas_limit
       ?storage_limit
-      token
+      (Contract token)
       action
   in
   return (Annotated_manager_operation.Annotated_manager_operation operation)

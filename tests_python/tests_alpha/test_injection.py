@@ -17,11 +17,13 @@ def clients(sandbox):
 
 
 PROTO = f'{paths.TEZOS_HOME}/src/bin_client/test/proto_test_injection'
-COMPILER = (
-    f'{paths.TEZOS_HOME}/_build/default/src/lib_protocol_compiler/bin/'
-    'main_native.exe'
-)
 PARAMS = ['-p', PROTO_GENESIS]
+
+
+pytestmark = pytest.mark.skipif(
+    utils.check_static_binary(constants.COMPILER),
+    reason="cannot inject with statically compiled binaries",
+)
 
 
 @pytest.mark.incremental
@@ -29,11 +31,11 @@ class TestInjectionAndActivation:
     """Protocol injection and activation"""
 
     def test_check_resources(self):
-        assert os.path.isfile(COMPILER)
+        assert os.path.isfile(constants.COMPILER)
         assert os.path.isdir(PROTO)
 
     def test_compute_hash(self, session: dict):
-        cmd = [COMPILER, '-hash-only', PROTO]
+        cmd = [constants.COMPILER, '-hash-only', PROTO]
         res = subprocess.run(
             cmd, universal_newlines=True, check=True, stdout=subprocess.PIPE
         )
@@ -51,7 +53,7 @@ class TestInjectionAndActivation:
 
     def test_environment_version(self, clients: List[Client], session: dict):
         proto = session['proto_hash']
-        assert clients[0].environment_protocol(proto) == "V1"
+        assert clients[0].environment_protocol(proto) == "V3"
 
     def test_activation(self, clients: List[Client], session: dict):
         proto = session['proto_hash']
@@ -77,7 +79,7 @@ def client(sandbox):
 
 @pytest.mark.incremental
 class TestActivation:
-    """ Protocol activation (protocol already linked to the node) """
+    """Protocol activation (protocol already linked to the node)"""
 
     def test_proto_known(self, client: Client):
         res = client.list_protocols()

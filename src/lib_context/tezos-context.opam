@@ -1,3 +1,5 @@
+# This file was automatically generated, do not edit.
+# Edit file manifest/main.ml instead.
 opam-version: "2.0"
 maintainer: "contact@tezos.com"
 authors: ["Tezos devteam"]
@@ -8,11 +10,12 @@ license: "MIT"
 depends: [
   "dune" { >= "2.9" }
   "tezos-base"
-  "irmin" { >= "2.8.0" }
-  "irmin-pack" { >= "2.8.0" }
-  "bigstringaf" { >= "0.2.0" }
+  "tezos-stdlib"
+  "irmin" { >= "2.10.0" & < "2.11.0" }
+  "irmin-pack" { >= "2.10.0" & < "2.11.0" }
   "tezos-shell-services"
-  "fmt"
+  "bigstringaf" { >= "0.2.0" }
+  "fmt" { >= "0.8.7" }
   "logs"
   "digestif" { >= "0.7.3" }
   "tezos-stdlib-unix"

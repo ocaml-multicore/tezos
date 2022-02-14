@@ -124,41 +124,6 @@ let blockchain_network_mainnet =
       ]
     ~default_bootstrap_peers:["boot.tzbeta.net"; giganode_1; giganode_2]
 
-let blockchain_network_granadanet =
-  make_blockchain_network
-    ~alias:"granadanet"
-    {
-      time = Time.Protocol.of_notation_exn "2021-05-21T15:00:00Z";
-      block =
-        Block_hash.of_b58check_exn
-          "BLockGenesisGenesisGenesisGenesisGenesisd4299hBGVoU";
-      protocol =
-        Protocol_hash.of_b58check_exn
-          "PtYuensgYBb3G3x1hLLbCmcav8ue8Kyd2khADcL5LsT5R1hcXex";
-    }
-    ~genesis_parameters:
-      {
-        context_key = "sandbox_parameter";
-        values =
-          `O
-            [
-              ( "genesis_pubkey",
-                `String "edpkuix6Lv8vnrz6uDe1w8uaXY7YktitAxn6EHdy2jdzq5n5hZo94n"
-              );
-            ];
-      }
-    ~chain_name:"TEZOS_GRANADANET_2021-05-21T15:00:00Z"
-    ~sandboxed_chain_name:"SANDBOXED_TEZOS"
-    ~user_activated_upgrades:
-      [(4095l, "PtGRANADsDU8R9daYKAgWnQYAJ64omN1o3KMGVCykShA97vQbvV")]
-    ~default_bootstrap_peers:
-      [
-        "granadanet.smartpy.io";
-        "granadanet.tezos.co.il";
-        "granadanet.kaml.fr";
-        "granadanet.tznode.net";
-      ]
-
 let blockchain_network_hangzhounet =
   make_blockchain_network
     ~alias:"hangzhounet"
@@ -193,6 +158,41 @@ let blockchain_network_hangzhounet =
         "hangzhounet.smartpy.io";
         "hangzhounet.tezos.co.il";
         "hangzhounet.boot.tez.ie";
+      ]
+
+let blockchain_network_ithacanet =
+  make_blockchain_network
+    ~alias:"ithacanet"
+    {
+      time = Time.Protocol.of_notation_exn "2022-01-25T15:00:00Z";
+      block =
+        Block_hash.of_b58check_exn
+          "BLockGenesisGenesisGenesisGenesisGenesis1db77eJNeJ9";
+      protocol =
+        Protocol_hash.of_b58check_exn
+          "Ps9mPmXaRzmzk35gbAYNCAw6UXdE2qoABTHbN2oEEc1qM7CwT9P";
+    }
+    ~genesis_parameters:
+      {
+        context_key = "sandbox_parameter";
+        values =
+          `O
+            [
+              ( "genesis_pubkey",
+                `String "edpkuYLienS3Xdt5c1vfRX1ibMxQuvfM67ByhJ9nmRYYKGAAoTq1UC"
+              );
+            ];
+      }
+    ~chain_name:"TEZOS_ITHACANET_2022-01-25T15:00:00Z"
+    ~sandboxed_chain_name:"SANDBOXED_TEZOS"
+    ~user_activated_upgrades:
+      [(8191l, "Psithaca2MLRFYargivpo7YvUr7wUDqyxrdhC5CQq78mRvimz6A")]
+    ~default_bootstrap_peers:
+      [
+        "ithacanet.teztnets.xyz";
+        "ithacanet.smartpy.io";
+        "ithacanet.kaml.fr";
+        "ithacanet.boot.ecadinfra.com";
       ]
 
 let blockchain_network_sandbox =
@@ -293,8 +293,8 @@ let builtin_blockchain_networks_with_tags =
   [
     (1, blockchain_network_sandbox);
     (4, blockchain_network_mainnet);
-    (15, blockchain_network_granadanet);
     (16, blockchain_network_hangzhounet);
+    (17, blockchain_network_ithacanet);
   ]
   |> List.map (fun (tag, network) ->
          match network.alias with
@@ -344,7 +344,7 @@ type t = {
   p2p : p2p;
   rpc : rpc;
   log : Lwt_log_sink_unix.cfg;
-  internal_events : Internal_event_unix.Configuration.t;
+  internal_events : Internal_event_config.t;
   shell : shell;
   blockchain_network : blockchain_network;
 }
@@ -368,6 +368,7 @@ and rpc = {
   cors_headers : string list;
   tls : tls option;
   acl : RPC_server.Acl.policy;
+  media_type : Media_type.Command_line.t;
 }
 
 and tls = {cert : string; key : string}
@@ -432,6 +433,7 @@ let default_rpc =
     cors_headers = [];
     tls = None;
     acl = RPC_server.Acl.empty_policy;
+    media_type = Media_type.Command_line.Any;
   }
 
 let default_shell =
@@ -451,7 +453,7 @@ let default_config =
     p2p = default_p2p;
     rpc = default_rpc;
     log = Lwt_log_sink_unix.default_cfg;
-    internal_events = Internal_event_unix.Configuration.default;
+    internal_events = Internal_event_config.default;
     shell = default_shell;
     blockchain_network = blockchain_network_mainnet;
     disable_config_validation = default_disable_config_validation;
@@ -792,20 +794,28 @@ let p2p =
 let rpc : rpc Data_encoding.t =
   let open Data_encoding in
   conv
-    (fun {cors_origins; cors_headers; listen_addrs; tls; acl} ->
+    (fun {cors_origins; cors_headers; listen_addrs; tls; acl; media_type} ->
       let (cert, key) =
         match tls with
         | None -> (None, None)
         | Some {cert; key} -> (Some cert, Some key)
       in
-      (Some listen_addrs, None, cors_origins, cors_headers, cert, key, acl))
+      ( Some listen_addrs,
+        None,
+        cors_origins,
+        cors_headers,
+        cert,
+        key,
+        acl,
+        media_type ))
     (fun ( listen_addrs,
            legacy_listen_addr,
            cors_origins,
            cors_headers,
            cert,
            key,
-           acl ) ->
+           acl,
+           media_type ) ->
       let tls =
         match (cert, key) with
         | (None, _) | (_, None) -> None
@@ -821,8 +831,8 @@ let rpc : rpc Data_encoding.t =
               "Config file: Use only \"listen-addrs\" and not (legacy) \
                \"listen-addr\"."
       in
-      {listen_addrs; cors_origins; cors_headers; tls; acl})
-    (obj7
+      {listen_addrs; cors_origins; cors_headers; tls; acl; media_type})
+    (obj8
        (opt
           "listen-addrs"
           ~description:
@@ -853,7 +863,12 @@ let rpc : rpc Data_encoding.t =
           "acl"
           ~description:"A list of RPC ACLs for specific listening addresses."
           RPC_server.Acl.policy_encoding
-          RPC_server.Acl.empty_policy))
+          default_rpc.acl)
+       (dft
+          "media-type"
+          ~description:"The media types supported by the server."
+          Media_type.Command_line.encoding
+          default_rpc.media_type))
 
 let timeout_encoding = Time.System.Span.encoding
 
@@ -1130,8 +1145,8 @@ let encoding =
        (dft
           "internal-events"
           ~description:"Configuration of the structured logging framework"
-          Internal_event_unix.Configuration.encoding
-          Internal_event_unix.Configuration.default)
+          Internal_event_config.encoding
+          Internal_event_config.default)
        (dft
           "shell"
           ~description:"Configuration of network parameters"
@@ -1203,8 +1218,9 @@ let string_of_json_encoding_error exn =
   Format.asprintf "%a" (Json_encoding.print_error ?print_unknown:None) exn
 
 let read fp =
+  let open Lwt_tzresult_syntax in
   if Sys.file_exists fp then
-    Lwt_utils_unix.Json.read_file fp >>=? fun json ->
+    let* json = Lwt_utils_unix.Json.read_file fp in
     try return (Data_encoding.Json.destruct encoding json) with
     | Json_encoding.Cannot_destruct (path, exn) ->
         let path = Json_query.json_pointer_of_path path in
@@ -1219,7 +1235,8 @@ let read fp =
   else return default_config
 
 let write fp cfg =
-  Node_data_version.ensure_data_dir (Filename.dirname fp) >>=? fun () ->
+  let open Lwt_tzresult_syntax in
+  let* () = Node_data_version.ensure_data_dir (Filename.dirname fp) in
   Lwt_utils_unix.Json.write_file fp (Data_encoding.Json.construct encoding cfg)
 
 let to_string cfg =
@@ -1229,21 +1246,24 @@ let update ?(disable_config_validation = false) ?data_dir ?min_connections
     ?expected_connections ?max_connections ?max_download_speed ?max_upload_speed
     ?binary_chunks_size ?peer_table_size ?expected_pow ?bootstrap_peers
     ?listen_addr ?advertised_net_port ?discovery_addr ?(rpc_listen_addrs = [])
-    ?(allow_all_rpc = []) ?(private_mode = false) ?(disable_mempool = false)
+    ?(allow_all_rpc = []) ?(media_type = Media_type.Command_line.Any)
+    ?(private_mode = false) ?(disable_mempool = false)
     ?(disable_mempool_precheck =
       default_shell.prevalidator_limits.disable_precheck)
     ?(enable_testchain = false) ?(cors_origins = []) ?(cors_headers = [])
     ?rpc_tls ?log_output ?synchronisation_threshold ?history_mode ?network
     ?latency cfg =
+  let open Lwt_tzresult_syntax in
   let disable_config_validation =
     cfg.disable_config_validation || disable_config_validation
   in
   let data_dir = Option.value ~default:cfg.data_dir data_dir in
-  (if List.compare_length_with allow_all_rpc 1 >= 0 then
-   Event.(emit all_rpc_allowed allow_all_rpc)
-  else Lwt.return_unit)
-  >>= fun () ->
-  Node_data_version.ensure_data_dir data_dir >>=? fun () ->
+  let*! () =
+    if List.compare_length_with allow_all_rpc 1 >= 0 then
+      Event.(emit all_rpc_allowed allow_all_rpc)
+    else Lwt.return_unit
+  in
+  let* () = Node_data_version.ensure_data_dir data_dir in
   let peer_table_size = Option.map (fun i -> (i, i / 4 * 3)) peer_table_size in
   let unopt_list ~default = function [] -> default | l -> l in
   let limits : P2p.limits =
@@ -1298,6 +1318,7 @@ let update ?(disable_config_validation = false) ?data_dir ?min_connections
       cors_headers = unopt_list ~default:cfg.rpc.cors_headers cors_headers;
       tls = Option.either rpc_tls cfg.rpc.tls;
       acl;
+      media_type;
     }
   and log : Lwt_log_sink_unix.cfg =
     {cfg.log with output = Option.value ~default:cfg.log.output log_output}
@@ -1364,15 +1385,18 @@ let () =
     (fun s -> Failed_to_parse_address s)
 
 let to_ipv4 ipv6_l =
+  let open Lwt_syntax in
   let convert_or_warn (ipv6, port) =
     let ipv4 = Ipaddr.v4_of_v6 ipv6 in
     match ipv4 with
     | None ->
-        Event.(emit cannot_convert_to_ipv4) (Ipaddr.V6.to_string ipv6)
-        >>= fun () -> return_none
+        let* () =
+          Event.(emit cannot_convert_to_ipv4) (Ipaddr.V6.to_string ipv6)
+        in
+        return_none
     | Some ipv4 -> return_some (ipv4, port)
   in
-  List.filter_map_es convert_or_warn ipv6_l
+  List.filter_map_s convert_or_warn ipv6_l
 
 (* Parse an address.
 
@@ -1388,6 +1412,7 @@ let to_ipv4 ipv6_l =
 let resolve_addr ~default_addr ?(no_peer_id_expected = true) ?default_port
     ?(passive = false) peer :
     (P2p_point.Id.t * P2p_peer.Id.t option) list tzresult Lwt.t =
+  let open Lwt_tzresult_syntax in
   match P2p_point.Id.parse_addr_port_id peer with
   | (Error (P2p_point.Id.Bad_id_format _) | Ok {peer_id = Some _; _})
     when no_peer_id_expected ->
@@ -1398,52 +1423,56 @@ let resolve_addr ~default_addr ?(no_peer_id_expected = true) ?default_port
       fail
         (Failed_to_parse_address (peer, P2p_point.Id.string_of_parsing_error err))
   | Ok {addr; port; peer_id} ->
-      (match (port, default_port) with
-      | (None, None) -> return (string_of_int default_p2p_port)
-      | (None, Some default_port) -> return (string_of_int default_port)
-      | (Some port, _) -> return (string_of_int port))
-      >>=? fun service ->
+      let service_port =
+        match (port, default_port) with
+        | (Some port, _) -> port
+        | (None, Some default_port) -> default_port
+        | (None, None) -> default_p2p_port
+      in
+      let service = string_of_int service_port in
       let node = if addr = "" || addr = "_" then default_addr else addr in
-      Lwt_utils_unix.getaddrinfo ~passive ~node ~service >>= fun l ->
+      let*! l = Lwt_utils_unix.getaddrinfo ~passive ~node ~service in
       return (List.map (fun point -> (point, peer_id)) l)
 
 let resolve_addrs ?default_port ?passive ?no_peer_id_expected ~default_addr
     addrs =
-  List.fold_left_es
-    (fun a addr ->
-      resolve_addr
-        ~default_addr
-        ?default_port
-        ?passive
-        ?no_peer_id_expected
-        addr
-      >>=? fun points -> return (List.rev_append points a))
-    []
+  List.concat_map_es
+    (resolve_addr ~default_addr ?default_port ?passive ?no_peer_id_expected)
     addrs
 
 let resolve_discovery_addrs discovery_addr =
-  resolve_addr
-    ~default_addr:Ipaddr.V4.(to_string broadcast)
-    ~default_port:default_discovery_port
-    ~passive:true
-    discovery_addr
-  >>=? fun addrs -> to_ipv4 (List.map fst addrs)
+  let open Lwt_tzresult_syntax in
+  let* addrs =
+    resolve_addr
+      ~default_addr:Ipaddr.V4.(to_string broadcast)
+      ~default_port:default_discovery_port
+      ~passive:true
+      discovery_addr
+  in
+  let*! addrs = to_ipv4 (List.map fst addrs) in
+  return addrs
 
 let resolve_listening_addrs listen_addr =
-  resolve_addr
-    ~default_addr:"::"
-    ~default_port:default_p2p_port
-    ~passive:true
-    listen_addr
-  >|=? List.map fst
+  let open Lwt_tzresult_syntax in
+  let+ addrs =
+    resolve_addr
+      ~default_addr:"::"
+      ~default_port:default_p2p_port
+      ~passive:true
+      listen_addr
+  in
+  List.map fst addrs
 
 let resolve_rpc_listening_addrs listen_addr =
-  resolve_addr
-    ~default_addr:"::"
-    ~default_port:default_rpc_port
-    ~passive:true
-    listen_addr
-  >|=? List.map fst
+  let open Lwt_tzresult_syntax in
+  let+ addrs =
+    resolve_addr
+      ~default_addr:"::"
+      ~default_port:default_rpc_port
+      ~passive:true
+      listen_addr
+  in
+  List.map fst addrs
 
 let resolve_bootstrap_addrs peers =
   resolve_addrs

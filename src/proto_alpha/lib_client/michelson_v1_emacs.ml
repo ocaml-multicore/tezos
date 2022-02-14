@@ -57,10 +57,7 @@ let print_expr ppf expr =
   let root = root (Michelson_v1_primitives.strings_of_prims expr) in
   Format.fprintf ppf "@[<h>%a@]" print_expr root
 
-let print_var_annots ppf = List.iter (Format.fprintf ppf "%s ")
-
-let print_annot_expr ppf (expr, annot) =
-  Format.fprintf ppf "(%a%a)" print_var_annots annot print_expr expr
+let print_annot_expr ppf expr = Format.fprintf ppf "(%a)" print_expr expr
 
 open Micheline_parser
 open Script_tc_errors
@@ -106,8 +103,7 @@ let print_type_map ppf (parsed, type_map) =
 let first_error_location errs =
   let rec find = function
     | [] -> 0
-    | ( Inconsistent_type_annotations (loc, _, _)
-      | Unexpected_annotation loc
+    | ( Unexpected_annotation loc
       | Ill_formed_type (_, _, loc)
       | Invalid_arity (loc, _, _, _)
       | Invalid_seq_arity (loc, _, _)

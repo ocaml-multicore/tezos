@@ -296,7 +296,7 @@ module Delegate = struct
     delegated_balance : Tez.t;
     deactivated : bool;
     grace_period : Cycle.t;
-    voting_power : int32;
+    voting_power : int64;
   }
 
   let info ctxt pkh = Delegate_services.info rpc_ctxt ctxt pkh
@@ -322,13 +322,16 @@ end
 
 module Tx_rollup = struct
   let state ctxt tx_rollup = Tx_rollup_services.state rpc_ctxt ctxt tx_rollup
+
+  let inbox ctxt tx_rollup = Tx_rollup_services.inbox rpc_ctxt ctxt tx_rollup
 end
 
 let init ?rng_state ?commitments ?(initial_balances = []) ?consensus_threshold
     ?min_proposal_quorum ?bootstrap_contracts ?level ?cost_per_byte
     ?liquidity_baking_subsidy ?endorsing_reward_per_slot
     ?baking_reward_bonus_per_slot ?baking_reward_fixed_portion ?origination_size
-    ?blocks_per_cycle ?tx_rollup_enable n =
+    ?blocks_per_cycle ?blocks_per_voting_period ?tx_rollup_enable
+    ?sc_rollup_enable n =
   let accounts = Account.generate_accounts ?rng_state ~initial_balances n in
   let contracts =
     List.map
@@ -348,9 +351,61 @@ let init ?rng_state ?commitments ?(initial_balances = []) ?consensus_threshold
     ?baking_reward_fixed_portion
     ?origination_size
     ?blocks_per_cycle
+    ?blocks_per_voting_period
     ?tx_rollup_enable
+    ?sc_rollup_enable
     accounts
   >|=? fun blk -> (blk, contracts)
+
+let init1 ?rng_state ?commitments ?(initial_balances = []) ?consensus_threshold
+    ?min_proposal_quorum ?level ?cost_per_byte ?liquidity_baking_subsidy
+    ?endorsing_reward_per_slot ?baking_reward_bonus_per_slot
+    ?baking_reward_fixed_portion ?origination_size ?blocks_per_cycle
+    ?blocks_per_voting_period () =
+  init
+    ?rng_state
+    ?commitments
+    ~initial_balances
+    ?consensus_threshold
+    ?min_proposal_quorum
+    ?level
+    ?cost_per_byte
+    ?liquidity_baking_subsidy
+    ?endorsing_reward_per_slot
+    ?baking_reward_bonus_per_slot
+    ?baking_reward_fixed_portion
+    ?origination_size
+    ?blocks_per_cycle
+    ?blocks_per_voting_period
+    1
+  >|=? function
+  | (_, []) -> assert false
+  | (b, contract_1 :: _) -> (b, contract_1)
+
+let init2 ?rng_state ?commitments ?(initial_balances = []) ?consensus_threshold
+    ?min_proposal_quorum ?level ?cost_per_byte ?liquidity_baking_subsidy
+    ?endorsing_reward_per_slot ?baking_reward_bonus_per_slot
+    ?baking_reward_fixed_portion ?origination_size ?blocks_per_cycle
+    ?blocks_per_voting_period () =
+  init
+    ?rng_state
+    ?commitments
+    ~initial_balances
+    ?consensus_threshold
+    ?min_proposal_quorum
+    ?level
+    ?cost_per_byte
+    ?liquidity_baking_subsidy
+    ?endorsing_reward_per_slot
+    ?baking_reward_bonus_per_slot
+    ?baking_reward_fixed_portion
+    ?origination_size
+    ?blocks_per_cycle
+    ?blocks_per_voting_period
+    2
+  >|=? function
+  | (_, []) | (_, [_]) -> assert false
+  | (b, contract_1 :: contract_2 :: _) -> (b, contract_1, contract_2)
 
 let init_with_constants constants n =
   let accounts = Account.generate_accounts n in
@@ -371,3 +426,40 @@ let init_with_constants constants n =
     Default_parameters.parameters_of_constants ~bootstrap_accounts constants
   in
   Block.genesis_with_parameters parameters >|=? fun blk -> (blk, contracts)
+
+let default_raw_context () =
+  let initial_accounts =
+    Account.generate_accounts ~initial_balances:[100_000_000_000L] 1
+  in
+  let open Tezos_protocol_alpha_parameters in
+  let bootstrap_accounts =
+    List.map
+      (fun (Account.{pk; pkh; _}, amount) ->
+        Default_parameters.make_bootstrap_account (pkh, pk, amount))
+      initial_accounts
+  in
+  Block.prepare_initial_context_params initial_accounts
+  >>=? fun (constants, _, _) ->
+  let parameters =
+    Default_parameters.parameters_of_constants
+      ~bootstrap_accounts
+      ~commitments:[]
+      constants
+  in
+  let json = Default_parameters.json_of_parameters parameters in
+  let proto_params =
+    Data_encoding.Binary.to_bytes_exn Data_encoding.json json
+  in
+  let protocol_param_key = ["protocol_parameters"] in
+  Tezos_protocol_environment.Context.(
+    let empty = Memory_context.empty in
+    add empty ["version"] (Bytes.of_string "genesis") >>= fun ctxt ->
+    add ctxt protocol_param_key proto_params)
+  >>= fun context ->
+  let typecheck ctxt script_repr = return ((script_repr, None), ctxt) in
+  Init_storage.prepare_first_block
+    context
+    ~level:0l
+    ~timestamp:(Time.Protocol.of_seconds 1643125688L)
+    ~typecheck
+  >>= fun e -> Lwt.return @@ Environment.wrap_tzresult e

@@ -347,7 +347,7 @@ def test_config_init_mockup_fail(mockup_client: Client):
 
 
 def _try_json_loads(flag: str, string: str) -> Any:
-    """ Converts the given string to a json object """
+    """Converts the given string to a json object"""
     try:
         return json.loads(string)
     except json.JSONDecodeError:
@@ -601,6 +601,8 @@ def _test_create_mockup_init_show_roundtrip(
 @pytest.mark.parametrize(
     'initial_bootstrap_accounts', [None, json.dumps(_create_accounts_list())]
 )
+# The following values should be different from the default ones in
+# order to check loading of the parameters.
 @pytest.mark.parametrize(
     'protocol_constants',
     [
@@ -627,7 +629,7 @@ def _test_create_mockup_init_show_roundtrip(
                 # DO NOT EDIT the value consensus_threshold this is actually a
                 # constant, not a parameter
                 'consensus_threshold': 0,
-                'delegate_selection': 'random',
+                'initial_seed': None,
                 'minimal_participation_ratio': {
                     'denominator': 5,
                     'numerator': 1,
@@ -650,9 +652,15 @@ def _test_create_mockup_init_show_roundtrip(
                     'denominator': 2,
                 },
                 "double_baking_punishment": "640000001",
+                "cache_script_size": 100000001,
+                "cache_stake_distribution_cycles": 10,
+                "cache_sampler_state_cycles": 10,
                 "tx_rollup_enable": False,
-                # TODO: https://gitlab.com/tezos/tezos/-/issues/2152
-                "tx_rollup_origination_size": 60_000,
+                "tx_rollup_origination_size": 30_000,
+                "tx_rollup_hard_size_limit_per_inbox": 75_000,
+                "tx_rollup_hard_size_limit_per_message": 9_999,
+                "sc_rollup_enable": False,
+                "sc_rollup_origination_size": 6_314,
             }
         ),
     ],

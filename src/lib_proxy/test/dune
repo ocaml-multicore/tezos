@@ -1,3 +1,6 @@
+; This file was automatically generated, do not edit.
+; Edit file manifest/main.ml instead.
+
 (tests
  (names test_proxy test_fuzzing_proxy_getter test_light test_fuzzing_light)
  (package tezos-proxy)
@@ -12,4 +15,4 @@
   qcheck-alcotest
   alcotest-lwt)
  (flags
-  (:standard -open Tezos_base__TzPervasives -open Tezos_base_test_helpers)))
+  (:standard -open Tezos_base.TzPervasives -open Tezos_base_test_helpers)))

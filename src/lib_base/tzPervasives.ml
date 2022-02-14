@@ -78,3 +78,5 @@ module Filename = struct
   include Stdlib.Filename
   include Tezos_stdlib.TzFilename
 end
+
+module Bounded = Bounded

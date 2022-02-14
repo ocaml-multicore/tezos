@@ -52,9 +52,19 @@ let () =
       Unit_test.skip "Raw_level_repr.ml" Test_raw_level_repr.skipped_tests;
       Unit_test.spec "Tez_repr.ml" Test_tez_repr.tests;
       Unit_test.spec "Contract_repr.ml" Test_contract_repr.tests;
+      Unit_test.spec "Destination_repr.ml" Test_destination_repr.tests;
       Unit_test.spec "Operation_repr.ml" Test_operation_repr.tests;
       Unit_test.spec
         "Global_constants_storage.ml"
         Test_global_constants_storage.tests;
+      Unit_test.spec "fitness" Test_fitness.tests;
+      Unit_test.spec "fixed point computation" Test_fixed_point.tests;
+      Unit_test.spec "level module" Test_level_module.tests;
+      Unit_test.spec "qty" Test_qty.tests;
+      Unit_test.spec "round" Test_round_repr.tests;
+      Unit_test.spec "time" Test_time_repr.tests;
+      Unit_test.spec "receipt encodings" Test_receipt.tests;
+      Unit_test.spec "saturation arithmetic" Test_saturation.tests;
+      Unit_test.spec "gas monad" Test_gas_monad.tests;
     ]
   |> Lwt_main.run

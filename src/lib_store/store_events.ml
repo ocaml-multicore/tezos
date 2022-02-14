@@ -92,6 +92,78 @@ let store_prechecked_block =
     ~pp1:pp_block_descriptor
     ("block", block_descriptor_encoding)
 
+let start_updating_floating_stores =
+  declare_0
+    ~section
+    ~level:Info
+    ~name:"start_updating_floating_stores"
+    ~msg:"updating floating stores"
+    ()
+
+let start_cementing_blocks =
+  declare_0
+    ~section
+    ~level:Info
+    ~name:"start_cementing_blocks"
+    ~msg:"cementing blocks"
+    ()
+
+let start_cementing_blocks_metadata =
+  declare_0
+    ~section
+    ~level:Info
+    ~name:"start_cementing_blocks_metadata"
+    ~msg:"cementing blocks metadata"
+    ()
+
+let start_merging_thread =
+  declare_0
+    ~section
+    ~level:Info
+    ~name:"start_merging_thread"
+    ~msg:"running merging thread"
+    ()
+
+let end_merging_thread =
+  declare_0
+    ~section
+    ~level:Info
+    ~name:"end_merging_thread"
+    ~msg:"merging thread ended"
+    ()
+
+let start_store_garbage_collection =
+  declare_0
+    ~section
+    ~level:Info
+    ~name:"start_store_garbage_collection"
+    ~msg:"garbage-collecting the cemented store"
+    ()
+
+let start_merge_finalizer =
+  declare_0
+    ~section
+    ~level:Info
+    ~name:"start_merge_finalizer"
+    ~msg:"triggering merge finalizer"
+    ()
+
+let start_retreiving_predecessors =
+  declare_0
+    ~section
+    ~level:Info
+    ~name:"start_retreiving_predecessors"
+    ~msg:"retrieving predecessors from floating store"
+    ()
+
+let start_retreiving_cycles =
+  declare_0
+    ~section
+    ~level:Info
+    ~name:"start_retreiving_cycles"
+    ~msg:"retrieving cycles from floating store"
+    ()
+
 (* Notice *)
 let fork_testchain =
   declare_4
@@ -339,6 +411,18 @@ let warning_incomplete_storage =
        {protocol_level} - operation receipt verification for this protocol \
        will be unavailable"
     ("protocol_level", Data_encoding.int31)
+
+let warning_missing_metadata =
+  declare_2
+    ~level:Internal_event.Warning
+    ~section
+    ~name:"missing_metadata"
+    ~msg:
+      "the storage is missing some metadata for cycle \
+       {start_level}-{end_level}. Please consider restoring a consistent \
+       storage"
+    ("start_level", Data_encoding.int32)
+    ("end_level", Data_encoding.int32)
 
 (* Error *)
 let merge_error =

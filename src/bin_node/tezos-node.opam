@@ -1,3 +1,5 @@
+# This file was automatically generated, do not edit.
+# Edit file manifest/main.ml instead.
 opam-version: "2.0"
 maintainer: "contact@tezos.com"
 authors: ["Tezos devteam"]
@@ -11,7 +13,7 @@ depends: [
   "tezos-version"
   "tezos-stdlib-unix"
   "tezos-shell-services"
-  "tezos-workers"
+  "tezos-rpc-http"
   "tezos-rpc-http-server"
   "tezos-p2p"
   "tezos-shell"
@@ -19,10 +21,12 @@ depends: [
   "tezos-context"
   "tezos-validator"
   "tezos-shell-context"
+  "tezos-workers"
   "tezos-protocol-updater"
   "cmdliner"
-  "fmt"
+  "fmt" { >= "0.8.7" }
   "tls" { >= "0.10" }
+  "prometheus-app"
   "lwt-exit"
 ]
 depopts: [
@@ -44,12 +48,14 @@ depopts: [
   "tezos-embedded-protocol-009-PsFLoren"
   "tezos-embedded-protocol-010-PtGRANAD"
   "tezos-embedded-protocol-011-PtHangz2"
+  "tezos-embedded-protocol-012-Psithaca"
   "tezos-embedded-protocol-alpha"
   "tezos-protocol-plugin-007-PsDELPH1-registerer"
   "tezos-protocol-plugin-008-PtEdo2Zk-registerer"
   "tezos-protocol-plugin-009-PsFLoren-registerer"
   "tezos-protocol-plugin-010-PtGRANAD-registerer"
   "tezos-protocol-plugin-011-PtHangz2-registerer"
+  "tezos-protocol-plugin-012-Psithaca-registerer"
   "tezos-protocol-plugin-alpha-registerer"
 ]
 build: [

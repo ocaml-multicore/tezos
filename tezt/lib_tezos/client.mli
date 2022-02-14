@@ -372,7 +372,8 @@ val spawn_propose_for :
   t ->
   Process.t
 
-(* TODO refactor this *)
+(* TODO: https://gitlab.com/tezos/tezos/-/issues/2336
+   refactor this *)
 
 (** [propose_for] *)
 val propose_for :
@@ -413,6 +414,7 @@ val gen_and_show_keys : ?alias:string -> t -> Account.key Lwt.t
 
 (** Run [tezos-client transfer amount from giver to receiver]. *)
 val transfer :
+  ?hooks:Process.hooks ->
   ?endpoint:endpoint ->
   ?wait:string ->
   ?burn_cap:Tez.t ->
@@ -421,6 +423,7 @@ val transfer :
   ?storage_limit:int ->
   ?counter:int ->
   ?arg:string ->
+  ?force:bool ->
   amount:Tez.t ->
   giver:string ->
   receiver:string ->
@@ -429,6 +432,7 @@ val transfer :
 
 (** Same as [transfer], but do not wait for the process to exit. *)
 val spawn_transfer :
+  ?hooks:Process.hooks ->
   ?endpoint:endpoint ->
   ?wait:string ->
   ?burn_cap:Tez.t ->
@@ -437,6 +441,7 @@ val spawn_transfer :
   ?storage_limit:int ->
   ?counter:int ->
   ?arg:string ->
+  ?force:bool ->
   amount:Tez.t ->
   giver:string ->
   receiver:string ->
@@ -448,7 +453,7 @@ val multiple_transfers :
   ?endpoint:endpoint ->
   ?wait:string ->
   ?burn_cap:Tez.t ->
-  ?fee:Tez.t ->
+  ?fee_cap:Tez.t ->
   ?gas_limit:int ->
   ?storage_limit:int ->
   ?counter:int ->
@@ -463,7 +468,7 @@ val spawn_multiple_transfers :
   ?endpoint:endpoint ->
   ?wait:string ->
   ?burn_cap:Tez.t ->
-  ?fee:Tez.t ->
+  ?fee_cap:Tez.t ->
   ?gas_limit:int ->
   ?storage_limit:int ->
   ?counter:int ->
@@ -557,9 +562,15 @@ val submit_ballot :
 val spawn_submit_ballot :
   ?key:string -> ?wait:string -> proto_hash:string -> ballot -> t -> Process.t
 
+(* TODO: https://gitlab.com/tezos/tezos/-/issues/2336
+   [amount] should be named [transferring] *)
+(* TODO: https://gitlab.com/tezos/tezos/-/issues/2336
+   [src] should be named [from] and probably have type [Account.t] *)
+
 (** Run [tezos-client originate contract alias transferring amount from src
     running prg]. Returns the originated contract hash *)
 val originate_contract :
+  ?hooks:Process.hooks ->
   ?endpoint:endpoint ->
   ?wait:string ->
   ?init:string ->
@@ -573,6 +584,7 @@ val originate_contract :
 
 (** Same as [originate_contract], but do not wait for the process to exit. *)
 val spawn_originate_contract :
+  ?hooks:Process.hooks ->
   ?endpoint:endpoint ->
   ?wait:string ->
   ?init:string ->
@@ -609,10 +621,15 @@ val convert_data_to_json :
 
     Optional parameters (provided only if the function is called with
     the corresponding optional argument):
+    - [seed] is the seed used for the rangom number generator
+    - [fee] is the custom fee to pay instead of the default one
+    - [gas_limit] is the custom gas limit
     - [--transfers <transfers>]
     - [--tps <tps>]
     - [--single-op-per-pkh-per-block] (if the argument
       [single_op_per_pkh_per_block] is [true])
+    - [--fresh_probabilty <probability>], probability from 0.0 to 1.0 that
+      new bootstrap accounts will be created during the stress test
 
     [endpoint]: cf {!create} *)
 val stresstest :
@@ -621,9 +638,12 @@ val stresstest :
   ?source_pkhs:string list ->
   ?source_accounts:Account.key list ->
   ?seed:int ->
+  ?fee:Tez.t ->
+  ?gas_limit:int ->
   ?transfers:int ->
   ?tps:int ->
   ?single_op_per_pkh_per_block:bool ->
+  ?fresh_probability:float ->
   t ->
   unit Lwt.t
 
@@ -634,11 +654,23 @@ val spawn_stresstest :
   ?source_pkhs:string list ->
   ?source_accounts:Account.key list ->
   ?seed:int ->
+  ?fee:Tez.t ->
+  ?gas_limit:int ->
   ?transfers:int ->
   ?tps:int ->
   ?single_op_per_pkh_per_block:bool ->
+  ?fresh_probability:float ->
   t ->
   Process.t
+
+(** Costs of every kind of transaction used in the stress test. *)
+type stresstest_gas_estimation = {
+  regular : int;  (** Cost of a regular transaction. *)
+}
+
+(** Call the [stresstest estimate gas] command. *)
+val stresstest_estimate_gas :
+  ?endpoint:endpoint -> t -> stresstest_gas_estimation Lwt.t
 
 (** Run [tezos-client run script .. on storage .. and input ..].
 
@@ -646,11 +678,29 @@ val spawn_stresstest :
 
     Fails if the new storage cannot be extracted from the output. *)
 val run_script :
-  src:string -> storage:string -> input:string -> t -> string Lwt.t
+  ?hooks:Process.hooks ->
+  ?balance:Tez.t ->
+  ?self_address:string ->
+  ?source:string ->
+  ?payer:string ->
+  prg:string ->
+  storage:string ->
+  input:string ->
+  t ->
+  string Lwt.t
 
 (** Same as [run_script] but do not wait for the process to exit. *)
 val spawn_run_script :
-  src:string -> storage:string -> input:string -> t -> Process.t
+  ?hooks:Process.hooks ->
+  ?balance:Tez.t ->
+  ?self_address:string ->
+  ?source:string ->
+  ?payer:string ->
+  prg:string ->
+  storage:string ->
+  input:string ->
+  t ->
+  Process.t
 
 (** Run [tezos-client register global constant value from src].
     Returns the address hash of the new constant. *)
@@ -795,11 +845,75 @@ val spawn_originate_tx_rollup :
   t ->
   Process.t
 
+(** Run [tezos-client submit tx rollup batch <batch_content> to <tx_rollup> from <src>]. *)
+val submit_tx_rollup_batch :
+  ?wait:string ->
+  ?burn_cap:Tez.t ->
+  ?storage_limit:int ->
+  ?hooks:Process.hooks ->
+  content:string ->
+  tx_rollup:string ->
+  src:string ->
+  t ->
+  unit Lwt.t
+
+(** Same as [submit_tx_rollup_batch], but do not wait for the process to exit. *)
+val spawn_submit_tx_rollup_batch :
+  ?wait:string ->
+  ?burn_cap:Tez.t ->
+  ?storage_limit:int ->
+  ?hooks:Process.hooks ->
+  content:string ->
+  tx_rollup:string ->
+  src:string ->
+  t ->
+  Process.t
+
 (** Run [tezos-client show voting period] and return the period name. *)
 val show_voting_period : ?endpoint:endpoint -> t -> string Lwt.t
 
 (** Same as [show_voting_period], but do not wait for the process to exit. *)
 val spawn_show_voting_period : ?endpoint:endpoint -> t -> Process.t
+
+(** Run [tezos-client originate sc rollup from <src> of kind <kind> booting with <boot_sector>]. *)
+val originate_sc_rollup :
+  ?wait:string ->
+  ?burn_cap:Tez.t ->
+  src:string ->
+  kind:string ->
+  boot_sector:string ->
+  t ->
+  string Lwt.t
+
+(** Same as [originate_sc_rollup], but do not wait for the process to exit. *)
+val spawn_originate_sc_rollup :
+  ?wait:string ->
+  ?burn_cap:Tez.t ->
+  src:string ->
+  kind:string ->
+  boot_sector:string ->
+  t ->
+  Process.t
+
+(** Run [tezos-client send rollup message <msg> from <src> to <dst>]. *)
+val send_sc_rollup_message :
+  ?wait:string ->
+  ?burn_cap:Tez.t ->
+  msg:string ->
+  src:string ->
+  dst:string ->
+  t ->
+  unit Lwt.t
+
+(** Same as [send_sc_rollup_message], but do not wait for the process to exit. *)
+val spawn_send_sc_rollup_message :
+  ?wait:string ->
+  ?burn_cap:Tez.t ->
+  msg:string ->
+  src:string ->
+  dst:string ->
+  t ->
+  Process.t
 
 (** {2 High-Level Functions} *)
 
@@ -862,6 +976,7 @@ val init_with_protocol :
   ?additional_bootstrap_account_count:int ->
   ?default_accounts_balance:int ->
   ?parameter_file:string ->
+  ?timestamp_delay:float ->
   [`Client | `Light | `Proxy] ->
   protocol:Protocol.t ->
   unit ->
@@ -904,3 +1019,19 @@ val init_light :
   ?nodes_args:Node.argument list ->
   unit ->
   (t * Node.t * Node.t) Lwt.t
+
+(** Spawn a low-level client command.
+
+   Prefer using higher-level functions defined in this module, or adding a new
+   one, to deferring to [spawn_command].
+
+   It can be used, for example, for low-level one-shot customization of client
+   commands.  *)
+val spawn_command :
+  ?env:string String_map.t ->
+  ?endpoint:endpoint ->
+  ?hooks:Process.hooks ->
+  ?admin:bool ->
+  t ->
+  string list ->
+  Process.t

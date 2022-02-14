@@ -139,6 +139,16 @@ type failed_info = {
 
 exception Failed of failed_info
 
+(** Converts the given [status] into a string explaining
+    why the corresponding process has stopped.
+
+    The resulting string is a subject-less sentence that
+    assumes that the subject will be prepended. *)
+let status_to_reason = function
+  | Unix.WEXITED code -> Format.sprintf "exited with code %d" code
+  | Unix.WSIGNALED code -> Format.sprintf "was killed by signal %d" code
+  | Unix.WSTOPPED code -> Format.sprintf "was stopped by signal %d" code
+
 let () =
   Printexc.register_printer @@ function
   | Failed {name; command; arguments; status; expect_failure; reason} ->
@@ -146,11 +156,7 @@ let () =
         Option.value
           ~default:
             (match status with
-            | Some (WEXITED code) -> Printf.sprintf "exited with code %d" code
-            | Some (WSIGNALED code) ->
-                Printf.sprintf "was killed by signal %d" code
-            | Some (WSTOPPED code) ->
-                Printf.sprintf "was killed by signal %d" code
+            | Some st -> status_to_reason st
             | None -> Printf.sprintf "exited")
           reason
       in
@@ -404,13 +410,20 @@ let kill (process : t) =
   kill_remote_if_needed process ;
   process.lwt_process#terminate
 
+let pid (process : t) = process.lwt_process#pid
+
+let validate_status ?(expect_failure = false) status =
+  match status with
+  | Unix.WEXITED n
+    when (n = 0 && not expect_failure) || (n <> 0 && expect_failure) ->
+      Ok ()
+  | _ -> Error (`Invalid_status (status_to_reason status))
+
 let check ?(expect_failure = false) process =
   let* status = wait process in
-  match status with
-  | WEXITED n when (n = 0 && not expect_failure) || (n <> 0 && expect_failure)
-    ->
-      unit
-  | _ ->
+  match validate_status ~expect_failure status with
+  | Ok () -> unit
+  | Error (`Invalid_status reason) ->
       raise
         (Failed
            {
@@ -419,7 +432,7 @@ let check ?(expect_failure = false) process =
              arguments = process.arguments;
              status = Some status;
              expect_failure;
-             reason = None;
+             reason = Some reason;
            })
 
 let run ?log_status_on_exit ?name ?color ?env ?expect_failure command arguments
@@ -508,3 +521,10 @@ let check_error ?exit_code ?msg process =
         msg ;
       unit
   | _ -> raise (Failed error)
+
+let program_path program =
+  Lwt.catch
+    (fun () ->
+      let* path = run_and_read_stdout "sh" ["-c"; "command -v " ^ program] in
+      return (Some (String.trim path)))
+    (fun _ -> return None)

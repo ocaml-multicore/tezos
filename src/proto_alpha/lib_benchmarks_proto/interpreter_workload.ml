@@ -1,7 +1,7 @@
 (*****************************************************************************)
 (*                                                                           *)
 (* Open Source License                                                       *)
-(* Copyright (c) 2021 Nomadic Labs, <contact@nomadic-labs.com>               *)
+(* Copyright (c) 2021-2022 Nomadic Labs <contact@nomadic-labs.com>           *)
 (*                                                                           *)
 (* Permission is hereby granted, free of charge, to any person obtaining a   *)
 (* copy of this software and associated documentation files (the "Software"),*)
@@ -1129,18 +1129,18 @@ open Script_typed_ir
 let rec size_of_comparable_value : type a. a comparable_ty -> a -> Size.t =
   fun (type a) (wit : a comparable_ty) (v : a) ->
    match wit with
-   | Never_key _ -> Size.zero
-   | Unit_key _ -> Size.unit
-   | Int_key _ -> Size.integer v
-   | Nat_key _ -> Size.integer v
-   | String_key _ -> Size.script_string v
-   | Bytes_key _ -> Size.bytes v
-   | Mutez_key _ -> Size.mutez v
-   | Bool_key _ -> Size.bool v
-   | Key_hash_key _ -> Size.key_hash v
-   | Timestamp_key _ -> Size.timestamp v
-   | Address_key _ -> Size.address v
-   | Pair_key ((leaf, _), (node, _), _) ->
+   | Never_key -> Size.zero
+   | Unit_key -> Size.unit
+   | Int_key -> Size.integer v
+   | Nat_key -> Size.integer v
+   | String_key -> Size.script_string v
+   | Bytes_key -> Size.bytes v
+   | Mutez_key -> Size.mutez v
+   | Bool_key -> Size.bool v
+   | Key_hash_key -> Size.key_hash v
+   | Timestamp_key -> Size.timestamp v
+   | Address_key -> Size.address v
+   | Pair_key (leaf, node, _) ->
        let (lv, rv) = v in
        let size =
          Size.add
@@ -1148,7 +1148,7 @@ let rec size_of_comparable_value : type a. a comparable_ty -> a -> Size.t =
            (size_of_comparable_value node rv)
        in
        Size.add size Size.one
-   | Union_key ((left, _), (right, _), _) ->
+   | Union_key (left, right, _) ->
        let size =
          match v with
          | L v -> size_of_comparable_value left v
@@ -1159,9 +1159,9 @@ let rec size_of_comparable_value : type a. a comparable_ty -> a -> Size.t =
        match v with
        | None -> Size.one
        | Some x -> Size.add (size_of_comparable_value ty x) Size.one)
-   | Signature_key _ -> Size.signature v
-   | Key_key _ -> Size.public_key v
-   | Chain_id_key _ -> Size.chain_id v
+   | Signature_key -> Size.signature v
+   | Key_key -> Size.public_key v
+   | Chain_id_key -> Size.chain_id v
 
 let extract_compare_sized_step :
     type a. a comparable_ty -> a -> a -> ir_sized_step =
@@ -1203,27 +1203,31 @@ let extract_ir_sized_step :
   | (IEmpty_set (_, _, _), _) -> Instructions.empty_set
   | (ISet_iter _, (set, _)) -> Instructions.set_iter (Size.set set)
   | (ISet_mem (_, _), (v, (set, _))) ->
-      let (module S) = set in
+      let (module S) = Script_set.get set in
       let sz = size_of_comparable_value S.elt_ty v in
       Instructions.set_mem sz (Size.set set)
   | (ISet_update (_, _), (v, (_flag, (set, _)))) ->
-      let (module S) = set in
+      let (module S) = Script_set.get set in
       let sz = size_of_comparable_value S.elt_ty v in
       Instructions.set_update sz (Size.set set)
   | (ISet_size (_, _), (set, _)) -> Instructions.set_size (Size.set set)
   | (IEmpty_map (_, _, _), _) -> Instructions.empty_map
   | (IMap_map _, (map, _)) -> Instructions.map_map (Size.map map)
   | (IMap_iter _, (map, _)) -> Instructions.map_iter (Size.map map)
-  | (IMap_mem (_, _), (v, (((module Map) as map), _))) ->
+  | (IMap_mem (_, _), (v, (map, _))) ->
+      let (module Map) = Script_map.get_module map in
       let key_size = size_of_comparable_value Map.key_ty v in
       Instructions.map_mem key_size (Size.map map)
-  | (IMap_get (_, _), (v, (((module Map) as map), _))) ->
+  | (IMap_get (_, _), (v, (map, _))) ->
+      let (module Map) = Script_map.get_module map in
       let key_size = size_of_comparable_value Map.key_ty v in
       Instructions.map_get key_size (Size.map map)
-  | (IMap_update (_, _), (v, (_elt_opt, (((module Map) as map), _)))) ->
+  | (IMap_update (_, _), (v, (_elt_opt, (map, _)))) ->
+      let (module Map) = Script_map.get_module map in
       let key_size = size_of_comparable_value Map.key_ty v in
       Instructions.map_update key_size (Size.map map)
-  | (IMap_get_and_update (_, _), (v, (_elt_opt, (((module Map) as map), _)))) ->
+  | (IMap_get_and_update (_, _), (v, (_elt_opt, (map, _)))) ->
+      let (module Map) = Script_map.get_module map in
       let key_size = size_of_comparable_value Map.key_ty v in
       Instructions.map_get_and_update key_size (Size.map map)
   | (IMap_size (_, _), (map, _)) -> Instructions.map_size (Size.map map)
@@ -1432,7 +1436,7 @@ let extract_ir_sized_step :
   | (IHalt _, _) -> Instructions.halt
   | (ILog _, _) -> Instructions.log
   | (IOpen_chest (_, _), (_, (chest, (time, _)))) ->
-      let plaintext_size = Timelock.get_plaintext_size chest - 1 in
+      let plaintext_size = Script_timelock.get_plaintext_size chest - 1 in
       let log_time = Z.log2 Z.(one + Script_int_repr.to_zint time) in
       Instructions.open_chest log_time plaintext_size
 
@@ -1454,7 +1458,8 @@ let extract_control_trace (type bef_top bef aft_top aft)
   | KList_exit_body (_, _, _, _, _) -> Control.list_exit_body
   | KMap_enter_body (_, xs, _, _) ->
       Control.map_enter_body (Size.of_int (List.length xs))
-  | KMap_exit_body (_, _, ((module Map) as map), k, _) ->
+  | KMap_exit_body (_, _, map, k, _) ->
+      let (module Map) = Script_map.get_module map in
       let key_size = size_of_comparable_value Map.key_ty k in
       Control.map_exit_body key_size (Size.map map)
   | KView_exit _ -> Control.view_exit
@@ -1525,11 +1530,14 @@ let extract_deps_continuation (type bef_top bef aft_top aft) ctxt step_constants
   let logger = {log_interp; log_entry; log_control; log_exit; get_log} in
   try
     let res =
+      let (_gas_counter, outdated_ctxt) =
+        Local_gas_counter.local_gas_counter_and_outdated_context ctxt
+      in
       Lwt_main.run
         (Script_interpreter.Internals.next
            (Some logger)
-           (Script_interpreter.Internals.OutDatedContext ctxt, step_constants)
-           0xFF_FF_FF_FF
+           (outdated_ctxt, step_constants)
+           (Local_gas_counter 0xFF_FF_FF_FF)
            cont
            (fst stack)
            (snd stack))

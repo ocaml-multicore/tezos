@@ -3,7 +3,8 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-.. TODO tezos/tezos#2170: search shifted protocol name/number & adapt
+.. TODO https://gitlab.com/tezos/tezos/-/issues/2170:
+   search shifted protocol name/number & adapt
 
 Welcome to the Tezos Developer Documentation!
 =============================================
@@ -136,6 +137,7 @@ in the :ref:`introduction <howtoget>`.
 
    shell/the_big_picture
    shell/validation
+   shell/prevalidation
    shell/storage
    shell/sync
    shell/p2p
@@ -162,6 +164,15 @@ in the :ref:`introduction <howtoget>`.
 
 .. toctree::
    :maxdepth: 2
+   :caption: 012 Ithaca Protocol doc:
+
+   012/protocol
+   012/glossary
+   012/cli-commands
+   012/rpc
+
+.. toctree::
+   :maxdepth: 2
    :caption: Alpha Development Protocol doc:
 
    alpha/protocol
@@ -178,9 +189,11 @@ in the :ref:`introduction <howtoget>`.
    developer/data_encoding
    developer/gadt
    developer/error_monad
+   developer/clic
    developer/michelson_anti_patterns
    developer/michelson_instructions
    developer/entering_alpha
+   developer/protocol_release_checklist
    developer/howto-freeze-protocols
    developer/protocol_environment
    developer/protocol_environment_upgrade
@@ -191,6 +204,7 @@ in the :ref:`introduction <howtoget>`.
    developer/contributing
    developer/merge_team
    developer/guidelines
+   developer/repository
    developer/time_measurement_ppx
    README
 
@@ -208,6 +222,7 @@ in the :ref:`introduction <howtoget>`.
    protocols/009_florence
    protocols/010_granada
    protocols/011_hangzhou
+   protocols/012_ithaca
    protocols/alpha
 
 .. toctree::
@@ -226,6 +241,7 @@ in the :ref:`introduction <howtoget>`.
    releases/version-9
    releases/version-10
    releases/version-11
+   releases/version-12
 
 .. toctree::
    :maxdepth: 2

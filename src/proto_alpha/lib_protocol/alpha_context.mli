@@ -2,7 +2,7 @@
 (*                                                                           *)
 (* Open Source License                                                       *)
 (* Copyright (c) 2018 Dynamic Ledger Solutions, Inc. <contact@tezos.com>     *)
-(* Copyright (c) 2019-2021 Nomadic Labs <contact@nomadic-labs.com>           *)
+(* Copyright (c) 2019-2022 Nomadic Labs <contact@nomadic-labs.com>           *)
 (* Copyright (c) 2021 Trili Tech, <contact@trili.tech>                       *)
 (*                                                                           *)
 (* Permission is hereby granted, free of charge, to any person obtaining a   *)
@@ -73,13 +73,15 @@ module Slot : sig
 
   val zero : t
 
-  val succ : t -> t
+  val succ : t -> t tzresult
 
   val of_int_do_not_use_except_for_parameters : int -> t
 
   val encoding : t Data_encoding.encoding
 
-  val slot_range : min:int -> count:int -> t list tzresult
+  type slot_range = private t list
+
+  val slot_range : min:int -> count:int -> slot_range tzresult
 
   module Map : Map.S with type key = t
 
@@ -87,7 +89,11 @@ module Slot : sig
 end
 
 module Tez : sig
-  include BASIC_DATA
+  type repr
+
+  type t = Tez_tag of repr [@@ocaml.unboxed]
+
+  include BASIC_DATA with type t := t
 
   type tez = t
 
@@ -321,7 +327,7 @@ module Gas : sig
 
   module Arith :
     Fixed_point_repr.Safe
-      with type 'a t = Saturation_repr.may_saturate Saturation_repr.t
+      with type 'a t = private Saturation_repr.may_saturate Saturation_repr.t
   [@@coq_plain_module]
 
   (** For maintenance operations or for testing, gas can be
@@ -407,6 +413,12 @@ module Gas : sig
   (** The cost of free operation is [0]. *)
   val free : cost
 
+  (** Convert a fixed-point amount of gas to a cost. *)
+  val cost_of_gas : 'a Arith.t -> cost
+
+  (** Convert an amount of milligas expressed as an int to Arith.fp.  *)
+  val fp_of_milligas_int : int -> Arith.fp
+
   (** [atomic_step_cost x] corresponds to [x] milliunit of gas. *)
   val atomic_step_cost : _ Saturation_repr.t -> cost
 
@@ -449,6 +461,8 @@ module Gas : sig
   val cost_of_repr : Gas_limit_repr.cost -> cost
 end
 
+module Entrypoint : module type of Entrypoint_repr
+
 module Script_string : module type of Script_string_repr
 
 module Script_int : module type of Script_int_repr
@@ -456,7 +470,9 @@ module Script_int : module type of Script_int_repr
 module Script_timestamp : sig
   open Script_int
 
-  type t
+  type repr
+
+  type t = Timestamp_tag of repr [@@ocaml.unboxed]
 
   val compare : t -> t -> int
 
@@ -702,10 +718,6 @@ module Constants : sig
   (** Fixed constants *)
   type fixed
 
-  type delegate_selection =
-    | Random
-    | Round_robin_over of Signature.Public_key.t list list
-
   val fixed_encoding : fixed Data_encoding.t
 
   val proof_of_work_nonce_size : int
@@ -760,9 +772,16 @@ module Constants : sig
     frozen_deposits_percentage : int;
     double_baking_punishment : Tez.t;
     ratio_of_frozen_deposits_slashed_per_double_endorsement : ratio;
-    delegate_selection : delegate_selection;
+    initial_seed : State_hash.t option;
+    cache_script_size : int;
+    cache_stake_distribution_cycles : int;
+    cache_sampler_state_cycles : int;
     tx_rollup_enable : bool;
     tx_rollup_origination_size : int;
+    tx_rollup_hard_size_limit_per_inbox : int;
+    tx_rollup_hard_size_limit_per_message : int;
+    sc_rollup_enable : bool;
+    sc_rollup_origination_size : int;
   }
 
   module Generated : sig
@@ -848,7 +867,13 @@ module Constants : sig
 
   val tx_rollup_origination_size : context -> int
 
-  val delegate_selection_encoding : delegate_selection Data_encoding.t
+  val tx_rollup_hard_size_limit_per_inbox : context -> int
+
+  val tx_rollup_hard_size_limit_per_message : context -> int
+
+  val sc_rollup_enable : context -> bool
+
+  val sc_rollup_origination_size : context -> int
 
   (** All constants: fixed and parametric *)
   type t = private {fixed : fixed; parametric : parametric}
@@ -967,11 +992,7 @@ module Cache : sig
 
     val pp : Format.formatter -> context -> unit
 
-    val set_cache_layout : context -> size list -> context Lwt.t
-
     val sync : context -> cache_nonce:Bytes.t -> context Lwt.t
-
-    val clear : context -> context
 
     val future_cache_expectation : context -> time_in_blocks:int -> context
 
@@ -1149,7 +1170,7 @@ end
 
 module Big_map : sig
   module Id : sig
-    type t
+    type t = Lazy_storage_kind.Big_map.Id.t
 
     val encoding : t Data_encoding.t
 
@@ -1322,7 +1343,10 @@ module Lazy_storage : sig
     | Remove
     | Update of {init : ('id, 'alloc) init; updates : 'updates}
 
-  type diffs_item
+  type diffs_item = private
+    | Item :
+        ('i, 'a, 'u) Lazy_storage_kind.t * 'i * ('i, 'a, 'u) diff
+        -> diffs_item
 
   val make : ('i, 'a, 'u) Kind.t -> 'i -> ('i, 'a, 'u) diff -> diffs_item
 
@@ -1373,6 +1397,8 @@ module Contract : sig
   val implicit_contract : public_key_hash -> contract
 
   val is_implicit : contract -> public_key_hash option
+
+  val is_originated : contract -> Contract_hash.t option
 
   val exists : context -> contract -> bool tzresult Lwt.t
 
@@ -1505,41 +1531,6 @@ module Receipt : sig
   val balance_updates_encoding : balance_updates Data_encoding.t
 
   val group_balance_updates : balance_updates -> balance_updates tzresult
-end
-
-(** This simply re-exports [Tx_rollup_repr] and [tx_rollup_storage]. See
-    [tx_rollup_repr] and [tx_rollup_storage] for additional documentation of this
-    module *)
-module Tx_rollup : sig
-  include BASIC_DATA
-
-  type tx_rollup = t
-
-  val rpc_arg : tx_rollup RPC_arg.arg
-
-  val to_b58check : tx_rollup -> string
-
-  val of_b58check : string -> tx_rollup tzresult
-
-  val pp : Format.formatter -> tx_rollup -> unit
-
-  val encoding : tx_rollup Data_encoding.t
-
-  val originate : context -> (context * tx_rollup) tzresult Lwt.t
-
-  type state
-
-  val state : context -> tx_rollup -> state option tzresult Lwt.t
-
-  val state_encoding : state Data_encoding.t
-
-  val pp_state : Format.formatter -> state -> unit
-
-  module Internal_for_tests : sig
-    (** see [tx_rollup_repr.originated_tx_rollup] for documentation *)
-    val originated_tx_rollup :
-      Origination_nonce.Internal_for_tests.t -> tx_rollup
-  end
 end
 
 module Delegate : sig
@@ -1703,7 +1694,7 @@ module Vote : sig
   val record_proposal :
     context -> Protocol_hash.t -> public_key_hash -> context tzresult Lwt.t
 
-  val get_proposals : context -> int32 Protocol_hash.Map.t tzresult Lwt.t
+  val get_proposals : context -> int64 Protocol_hash.Map.t tzresult Lwt.t
 
   val clear_proposals : context -> context Lwt.t
 
@@ -1711,31 +1702,29 @@ module Vote : sig
     context -> public_key_hash -> int tzresult Lwt.t
 
   val listings_encoding :
-    (Signature.Public_key_hash.t * int32) list Data_encoding.t
+    (Signature.Public_key_hash.t * int64) list Data_encoding.t
 
   val update_listings : context -> context tzresult Lwt.t
 
-  val listing_size : context -> int32 tzresult Lwt.t
-
   val in_listings : context -> public_key_hash -> bool Lwt.t
 
-  val get_listings : context -> (public_key_hash * int32) list Lwt.t
+  val get_listings : context -> (public_key_hash * int64) list Lwt.t
 
   type ballot = Yay | Nay | Pass
 
   val get_voting_power_free :
-    context -> Signature.Public_key_hash.t -> int32 tzresult Lwt.t
+    context -> Signature.Public_key_hash.t -> int64 tzresult Lwt.t
 
   val get_voting_power :
-    context -> Signature.Public_key_hash.t -> (context * int32) tzresult Lwt.t
+    context -> Signature.Public_key_hash.t -> (context * int64) tzresult Lwt.t
 
-  val get_total_voting_power_free : context -> int32 tzresult Lwt.t
+  val get_total_voting_power_free : context -> int64 tzresult Lwt.t
 
-  val get_total_voting_power : context -> (context * int32) tzresult Lwt.t
+  val get_total_voting_power : context -> (context * int64) tzresult Lwt.t
 
   val ballot_encoding : ballot Data_encoding.t
 
-  type ballots = {yay : int32; nay : int32; pass : int32}
+  type ballots = {yay : int64; nay : int64; pass : int64}
 
   val ballots_encoding : ballots Data_encoding.t
 
@@ -1746,8 +1735,7 @@ module Vote : sig
 
   val get_ballots : context -> ballots tzresult Lwt.t
 
-  val get_ballot_list :
-    context -> (Signature.Public_key_hash.t * ballot) list Lwt.t
+  val get_ballot_list : context -> (public_key_hash * ballot) list Lwt.t
 
   val clear_ballots : context -> context Lwt.t
 
@@ -1764,6 +1752,48 @@ module Vote : sig
   val init_current_proposal : context -> proposal -> context tzresult Lwt.t
 
   val clear_current_proposal : context -> context tzresult Lwt.t
+end
+
+(** See {!Sc_rollup_storage} and {!Sc_rollup_repr}. *)
+module Sc_rollup : sig
+  module PVM : sig
+    type boot_sector
+
+    val boot_sector_of_string : string -> boot_sector
+  end
+
+  module Address : S.HASH
+
+  type t = Address.t
+
+  module Kind : sig
+    type t = Example_arith
+
+    val encoding : t Data_encoding.t
+  end
+
+  val originate :
+    context ->
+    kind:Kind.t ->
+    boot_sector:PVM.boot_sector ->
+    (t * Z.t * context) tzresult Lwt.t
+
+  val kind : context -> t -> Kind.t option tzresult Lwt.t
+
+  module Inbox : sig
+    type t
+
+    val encoding : t Data_encoding.encoding
+
+    val pp : Format.formatter -> t -> unit
+  end
+
+  val rpc_arg : t RPC_arg.t
+
+  val add_messages :
+    context -> t -> string list -> (Inbox.t * Z.t * context) tzresult Lwt.t
+
+  val inbox : context -> t -> (Inbox.t * context) tzresult Lwt.t
 end
 
 module Block_payload : sig
@@ -1894,6 +1924,198 @@ module Block_header : sig
     unit tzresult
 end
 
+(** This module re-exports functions from {!Ticket_hash_repr}. See
+    documentation of the functions there. *)
+module Ticket_hash : sig
+  type t
+
+  val encoding : t Data_encoding.t
+
+  val pp : Format.formatter -> t -> unit
+
+  val equal : t -> t -> bool
+
+  val compare : t -> t -> int
+
+  val make :
+    context ->
+    ticketer:Script.node ->
+    typ:Script.node ->
+    contents:Script.node ->
+    owner:Script.node ->
+    (t * context) tzresult
+end
+
+(** This simply re-exports {!Destination_repr}. *)
+module Destination : sig
+  type t = Contract of Contract.t
+
+  val encoding : t Data_encoding.t
+
+  val pp : Format.formatter -> t -> unit
+
+  val compare : t -> t -> int
+
+  val equal : t -> t -> bool
+
+  val to_b58check : t -> string
+
+  val of_b58check : string -> t tzresult
+
+  val in_memory_size : t -> Cache_memory_helpers.sint
+
+  type error += Invalid_destination_b58check of string
+end
+
+(** This module re-exports definitions from {!Tx_rollup_repr} and
+    {!Tx_rollup_storage}. *)
+module Tx_rollup : sig
+  include BASIC_DATA
+
+  type tx_rollup = t
+
+  val rpc_arg : tx_rollup RPC_arg.arg
+
+  val to_b58check : tx_rollup -> string
+
+  val of_b58check : string -> tx_rollup tzresult
+
+  val of_b58check_opt : string -> tx_rollup option
+
+  val pp : Format.formatter -> tx_rollup -> unit
+
+  val encoding : tx_rollup Data_encoding.t
+
+  val originate : context -> (context * tx_rollup) tzresult Lwt.t
+
+  val update_tx_rollups_at_block_finalization :
+    context -> context tzresult Lwt.t
+
+  module Internal_for_tests : sig
+    (** see [tx_rollup_repr.originated_tx_rollup] for documentation *)
+    val originated_tx_rollup :
+      Origination_nonce.Internal_for_tests.t -> tx_rollup
+  end
+end
+
+(** This module re-exports definitions from {!Tx_rollup_state_repr}
+    and {!Tx_rollup_state_storage}. *)
+module Tx_rollup_state : sig
+  type t
+
+  val initial_state : t
+
+  val encoding : t Data_encoding.t
+
+  val pp : Format.formatter -> t -> unit
+
+  val find : context -> Tx_rollup.t -> (context * t option) tzresult Lwt.t
+
+  val get : context -> Tx_rollup.t -> (context * t) tzresult Lwt.t
+
+  val update : context -> Tx_rollup.t -> t -> context tzresult Lwt.t
+
+  val fees : t -> int -> Tez.t tzresult
+
+  val last_inbox_level : t -> Raw_level.t option
+
+  type error +=
+    | Tx_rollup_already_exists of Tx_rollup.t
+    | Tx_rollup_does_not_exist of Tx_rollup.t
+
+  module Internal_for_tests : sig
+    val make :
+      fees_per_byte:Tez.t ->
+      inbox_ema:int ->
+      last_inbox_level:Raw_level.t option ->
+      t
+
+    val update_fees_per_byte : t -> final_size:int -> hard_limit:int -> t
+
+    val get_inbox_ema : t -> int
+  end
+end
+
+(** This module re-exports definitions from {!Tx_rollup_message_repr}. *)
+module Tx_rollup_message : sig
+  type deposit = {
+    destination : Tx_rollup_l2_address.Indexable.t;
+    ticket_hash : Ticket_hash.t;
+    amount : int64;
+  }
+
+  type t = private Batch of string | Deposit of deposit
+
+  (** [make_batch batch] creates a new message to be added that can be
+      added to an inbox, along with its size in bytes. See
+      {!Tx_rollup_message_repr.size}. *)
+  val make_batch : string -> t * int
+
+  val encoding : t Data_encoding.t
+
+  val pp : Format.formatter -> t -> unit
+
+  type hash
+
+  val hash_encoding : hash Data_encoding.t
+
+  val pp_hash : Format.formatter -> hash -> unit
+
+  val hash : t -> hash
+end
+
+(** This module re-exports definitions from {!Tx_rollup_inbox_repr} and
+    {!Tx_rollup_inbox_storage}. *)
+module Tx_rollup_inbox : sig
+  type t = {contents : Tx_rollup_message.hash list; cumulated_size : int}
+
+  val pp : Format.formatter -> t -> unit
+
+  val encoding : t Data_encoding.t
+
+  val append_message :
+    context ->
+    Tx_rollup.t ->
+    Tx_rollup_state.t ->
+    Tx_rollup_message.t ->
+    (context * Tx_rollup_state.t) tzresult Lwt.t
+
+  val messages :
+    context ->
+    level:[`Current | `Level of Raw_level.t] ->
+    Tx_rollup.t ->
+    (context * Tx_rollup_message.hash list) tzresult Lwt.t
+
+  val size :
+    context ->
+    level:[`Current | `Level of Raw_level.t] ->
+    Tx_rollup.t ->
+    (context * int) tzresult Lwt.t
+
+  val get :
+    context ->
+    level:[`Current | `Level of Raw_level.t] ->
+    Tx_rollup.t ->
+    (context * t) tzresult Lwt.t
+
+  val find :
+    context ->
+    level:[`Current | `Level of Raw_level.t] ->
+    Tx_rollup.t ->
+    (context * t option) tzresult Lwt.t
+
+  val get_adjacent_levels :
+    context ->
+    Raw_level.t ->
+    Tx_rollup.t ->
+    (context * Raw_level.t option * Raw_level.t option) tzresult Lwt.t
+
+  type error +=
+    | Tx_rollup_inbox_does_not_exist of Tx_rollup.t * Raw_level.t
+    | Tx_rollup_inbox_size_would_exceed_limit of Tx_rollup.t
+    | Tx_rollup_message_size_exceeds_limit
+end
+
 module Kind : sig
   type preendorsement_consensus_kind = Preendorsement_consensus_kind
 
@@ -1942,6 +2164,12 @@ module Kind : sig
 
   type tx_rollup_origination = Tx_rollup_origination_kind
 
+  type tx_rollup_submit_batch = Tx_rollup_submit_batch_kind
+
+  type sc_rollup_originate = Sc_rollup_originate_kind
+
+  type sc_rollup_add_messages = Sc_rollup_add_messages_kind
+
   type 'a manager =
     | Reveal_manager_kind : reveal manager
     | Transaction_manager_kind : transaction manager
@@ -1950,6 +2178,9 @@ module Kind : sig
     | Register_global_constant_manager_kind : register_global_constant manager
     | Set_deposits_limit_manager_kind : set_deposits_limit manager
     | Tx_rollup_origination_manager_kind : tx_rollup_origination manager
+    | Tx_rollup_submit_batch_manager_kind : tx_rollup_submit_batch manager
+    | Sc_rollup_originate_manager_kind : sc_rollup_originate manager
+    | Sc_rollup_add_messages_manager_kind : sc_rollup_add_messages manager
 end
 
 type 'a consensus_operation_type =
@@ -2046,8 +2277,8 @@ and _ manager_operation =
   | Transaction : {
       amount : Tez.tez;
       parameters : Script.lazy_expr;
-      entrypoint : string;
-      destination : Contract.contract;
+      entrypoint : Entrypoint.t;
+      destination : Destination.t;
     }
       -> Kind.transaction manager_operation
   | Origination : {
@@ -2068,6 +2299,21 @@ and _ manager_operation =
       Tez.t option
       -> Kind.set_deposits_limit manager_operation
   | Tx_rollup_origination : Kind.tx_rollup_origination manager_operation
+  | Tx_rollup_submit_batch : {
+      tx_rollup : Tx_rollup.t;
+      content : string;
+    }
+      -> Kind.tx_rollup_submit_batch manager_operation
+  | Sc_rollup_originate : {
+      kind : Sc_rollup.Kind.t;
+      boot_sector : Sc_rollup.PVM.boot_sector;
+    }
+      -> Kind.sc_rollup_originate manager_operation
+  | Sc_rollup_add_messages : {
+      rollup : Sc_rollup.t;
+      messages : string list;
+    }
+      -> Kind.sc_rollup_add_messages manager_operation
 
 and counter = Z.t
 
@@ -2208,10 +2454,18 @@ module Operation : sig
     val tx_rollup_origination_case :
       Kind.tx_rollup_origination Kind.manager case
 
+    val tx_rollup_submit_batch_case :
+      Kind.tx_rollup_submit_batch Kind.manager case
+
     val register_global_constant_case :
       Kind.register_global_constant Kind.manager case
 
     val set_deposits_limit_case : Kind.set_deposits_limit Kind.manager case
+
+    val sc_rollup_originate_case : Kind.sc_rollup_originate Kind.manager case
+
+    val sc_rollup_add_messages_case :
+      Kind.sc_rollup_add_messages Kind.manager case
 
     module Manager_operations : sig
       type 'b case =
@@ -2238,6 +2492,12 @@ module Operation : sig
       val set_deposits_limit_case : Kind.set_deposits_limit case
 
       val tx_rollup_origination_case : Kind.tx_rollup_origination case
+
+      val tx_rollup_submit_batch_case : Kind.tx_rollup_submit_batch case
+
+      val sc_rollup_originate_case : Kind.sc_rollup_originate case
+
+      val sc_rollup_add_messages_case : Kind.sc_rollup_add_messages case
     end
   end
 
@@ -2375,22 +2635,11 @@ end
     documentation of the functions there.
  *)
 module Ticket_balance : sig
-  type key_hash
-
-  val script_expr_hash_of_key_hash : key_hash -> Script_expr_hash.t
-
-  val make_key_hash :
-    context ->
-    ticketer:Script.node ->
-    typ:Script.node ->
-    contents:Script.node ->
-    owner:Script.node ->
-    (key_hash * context) tzresult
-
   val adjust_balance :
-    context -> key_hash -> delta:Z.t -> (Z.t * context) tzresult Lwt.t
+    context -> Ticket_hash.t -> delta:Z.t -> (Z.t * context) tzresult Lwt.t
 
-  val get_balance : context -> key_hash -> (Z.t option * context) tzresult Lwt.t
+  val get_balance :
+    context -> Ticket_hash.t -> (Z.t option * context) tzresult Lwt.t
 end
 
 module First_level_of_tenderbake : sig
@@ -2491,6 +2740,14 @@ module Fees : sig
     context ->
     storage_limit:Z.t ->
     payer:Token.source ->
+    (context * Z.t * Receipt.balance_updates) tzresult Lwt.t
+
+  val burn_sc_rollup_origination_fees :
+    ?origin:Receipt.update_origin ->
+    context ->
+    storage_limit:Z.t ->
+    payer:Token.source ->
+    Z.t ->
     (context * Z.t * Receipt.balance_updates) tzresult Lwt.t
 
   type error += Cannot_pay_storage_fee (* `Temporary *)

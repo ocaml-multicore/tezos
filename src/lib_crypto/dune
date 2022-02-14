@@ -1,18 +1,19 @@
+; This file was automatically generated, do not edit.
+; Edit file manifest/main.ml instead.
+
 (library
  (name tezos_crypto)
  (public_name tezos-crypto)
  (instrumentation (backend bisect_ppx))
  (libraries
+  tezos-stdlib
   data-encoding
   tezos-lwt-result-stdlib
   lwt
-  ; NOTE: tezos_*_glue are virtual packages;
-  ; either the unix or js implementation must be installed
   tezos-hacl-glue
   secp256k1-internal
   tezos-error-monad
   tezos-rpc
-  tezos-stdlib
   ringo
   zarith
   zarith_stubs_js)

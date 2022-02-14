@@ -29,10 +29,7 @@ open Alpha_context
 
 type error +=
   | (* `Permanent *)
-      Not_enough_endorsements of {
-      required : int;
-      endorsements : int;
-    }
+      Not_enough_endorsements of {required : int; provided : int}
   | (* `Temporary *)
       Wrong_consensus_operation_branch of
       Block_hash.t * Block_hash.t
@@ -107,7 +104,11 @@ type error +=
     }
   | (* `Branch *) Empty_transaction of Contract.t
   | (* `Permanent *)
-      Tx_rollup_disabled
+      Tx_rollup_feature_disabled
+  | (* `Permanent *)
+      Sc_rollup_feature_disabled
+  | (* `Permanent *)
+      Inconsistent_counters
 
 let () =
   register_error_kind
@@ -126,19 +127,17 @@ let () =
     ~description:
       "The block being validated does not include the required minimum number \
        of endorsements."
-    ~pp:(fun ppf (required, endorsements) ->
+    ~pp:(fun ppf (required, provided) ->
       Format.fprintf
         ppf
         "Wrong number of endorsements (%i), at least %i are expected"
-        endorsements
+        provided
         required)
-    Data_encoding.(obj2 (req "required" int31) (req "endorsements" int31))
+    Data_encoding.(obj2 (req "required" int31) (req "provided" int31))
     (function
-      | Not_enough_endorsements {required; endorsements} ->
-          Some (required, endorsements)
+      | Not_enough_endorsements {required; provided} -> Some (required, provided)
       | _ -> None)
-    (fun (required, endorsements) ->
-      Not_enough_endorsements {required; endorsements}) ;
+    (fun (required, provided) -> Not_enough_endorsements {required; provided}) ;
   register_error_kind
     `Temporary
     ~id:"operation.wrong_consensus_operation_branch"
@@ -480,6 +479,7 @@ let () =
     Data_encoding.(obj1 (req "contract" Contract.encoding))
     (function Empty_transaction c -> Some c | _ -> None)
     (fun c -> Empty_transaction c) ;
+
   register_error_kind
     `Permanent
     ~id:"operation.tx_rollup_is_disabled"
@@ -491,10 +491,40 @@ let () =
         "Cannot apply a tx rollup operation as it is disabled. This feature \
          will be enabled in a future proposal")
     Data_encoding.unit
-    (function Tx_rollup_disabled -> Some () | _ -> None)
-    (fun () -> Tx_rollup_disabled)
+    (function Tx_rollup_feature_disabled -> Some () | _ -> None)
+    (fun () -> Tx_rollup_feature_disabled) ;
 
-type error += (* `Temporary *) Wrong_voting_period of int32 * int32
+  let description =
+    "Smart contract rollups will be enabled in a future proposal."
+  in
+  register_error_kind
+    `Permanent
+    ~id:"operation.sc_rollup_disabled"
+    ~title:"Smart contract rollups are disabled"
+    ~description
+    ~pp:(fun ppf () -> Format.fprintf ppf "%s" description)
+    Data_encoding.unit
+    (function Sc_rollup_feature_disabled -> Some () | _ -> None)
+    (fun () -> Sc_rollup_feature_disabled) ;
+
+  register_error_kind
+    `Permanent
+    ~id:"operation.inconsistent_counters"
+    ~title:"Inconsistent counters in operation"
+    ~description:
+      "Inconsistent counters in operation. Counters of an operation must be \
+       successive."
+    ~pp:(fun ppf () ->
+      Format.fprintf
+        ppf
+        "Inconsistent counters in operation. Counters of an operation must be \
+         successive.")
+    Data_encoding.empty
+    (function Inconsistent_counters -> Some () | _ -> None)
+    (fun () -> Inconsistent_counters)
+
+type error +=
+  | (* `Temporary *) Wrong_voting_period of {expected : int32; provided : int32}
 
 type error +=
   | (* `Permanent *) Internal_operation_replay of packed_internal_operation
@@ -570,8 +600,10 @@ let () =
       Format.fprintf ppf "Wrong voting period %ld, current is %ld" p e)
     Data_encoding.(
       obj2 (req "current_index" int32) (req "provided_index" int32))
-    (function Wrong_voting_period (e, p) -> Some (e, p) | _ -> None)
-    (fun (e, p) -> Wrong_voting_period (e, p)) ;
+    (function
+      | Wrong_voting_period {expected; provided} -> Some (expected, provided)
+      | _ -> None)
+    (fun (expected, provided) -> Wrong_voting_period {expected; provided}) ;
   register_error_kind
     `Permanent
     ~id:"internal_operation_replay"
@@ -777,7 +809,11 @@ let () =
 
 open Apply_results
 
-let cache_layout = Constants_repr.cache_layout
+let assert_tx_rollup_feature_enabled ctxt =
+  fail_unless (Constants.tx_rollup_enable ctxt) Tx_rollup_feature_disabled
+
+let assert_sc_rollup_feature_enabled ctxt =
+  fail_unless (Constants.sc_rollup_enable ctxt) Sc_rollup_feature_disabled
 
 (**
 
@@ -837,7 +873,8 @@ let apply_manager_operation_content :
              {consumed_gas = Gas.consumed ~since:before_operation ~until:ctxt}
             : kind successful_manager_operation_result),
           [] )
-  | Transaction {amount; parameters; destination; entrypoint} -> (
+  | Transaction
+      {amount; parameters; destination = Contract destination; entrypoint} -> (
       Script.force_decode_in_context
         ~consume_deserialization_gas
         ctxt
@@ -867,10 +904,8 @@ let apply_manager_operation_content :
       match script with
       | None ->
           Lwt.return
-            ( ( (match entrypoint with
-                | "default" -> Result.return_unit
-                | entrypoint ->
-                    error (Script_tc_errors.No_such_entrypoint entrypoint))
+            ( ( (if Entrypoint.is_default entrypoint then Result.return_unit
+                else error (Script_tc_errors.No_such_entrypoint entrypoint))
               >>? fun () ->
                 match Micheline.root parameter with
                 | Prim (_, D_Unit, [], _) ->
@@ -882,20 +917,24 @@ let apply_manager_operation_content :
             >|? fun ctxt ->
               let result =
                 Transaction_result
-                  {
-                    storage = None;
-                    lazy_storage_diff = None;
-                    balance_updates;
-                    originated_contracts = [];
-                    consumed_gas =
-                      Gas.consumed ~since:before_operation ~until:ctxt;
-                    storage_size = Z.zero;
-                    paid_storage_size_diff = Z.zero;
-                    allocated_destination_contract;
-                  }
+                  (Transaction_to_contract_result
+                     {
+                       storage = None;
+                       lazy_storage_diff = None;
+                       balance_updates;
+                       originated_contracts = [];
+                       consumed_gas =
+                         Gas.consumed ~since:before_operation ~until:ctxt;
+                       storage_size = Z.zero;
+                       paid_storage_size_diff = Z.zero;
+                       allocated_destination_contract;
+                     })
               in
               (ctxt, result, []) )
       | Some (script, script_ir) ->
+          (* Token.transfer which is being called above already loads this
+             value into the Irmin cache, so no need to burn gas for it. *)
+          Contract.get_balance ctxt destination >>=? fun balance ->
           let now = Script_timestamp.now ctxt in
           let level =
             (Level.current ctxt).level |> Raw_level.to_int32
@@ -903,7 +942,16 @@ let apply_manager_operation_content :
           in
           let step_constants =
             let open Script_interpreter in
-            {source; payer; self = destination; amount; chain_id; now; level}
+            {
+              source;
+              payer;
+              self = destination;
+              amount;
+              chain_id;
+              balance;
+              now;
+              level;
+            }
           in
           Script_interpreter.execute
             ctxt
@@ -938,17 +986,18 @@ let apply_manager_operation_content :
             >|? fun ctxt ->
               let result =
                 Transaction_result
-                  {
-                    storage = Some storage;
-                    lazy_storage_diff;
-                    balance_updates;
-                    originated_contracts;
-                    consumed_gas =
-                      Gas.consumed ~since:before_operation ~until:ctxt;
-                    storage_size = new_size;
-                    paid_storage_size_diff;
-                    allocated_destination_contract;
-                  }
+                  (Transaction_to_contract_result
+                     {
+                       storage = Some storage;
+                       lazy_storage_diff;
+                       balance_updates;
+                       originated_contracts;
+                       consumed_gas =
+                         Gas.consumed ~since:before_operation ~until:ctxt;
+                       storage_size = new_size;
+                       paid_storage_size_diff;
+                       allocated_destination_contract;
+                     })
               in
               (ctxt, result, operations) ))
   | Origination {delegate; script; preorigination; credit} ->
@@ -1077,7 +1126,7 @@ let apply_manager_operation_content :
       return (ctxt, result, [])
   | Set_deposits_limit limit -> (
       (match limit with
-      | None -> return_unit
+      | None -> Result.return_unit
       | Some limit ->
           let frozen_deposits_percentage =
             Constants.frozen_deposits_percentage ctxt
@@ -1087,18 +1136,18 @@ let apply_manager_operation_content :
               Int64.(
                 mul (of_int frozen_deposits_percentage) Int64.(div max_int 100L))
           in
-          fail_when
+          error_when
             Tez.(limit > max_limit)
             (Set_deposits_limit_too_high {limit; max_limit}))
-      >>=? fun () ->
-      Contract.is_implicit source |> function
+      >>?= fun () ->
+      match Contract.is_implicit source with
       | None -> fail Set_deposits_limit_on_originated_contract
       | Some delegate ->
           Delegate.registered ctxt delegate >>=? fun is_registered ->
-          fail_unless
+          error_unless
             is_registered
             (Set_deposits_limit_on_unregistered_delegate delegate)
-          >>=? fun () ->
+          >>?= fun () ->
           Delegate.set_frozen_deposits_limit ctxt delegate limit >>= fun ctxt ->
           return
             ( ctxt,
@@ -1108,8 +1157,6 @@ let apply_manager_operation_content :
                 },
               [] ))
   | Tx_rollup_origination ->
-      fail_unless (Constants.tx_rollup_enable ctxt) Tx_rollup_disabled
-      >>=? fun () ->
       Tx_rollup.originate ctxt >>=? fun (ctxt, originated_tx_rollup) ->
       let result =
         Tx_rollup_origination_result
@@ -1119,6 +1166,39 @@ let apply_manager_operation_content :
             balance_updates = [];
           }
       in
+      return (ctxt, result, [])
+  | Tx_rollup_submit_batch {tx_rollup; content} ->
+      assert_tx_rollup_feature_enabled ctxt >>=? fun () ->
+      let (message, message_size) = Tx_rollup_message.make_batch content in
+      Tx_rollup_state.get ctxt tx_rollup >>=? fun (ctxt, state) ->
+      Tx_rollup_state.fees state message_size >>?= fun cost ->
+      Token.transfer ctxt (`Contract source) `Burned cost
+      >>=? fun (ctxt, balance_updates) ->
+      Tx_rollup_inbox.append_message ctxt tx_rollup state message
+      >>=? fun (ctxt, state) ->
+      Tx_rollup_state.update ctxt tx_rollup state >>=? fun ctxt ->
+      let result =
+        Tx_rollup_submit_batch_result
+          {
+            consumed_gas = Gas.consumed ~since:before_operation ~until:ctxt;
+            balance_updates;
+          }
+      in
+      return (ctxt, result, [])
+  | Sc_rollup_originate {kind; boot_sector} ->
+      Sc_rollup_operations.originate ctxt ~kind ~boot_sector
+      >>=? fun ({address; size}, ctxt) ->
+      let consumed_gas = Gas.consumed ~since:before_operation ~until:ctxt in
+      let result =
+        Sc_rollup_originate_result
+          {address; consumed_gas; size; balance_updates = []}
+      in
+      return (ctxt, result, [])
+  | Sc_rollup_add_messages {rollup; messages} ->
+      Sc_rollup.add_messages ctxt rollup messages
+      >>=? fun (inbox_after, _size, ctxt) ->
+      let consumed_gas = Gas.consumed ~since:before_operation ~until:ctxt in
+      let result = Sc_rollup_add_messages_result {consumed_gas; inbox_after} in
       return (ctxt, result, [])
 
 type success_or_failure = Success of context | Failure
@@ -1231,7 +1311,24 @@ let precheck_manager_contents (type kind) ctxt (op : kind Kind.manager contents)
       @@ (* See comment in the Transaction branch *)
       ( Script.force_decode_in_context ~consume_deserialization_gas ctxt value
       >|? fun (_value, ctxt) -> ctxt )
-  | _ -> return ctxt)
+  | Delegation _ | Set_deposits_limit _ -> return ctxt
+  | Tx_rollup_origination ->
+      assert_tx_rollup_feature_enabled ctxt >|=? fun () -> ctxt
+  | Tx_rollup_submit_batch {content; _} ->
+      (* FIXME: https://gitlab.com/tezos/tezos/-/issues/2408
+         Do we need to take into account the carbonation of hasing
+         [content] here? *)
+      assert_tx_rollup_feature_enabled ctxt >>=? fun () ->
+      let size_limit =
+        Alpha_context.Constants.tx_rollup_hard_size_limit_per_message ctxt
+      in
+      let (_, message_size) = Tx_rollup_message.make_batch content in
+      fail_unless
+        Compare.Int.(message_size < size_limit)
+        Tx_rollup_inbox.Tx_rollup_message_size_exceeds_limit
+      >|=? fun () -> ctxt
+  | Sc_rollup_originate _ | Sc_rollup_add_messages _ ->
+      assert_sc_rollup_feature_enabled ctxt >|=? fun () -> ctxt)
   >>=? fun ctxt ->
   Contract.increment_counter ctxt source >>=? fun ctxt ->
   Token.transfer ctxt (`Contract source_contract) `Block_fees fee
@@ -1253,7 +1350,7 @@ let burn_storage_fees :
     (context * Z.t * kind successful_manager_operation_result) tzresult Lwt.t =
  fun ctxt smopr ~storage_limit ~payer ->
   match smopr with
-  | Transaction_result payload ->
+  | Transaction_result (Transaction_to_contract_result payload) ->
       let consumed = payload.paid_storage_size_diff in
       let payer = `Contract payer in
       Fees.burn_storage_fees ctxt ~storage_limit ~payer consumed
@@ -1269,17 +1366,18 @@ let burn_storage_fees :
         ( ctxt,
           storage_limit,
           Transaction_result
-            {
-              storage = payload.storage;
-              lazy_storage_diff = payload.lazy_storage_diff;
-              balance_updates;
-              originated_contracts = payload.originated_contracts;
-              consumed_gas = payload.consumed_gas;
-              storage_size = payload.storage_size;
-              paid_storage_size_diff = payload.paid_storage_size_diff;
-              allocated_destination_contract =
-                payload.allocated_destination_contract;
-            } )
+            (Transaction_to_contract_result
+               {
+                 storage = payload.storage;
+                 lazy_storage_diff = payload.lazy_storage_diff;
+                 balance_updates;
+                 originated_contracts = payload.originated_contracts;
+                 consumed_gas = payload.consumed_gas;
+                 storage_size = payload.storage_size;
+                 paid_storage_size_diff = payload.paid_storage_size_diff;
+                 allocated_destination_contract =
+                   payload.allocated_destination_contract;
+               }) )
   | Origination_result payload ->
       let consumed = payload.paid_storage_size_diff in
       let payer = `Contract payer in
@@ -1329,6 +1427,22 @@ let burn_storage_fees :
         ( ctxt,
           storage_limit,
           Tx_rollup_origination_result {payload with balance_updates} )
+  | Tx_rollup_submit_batch_result payload ->
+      (* TODO: https://gitlab.com/tezos/tezos/-/issues/2339
+          We need to charge for newly allocated storage (as we do for
+          Michelson’s big map). *)
+      return (ctxt, storage_limit, Tx_rollup_submit_batch_result payload)
+  | Sc_rollup_originate_result payload ->
+      let payer = `Contract payer in
+      Fees.burn_sc_rollup_origination_fees
+        ctxt
+        ~storage_limit
+        ~payer
+        payload.size
+      >>=? fun (ctxt, storage_limit, balance_updates) ->
+      let result = Sc_rollup_originate_result {payload with balance_updates} in
+      return (ctxt, storage_limit, result)
+  | Sc_rollup_add_messages_result _ -> return (ctxt, storage_limit, smopr)
 
 let apply_manager_contents (type kind) ctxt mode chain_id
     ~gas_consumed_in_precheck (op : kind Kind.manager contents) :
@@ -1452,6 +1566,33 @@ let rec mark_skipped :
             },
           mark_skipped ~payload_producer level rest )
 
+(** Check that counters are consistent, i.e. that they are successive within a
+    batch. Fail with a {b permanent} error otherwise.
+    TODO: https://gitlab.com/tezos/tezos/-/issues/2301
+    Remove when format of operation is changed to save space.
+ *)
+let check_counters_consistency contents_list =
+  let check_counter ~previous_counter counter =
+    match previous_counter with
+    | None -> return_unit
+    | Some previous_counter ->
+        let expected = Z.succ previous_counter in
+        if Compare.Z.(expected = counter) then return_unit
+        else fail Inconsistent_counters
+  in
+  let rec check_counters_rec :
+      type kind.
+      counter option -> kind Kind.manager contents_list -> unit tzresult Lwt.t =
+   fun previous_counter contents_list ->
+    match[@coq_match_with_default] contents_list with
+    | Single (Manager_operation {counter; _}) ->
+        check_counter ~previous_counter counter
+    | Cons (Manager_operation {counter; _}, rest) ->
+        check_counter ~previous_counter counter >>=? fun () ->
+        check_counters_rec (Some counter) rest
+  in
+  check_counters_rec None contents_list
+
 (** Returns an updated context, and a list of prechecked contents containing
     balance updates for fees related to each manager operation in
     [contents_list]. *)
@@ -1462,7 +1603,7 @@ let precheck_manager_contents_list ctxt contents_list ~mempool_mode =
       kind Kind.manager contents_list ->
       (context * kind Kind.manager prechecked_contents_list) tzresult Lwt.t =
    fun ctxt contents_list ->
-    match[@coq_match_with_default] contents_list with
+    match contents_list with
     | Single contents ->
         precheck_manager_contents ctxt contents ~only_batch:mempool_mode
         >>=? fun (ctxt, result) ->
@@ -1475,6 +1616,7 @@ let precheck_manager_contents_list ctxt contents_list ~mempool_mode =
         return (ctxt, PrecheckedCons ({contents; result}, results_rest))
   in
   let ctxt = if mempool_mode then Gas.reset_block_gas ctxt else ctxt in
+  check_counters_consistency contents_list >>=? fun () ->
   rec_precheck_manager_contents_list ctxt contents_list
 
 let check_manager_signature ctxt chain_id (op : _ Kind.manager contents_list)
@@ -1539,7 +1681,7 @@ let rec apply_manager_contents_list_rec :
         ctxt
         mode
         chain_id
-        ~gas_consumed_in_precheck:(Some consumed_gas)
+        ~gas_consumed_in_precheck:(Some (Gas.cost_of_gas consumed_gas))
         op
       >|= fun (ctxt_result, operation_result, internal_operation_results) ->
       let result =
@@ -1557,7 +1699,7 @@ let rec apply_manager_contents_list_rec :
         ctxt
         mode
         chain_id
-        ~gas_consumed_in_precheck:(Some consumed_gas)
+        ~gas_consumed_in_precheck:(Some (Gas.cost_of_gas consumed_gas))
         op
       >>= function
       | (Failure, operation_result, internal_operation_results) ->
@@ -2162,7 +2304,7 @@ let apply_contents_list (type kind) ctxt chain_id (apply_mode : apply_mode) mode
       in
       let src = `Collected_commitments blinded_pkh in
       Token.allocated ctxt src >>=? fun src_exists ->
-      fail_unless src_exists (Invalid_activation {pkh}) >>=? fun _ ->
+      fail_unless src_exists (Invalid_activation {pkh}) >>=? fun () ->
       let contract = Contract.implicit_contract (Signature.Ed25519 pkh) in
       Token.balance ctxt src >>=? fun amount ->
       Token.transfer ctxt src (`Contract contract) amount
@@ -2174,7 +2316,7 @@ let apply_contents_list (type kind) ctxt chain_id (apply_mode : apply_mode) mode
       Voting_period.get_current ctxt >>=? fun {index = current_period; _} ->
       error_unless
         Compare.Int32.(current_period = period)
-        (Wrong_voting_period (current_period, period))
+        (Wrong_voting_period {expected = current_period; provided = period})
       >>?= fun () ->
       Amendment.record_proposals ctxt source proposals >|=? fun ctxt ->
       (ctxt, Single_result Proposals_result)
@@ -2184,7 +2326,7 @@ let apply_contents_list (type kind) ctxt chain_id (apply_mode : apply_mode) mode
       Voting_period.get_current ctxt >>=? fun {index = current_period; _} ->
       error_unless
         Compare.Int32.(current_period = period)
-        (Wrong_voting_period (current_period, period))
+        (Wrong_voting_period {expected = current_period; provided = period})
       >>?= fun () ->
       Amendment.record_ballot ctxt source proposal ballot >|=? fun ctxt ->
       (ctxt, Single_result Ballot_result)
@@ -2296,8 +2438,12 @@ let apply_liquidity_baking_subsidy ctxt ~escape_vote =
        Script_cache.find ctxt liquidity_baking_cpmm_contract
        >>=? fun (ctxt, cache_key, script) ->
        match script with
-       | None -> fail (Script_tc_errors.No_such_entrypoint "default")
+       | None -> fail (Script_tc_errors.No_such_entrypoint Entrypoint.default)
        | Some (script, script_ir) -> (
+           (* Token.transfer which is being called above already loads this
+              value into the Irmin cache, so no need to burn gas for it. *)
+           Contract.get_balance ctxt liquidity_baking_cpmm_contract
+           >>=? fun balance ->
            let now = Script_timestamp.now ctxt in
            let level =
              (Level.current ctxt).level |> Raw_level.to_int32
@@ -2313,6 +2459,7 @@ let apply_liquidity_baking_subsidy ctxt ~escape_vote =
                payer = liquidity_baking_cpmm_contract;
                self = liquidity_baking_cpmm_contract;
                amount = liquidity_baking_subsidy;
+               balance;
                chain_id = Chain_id.zero;
                now;
                level;
@@ -2340,7 +2487,7 @@ let apply_liquidity_baking_subsidy ctxt ~escape_vote =
              ~script
              ~parameter
              ~cached_script:(Some script_ir)
-             ~entrypoint:"default"
+             ~entrypoint:Entrypoint.default
              ~internal:false
            >>=? fun ( {ctxt; storage; lazy_storage_diff; operations},
                       (updated_cached_script, updated_size) ) ->
@@ -2372,17 +2519,22 @@ let apply_liquidity_baking_subsidy ctxt ~escape_vote =
                >>?= fun ctxt ->
                let result =
                  Transaction_result
-                   {
-                     storage = Some storage;
-                     lazy_storage_diff;
-                     balance_updates;
-                     (* At this point in application the origination nonce has not been initialized so it's not possible to originate new contracts. We've checked above that none were originated. *)
-                     originated_contracts = [];
-                     consumed_gas;
-                     storage_size = new_size;
-                     paid_storage_size_diff;
-                     allocated_destination_contract = false;
-                   }
+                   (Transaction_to_contract_result
+                      {
+                        storage = Some storage;
+                        lazy_storage_diff;
+                        balance_updates;
+                        (* At this point in application the
+                           origination nonce has not been initialized
+                           so it's not possible to originate new
+                           contracts. We've checked above that none
+                           were originated. *)
+                        originated_contracts = [];
+                        consumed_gas;
+                        storage_size = new_size;
+                        paid_storage_size_diff;
+                        allocated_destination_contract = false;
+                      })
                in
                let ctxt = Gas.set_unlimited ctxt in
                return (ctxt, [Successful_manager_result result])))
@@ -2531,18 +2683,17 @@ let are_endorsements_required ctxt ~level =
   Compare.Int32.(tenderbake_level_position > 1l)
 
 let check_minimum_endorsements ~endorsing_power ~minimum =
-  fail_when
+  error_when
     Compare.Int.(endorsing_power < minimum)
-    (Not_enough_endorsements
-       {required = minimum; endorsements = endorsing_power})
+    (Not_enough_endorsements {required = minimum; provided = endorsing_power})
 
 let finalize_application_check_validity ctxt (mode : finalize_application_mode)
     protocol_data ~round ~predecessor ~endorsing_power ~consensus_threshold
     ~required_endorsements =
   (if required_endorsements then
    check_minimum_endorsements ~endorsing_power ~minimum:consensus_threshold
-  else return_unit)
-  >>=? fun () ->
+  else Result.return_unit)
+  >>?= fun () ->
   let block_payload_hash =
     compute_payload_hash
       ctxt
@@ -2610,6 +2761,13 @@ let record_endorsing_participation ctxt =
 let finalize_application ctxt (mode : finalize_application_mode) protocol_data
     ~payload_producer ~block_producer liquidity_baking_escape_ema
     implicit_operations_results ~round ~predecessor ~migration_balance_updates =
+  (* We update the states of every transaction rollups that have
+     received incoming messages during this block. *)
+  (* FIXME: https://gitlab.com/tezos/tezos/-/issues/2401
+     Provide tests to check the update is correctly done. *)
+  Alpha_context.Tx_rollup.update_tx_rollups_at_block_finalization ctxt
+  >>=? fun ctxt ->
+  (* Then we finalize the consensus. *)
   let level = Alpha_context.Level.current ctxt in
   let block_endorsing_power = Consensus.current_endorsement_power ctxt in
   let consensus_threshold = Constants.consensus_threshold ctxt in

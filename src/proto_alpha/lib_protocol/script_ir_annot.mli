@@ -2,6 +2,7 @@
 (*                                                                           *)
 (* Open Source License                                                       *)
 (* Copyright (c) 2018 Dynamic Ledger Solutions, Inc. <contact@tezos.com>     *)
+(* Copyright (c) 2019-2022 Nomadic Labs, <contact@nomadic-labs.com>          *)
 (*                                                                           *)
 (* Permission is hereby granted, free of charge, to any person obtaining a   *)
 (* copy of this software and associated documentation files (the "Software"),*)
@@ -25,206 +26,68 @@
 
 open Alpha_context
 
-type var_annot = private Var_annot of Non_empty_string.t [@@ocaml.unboxed]
-
-type type_annot = private Type_annot of Non_empty_string.t [@@ocaml.unboxed]
-
 type field_annot = private Field_annot of Non_empty_string.t [@@ocaml.unboxed]
 
 module FOR_TESTS : sig
-  val unsafe_var_annot_of_string : string -> var_annot
-
-  val unsafe_type_annot_of_string : string -> type_annot
-
   val unsafe_field_annot_of_string : string -> field_annot
 end
-
-(** Default annotations *)
-
-val default_now_annot : var_annot option
-
-val default_amount_annot : var_annot option
-
-val default_balance_annot : var_annot option
-
-val default_level_annot : var_annot option
-
-val default_source_annot : var_annot option
-
-val default_sender_annot : var_annot option
-
-val default_self_annot : var_annot option
-
-val default_arg_annot : var_annot option
-
-val lambda_arg_annot : var_annot option
-
-val default_param_annot : var_annot option
-
-val default_storage_annot : var_annot option
-
-val default_sapling_state_annot : var_annot option
-
-val default_sapling_balance_annot : var_annot option
-
-val default_car_annot : field_annot option
-
-val default_cdr_annot : field_annot option
-
-val default_contract_annot : field_annot option
-
-val default_addr_annot : field_annot option
-
-val default_pack_annot : field_annot option
-
-val default_unpack_annot : field_annot option
-
-val default_slice_annot : field_annot option
-
-val default_elt_annot : field_annot option
-
-val default_key_annot : field_annot option
-
-val default_hd_annot : field_annot option
-
-val default_tl_annot : field_annot option
-
-val default_some_annot : field_annot option
-
-val default_left_annot : field_annot option
-
-val default_right_annot : field_annot option
-
-(** Unparse annotations to their string representation *)
-
-val unparse_type_annot : type_annot option -> string list
-
-val unparse_var_annot : var_annot option -> string list
-
-val unparse_field_annot : field_annot option -> string list
-
-(** Conversion functions between different annotation kinds *)
-
-val field_to_var_annot : field_annot option -> var_annot option
-
-val type_to_var_annot : type_annot option -> var_annot option
-
-val var_to_field_annot : var_annot option -> field_annot option
-
-(** Replace an annotation by its default value if it is [None] *)
-val default_annot : default:'a option -> 'a option -> 'a option
-
-(** Generate annotation for field accesses, of the form [var.field1.field2] *)
-val gen_access_annot :
-  var_annot option ->
-  ?default:field_annot option ->
-  field_annot option ->
-  var_annot option
-
-(** Merge type annotations.
-    @return an error {!Inconsistent_type_annotations} if they are both present
-    and different, unless [legacy] *)
-val merge_type_annot :
-  legacy:bool ->
-  type_annot option ->
-  type_annot option ->
-  type_annot option tzresult
-
-(** Merge field annotations.
-    @return an error {!Inconsistent_type_annotations} if they are both present
-    and different, unless [legacy] *)
-val merge_field_annot :
-  legacy:bool ->
-  field_annot option ->
-  field_annot option ->
-  field_annot option tzresult
-
-(** Merge variable annotations, does not fail ([None] if different). *)
-val merge_var_annot : var_annot option -> var_annot option -> var_annot option
 
 (** @return an error {!Unexpected_annotation} in the monad the list is not empty. *)
 val error_unexpected_annot : Script.location -> 'a list -> unit tzresult
 
-(** Parse a type annotation only. *)
-val parse_type_annot :
-  Script.location -> string list -> type_annot option tzresult
+(** check_xxx_annot functions below are remains from the past (they were called
+    parse_xxx_annot before).
+    They check that annotations are well-formed and, depending on different
+    contexts, that only the annotations that are expected to be found are
+    present.
+    Hopefully we will relax this property soon.
+*)
 
-(** Parse a field annotation only. *)
-val parse_field_annot :
-  Script.location -> string list -> field_annot option tzresult
+(** Check a type annotation only. *)
+val check_type_annot : Script.location -> string list -> unit tzresult
 
-(** Parse an annotation for composed types, of the form
+(** Check a field annotation only. *)
+val is_field_annot : Script.location -> string -> bool tzresult
+
+(** Check an annotation for composed types, of the form
     [:ty_name %field1 %field2] in any order. *)
-val parse_composed_type_annot :
-  Script.location ->
-  string list ->
-  (type_annot option * field_annot option * field_annot option) tzresult
+val check_composed_type_annot : Script.location -> string list -> unit tzresult
 
-(** Extract and remove a field annotation from a node *)
-val extract_field_annot :
-  Script.node -> (Script.node * field_annot option) tzresult
+(** Checks whether a node has a field annotation. *)
+val has_field_annot : Script.node -> bool tzresult
 
-(** Check that field annotations match, used for field accesses. *)
-val check_correct_field :
-  field_annot option -> field_annot option -> unit tzresult
+(** Removes a field annotation from a node. *)
+val remove_field_annot : Script.node -> Script.node tzresult
+
+(** Extract and remove a field annotation as an entrypoint from a node *)
+val extract_entrypoint_annot :
+  Script.node -> (Script.node * Entrypoint.t option) tzresult
 
 (** Instruction annotations parsing *)
 
-(** Parse a variable annotation, replaced by a default value if [None]. *)
-val parse_var_annot :
-  Script.location ->
-  ?default:var_annot option ->
-  string list ->
-  var_annot option tzresult
+(** Check a variable annotation. *)
+val check_var_annot : Script.location -> string list -> unit tzresult
 
 val is_allowed_char : char -> bool
 
-val parse_constr_annot :
-  Script.location ->
-  ?if_special_first:field_annot option ->
-  ?if_special_second:field_annot option ->
-  string list ->
-  (var_annot option
-  * type_annot option
-  * field_annot option
-  * field_annot option)
-  tzresult
+val check_constr_annot : Script.location -> string list -> unit tzresult
 
-val parse_two_var_annot :
-  Script.location ->
-  string list ->
-  (var_annot option * var_annot option) tzresult
+val check_two_var_annot : Script.location -> string list -> unit tzresult
 
-val parse_destr_annot :
-  Script.location ->
-  string list ->
-  default_accessor:field_annot option ->
-  field_name:field_annot option ->
-  pair_annot:var_annot option ->
-  value_annot:var_annot option ->
-  (var_annot option * field_annot option) tzresult
+val check_destr_annot : Script.location -> string list -> unit tzresult
 
-val parse_unpair_annot :
-  Script.location ->
-  string list ->
-  field_name_car:field_annot option ->
-  field_name_cdr:field_annot option ->
-  pair_annot:var_annot option ->
-  value_annot_car:var_annot option ->
-  value_annot_cdr:var_annot option ->
-  (var_annot option
-  * var_annot option
-  * field_annot option
-  * field_annot option)
-  tzresult
+val check_unpair_annot : Script.location -> string list -> unit tzresult
 
-val parse_entrypoint_annot :
-  Script.location ->
-  ?default:var_annot option ->
-  string list ->
-  (var_annot option * field_annot option) tzresult
+(** Parses a field annotation and converts it to an entrypoint.
+    An error is returned if the annotation is too long or is "default".
+    An empty annotation is converted to "default". *)
+val parse_entrypoint_annot_strict :
+  Script.location -> string list -> Entrypoint.t tzresult
 
-val parse_var_type_annot :
-  Script.location ->
-  string list ->
-  (var_annot option * type_annot option) tzresult
+(** Parse a field annotation and convert it to an entrypoint.
+    An error is returned if the field annot is too long.
+    An empty annotation is converted to "default". *)
+val parse_entrypoint_annot_lax :
+  Script.location -> string list -> Entrypoint.t tzresult
+
+val check_var_type_annot : Script.location -> string list -> unit tzresult

@@ -2,7 +2,7 @@
 (*                                                                           *)
 (* Open Source License                                                       *)
 (* Copyright (c) 2018 Dynamic Ledger Solutions, Inc. <contact@tezos.com>     *)
-(* Copyright (c) 2019-2020 Nomadic Labs <contact@nomadic-labs.com>           *)
+(* Copyright (c) 2019-2022 Nomadic Labs <contact@nomadic-labs.com>           *)
 (* Copyright (c) 2020 Metastate AG <hello@metastate.dev>                     *)
 (*                                                                           *)
 (* Permission is hereby granted, free of charge, to any person obtaining a   *)
@@ -902,6 +902,10 @@ module Cost_of = struct
       let open S_syntax in
       S.safe_int 14 + (S.safe_int 10 * S.safe_int size)
 
+    (* TODO: https://gitlab.com/tezos/tezos/-/issues/2264
+       Rerun benchmarks due to faster gas monad.
+       With the the redesign of the gas-monad this needs to be benchmarked again.
+    *)
     (* model MERGE_TYPES
        This is the estimated cost of one iteration of merge_types, extracted
        and copied manually from the parameter fit for the MERGE_TYPES benchmark
@@ -944,6 +948,11 @@ module Cost_of = struct
 
     (* TODO: benchmark *)
     let cost_COMPARABLE_TY_OF_TY = S.safe_int 120
+
+    (* TODO: https://gitlab.com/tezos/tezos/-/issues/2264
+       Benchmark.
+       Currently approximated by 2 comparisons of the longest entrypoint. *)
+    let cost_FIND_ENTRYPOINT = cost_N_ICompare 31 31
 
     (* model SAPLING_TRANSACTION_ENCODING *)
     let cost_SAPLING_TRANSACTION_ENCODING ~inputs ~outputs =
@@ -1001,17 +1010,20 @@ module Cost_of = struct
 
     let empty_set = atomic_step_cost cost_N_IEmpty_set
 
-    let set_iter (type a) ((module Box) : a Script_typed_ir.set) =
+    let set_iter (type a) (set : a Script_typed_ir.set) =
+      let (module Box) = Script_set.get set in
       atomic_step_cost (cost_N_ISet_iter Box.size)
 
     let set_size = atomic_step_cost cost_N_ISet_size
 
     let empty_map = atomic_step_cost cost_N_IEmpty_map
 
-    let map_map (type k v) ((module Box) : (k, v) Script_typed_ir.map) =
+    let map_map (type k v) (map : (k, v) Script_typed_ir.map) =
+      let (module Box) = Script_map.get_module map in
       atomic_step_cost (cost_N_IMap_map Box.size)
 
-    let map_iter (type k v) ((module Box) : (k, v) Script_typed_ir.map) =
+    let map_iter (type k v) (map : (k, v) Script_typed_ir.map) =
+      let (module Box) = Script_map.get_module map in
       atomic_step_cost (cost_N_IMap_iter Box.size)
 
     let map_size = atomic_step_cost cost_N_IMap_size
@@ -1296,7 +1308,9 @@ module Cost_of = struct
         (cost_N_ISplit_ticket (int_bytes amount_a) (int_bytes amount_b))
 
     let open_chest ~chest ~time =
-      let plaintext = Timelock.get_plaintext_size chest in
+      let plaintext =
+        Script_typed_ir.Script_timelock.get_plaintext_size chest
+      in
       let log_time = Z.log2 Z.(add one time) in
       atomic_step_cost (cost_N_IOpen_chest ~chest:plaintext ~time:log_time)
 
@@ -1363,23 +1377,22 @@ module Cost_of = struct
           a Script_typed_ir.comparable_ty -> a -> a -> cost -> cont -> cost =
        fun ty x y acc k ->
         match ty with
-        | Unit_key _ -> (apply [@tailcall]) Gas.(acc +@ compare_unit) k
-        | Never_key _ -> ( match x with _ -> .)
-        | Bool_key _ -> (apply [@tailcall]) Gas.(acc +@ compare_bool) k
-        | String_key _ -> (apply [@tailcall]) Gas.(acc +@ compare_string x y) k
-        | Signature_key _ ->
-            (apply [@tailcall]) Gas.(acc +@ compare_signature) k
-        | Bytes_key _ -> (apply [@tailcall]) Gas.(acc +@ compare_bytes x y) k
-        | Mutez_key _ -> (apply [@tailcall]) Gas.(acc +@ compare_mutez) k
-        | Int_key _ -> (apply [@tailcall]) Gas.(acc +@ compare_int x y) k
-        | Nat_key _ -> (apply [@tailcall]) Gas.(acc +@ compare_nat x y) k
-        | Key_hash_key _ -> (apply [@tailcall]) Gas.(acc +@ compare_key_hash) k
-        | Key_key _ -> (apply [@tailcall]) Gas.(acc +@ compare_key) k
-        | Timestamp_key _ ->
+        | Unit_key -> (apply [@tailcall]) Gas.(acc +@ compare_unit) k
+        | Never_key -> ( match x with _ -> .)
+        | Bool_key -> (apply [@tailcall]) Gas.(acc +@ compare_bool) k
+        | String_key -> (apply [@tailcall]) Gas.(acc +@ compare_string x y) k
+        | Signature_key -> (apply [@tailcall]) Gas.(acc +@ compare_signature) k
+        | Bytes_key -> (apply [@tailcall]) Gas.(acc +@ compare_bytes x y) k
+        | Mutez_key -> (apply [@tailcall]) Gas.(acc +@ compare_mutez) k
+        | Int_key -> (apply [@tailcall]) Gas.(acc +@ compare_int x y) k
+        | Nat_key -> (apply [@tailcall]) Gas.(acc +@ compare_nat x y) k
+        | Key_hash_key -> (apply [@tailcall]) Gas.(acc +@ compare_key_hash) k
+        | Key_key -> (apply [@tailcall]) Gas.(acc +@ compare_key) k
+        | Timestamp_key ->
             (apply [@tailcall]) Gas.(acc +@ compare_timestamp x y) k
-        | Address_key _ -> (apply [@tailcall]) Gas.(acc +@ compare_address) k
-        | Chain_id_key _ -> (apply [@tailcall]) Gas.(acc +@ compare_chain_id) k
-        | Pair_key ((tl, _), (tr, _), _) ->
+        | Address_key -> (apply [@tailcall]) Gas.(acc +@ compare_address) k
+        | Chain_id_key -> (apply [@tailcall]) Gas.(acc +@ compare_chain_id) k
+        | Pair_key (tl, tr, _) ->
             (* Reasonable over-approximation of the cost of lexicographic comparison. *)
             let (xl, xr) = x in
             let (yl, yr) = y in
@@ -1389,7 +1402,7 @@ module Cost_of = struct
               yl
               Gas.(acc +@ compare_pair_tag)
               (Compare (tr, xr, yr, k))
-        | Union_key ((tl, _), (tr, _), _) -> (
+        | Union_key (tl, tr, _) -> (
             match (x, y) with
             | (L x, L y) ->
                 (compare [@tailcall]) tl x y Gas.(acc +@ compare_union_tag) k
@@ -1418,9 +1431,7 @@ module Cost_of = struct
     let view_mem (elt : Script_string.t)
         (m : Script_typed_ir.view Script_typed_ir.SMap.t) =
       let open S_syntax in
-      let per_elt_cost =
-        compare (Script_typed_ir.string_key ~annot:None) elt elt
-      in
+      let per_elt_cost = compare Script_typed_ir.string_key elt elt in
       let size = S.safe_int (Script_typed_ir.SMap.cardinal m) in
       let intercept = atomic_step_cost (S.safe_int 80) in
       Gas.(intercept +@ (log2 size *@ per_elt_cost))
@@ -1430,22 +1441,22 @@ module Cost_of = struct
     let view_update (elt : Script_string.t)
         (m : Script_typed_ir.view Script_typed_ir.SMap.t) =
       let open S_syntax in
-      let per_elt_cost =
-        compare (Script_typed_ir.string_key ~annot:None) elt elt
-      in
+      let per_elt_cost = compare Script_typed_ir.string_key elt elt in
       let size = S.safe_int (Script_typed_ir.SMap.cardinal m) in
       let intercept = atomic_step_cost (S.safe_int 80) in
       Gas.(intercept +@ (S.safe_int 2 * log2 size *@ per_elt_cost))
 
-    let set_mem (type a) (elt : a) ((module Box) : a Script_typed_ir.set) =
+    let set_mem (type a) (elt : a) (set : a Script_typed_ir.set) =
       let open S_syntax in
+      let (module Box) = Script_set.get set in
       let per_elt_cost = compare Box.elt_ty elt elt in
       let size = S.safe_int Box.size in
       let intercept = atomic_step_cost (S.safe_int 115) in
       Gas.(intercept +@ (log2 size *@ per_elt_cost))
 
-    let set_update (type a) (elt : a) ((module Box) : a Script_typed_ir.set) =
+    let set_update (type a) (elt : a) (set : a Script_typed_ir.set) =
       let open S_syntax in
+      let (module Box) = Script_set.get set in
       let per_elt_cost = compare Box.elt_ty elt elt in
       let size = S.safe_int Box.size in
       let intercept = atomic_step_cost (S.safe_int 130) in
@@ -1453,9 +1464,9 @@ module Cost_of = struct
          on non-structured data *)
       Gas.(intercept +@ (S.safe_int 2 * log2 size *@ per_elt_cost))
 
-    let map_mem (type k v) (elt : k) ((module Box) : (k, v) Script_typed_ir.map)
-        =
+    let map_mem (type k v) (elt : k) (map : (k, v) Script_typed_ir.map) =
       let open S_syntax in
+      let (module Box) = Script_map.get_module map in
       let per_elt_cost = compare Box.key_ty elt elt in
       let size = S.safe_int Box.size in
       let intercept = atomic_step_cost (S.safe_int 80) in
@@ -1463,9 +1474,9 @@ module Cost_of = struct
 
     let map_get = map_mem
 
-    let map_update (type k v) (elt : k)
-        ((module Box) : (k, v) Script_typed_ir.map) =
+    let map_update (type k v) (elt : k) (map : (k, v) Script_typed_ir.map) =
       let open S_syntax in
+      let (module Box) = Script_map.get_module map in
       let per_elt_cost = compare Box.key_ty elt elt in
       let size = S.safe_int Box.size in
       let intercept = atomic_step_cost (S.safe_int 80) in
@@ -1474,8 +1485,9 @@ module Cost_of = struct
       Gas.(intercept +@ (S.safe_int 2 * log2 size *@ per_elt_cost))
 
     let map_get_and_update (type k v) (elt : k)
-        ((module Box) : (k, v) Script_typed_ir.map) =
+        (map : (k, v) Script_typed_ir.map) =
       let open S_syntax in
+      let (module Box) = Script_map.get_module map in
       let per_elt_cost = compare Box.key_ty elt elt in
       let size = S.safe_int Box.size in
       let intercept = atomic_step_cost (S.safe_int 80) in
@@ -1668,6 +1680,8 @@ module Cost_of = struct
     (* Cost of a cycle of checking that a type is dupable *)
     (* TODO: bench *)
     let check_dupable_cycle = atomic_step_cost cost_TYPECHECKING_DATA
+
+    let find_entrypoint_cycle = atomic_step_cost cost_FIND_ENTRYPOINT
 
     let bool = free
 

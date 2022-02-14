@@ -25,22 +25,22 @@
 (*****************************************************************************)
 
 (* Declaration order must respect the version order. *)
-type t = Granada | Hangzhou | Alpha
+type t = Hangzhou | Ithaca | Alpha
 
 type constants = Constants_sandbox | Constants_mainnet | Constants_test
 
 let name = function
   | Alpha -> "Alpha"
-  | Granada -> "Granada"
   | Hangzhou -> "Hangzhou"
+  | Ithaca -> "Ithaca"
 
 (* Test tags must be lowercase. *)
 let tag protocol = String.lowercase_ascii (name protocol)
 
 let hash = function
   | Alpha -> "ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK"
-  | Granada -> "PtGRANADsDU8R9daYKAgWnQYAJ64omN1o3KMGVCykShA97vQbvV"
   | Hangzhou -> "PtHangz2aRngywmSRGGvrcTyMbbdpWdpFKuS4uMWxg2RaH9i1qx"
+  | Ithaca -> "Psithaca2MLRFYargivpo7YvUr7wUDqyxrdhC5CQq78mRvimz6A"
 
 let default_constants = Constants_sandbox
 
@@ -54,15 +54,15 @@ let parameter_file ?(constants = default_constants) protocol =
   let directory =
     match protocol with
     | Alpha -> "proto_alpha"
-    | Granada -> "proto_010_PtGRANAD"
     | Hangzhou -> "proto_011_PtHangz2"
+    | Ithaca -> "proto_012_Psithaca"
   in
   sf "src/%s/parameters/%s-parameters.json" directory name
 
 let daemon_name = function
   | Alpha -> "alpha"
-  | Granada -> "010-PtGRANAD"
   | Hangzhou -> "011-PtHangz2"
+  | Ithaca -> "012-Psithaca"
 
 let accuser proto = "./tezos-accuser-" ^ daemon_name proto
 
@@ -74,14 +74,19 @@ type parameter_overrides = (string list * string option) list
 
 let write_parameter_file :
     ?additional_bootstrap_accounts:(Account.key * int option) list ->
-    base:(string, t) Either.t ->
+    base:(string, t * constants option) Either.t ->
     parameter_overrides ->
     string Lwt.t =
  fun ?(additional_bootstrap_accounts = []) ~base parameter_overrides ->
   (* make a copy of the parameters file and update the given constants *)
   let overriden_parameters = Temp.file "parameters.json" in
   let original_parameters =
-    let file = Either.fold ~left:Fun.id ~right:parameter_file base in
+    let file =
+      Either.fold
+        ~left:Fun.id
+        ~right:(fun (x, constants) -> parameter_file ?constants x)
+        base
+    in
     JSON.parse_file file |> JSON.unannotate
   in
   let parameters =
@@ -124,16 +129,16 @@ let write_parameter_file :
   Lwt.return overriden_parameters
 
 let next_protocol = function
-  | Granada -> Some Hangzhou
-  | Hangzhou -> Some Alpha
+  | Hangzhou -> Some Ithaca
+  | Ithaca -> None
   | Alpha -> None
 
 let previous_protocol = function
   | Alpha -> Some Hangzhou
-  | Hangzhou -> Some Granada
-  | Granada -> None
+  | Ithaca -> Some Hangzhou
+  | Hangzhou -> None
 
-let all = [Alpha; Granada; Hangzhou]
+let all = [Alpha; Hangzhou; Ithaca]
 
 (* Used to ensure that [register_test] and [register_regression_test]
    share the same conventions. *)
@@ -144,6 +149,21 @@ let register_test ~__FILE__ ~title ~tags body ~protocols =
   let register_with_protocol protocol =
     let (title, tags) = add_to_test_parameters protocol title tags in
     Test.register ~__FILE__ ~title ~tags (fun () -> body protocol)
+  in
+  List.iter register_with_protocol protocols
+
+let register_long_test ~__FILE__ ~title ~tags ?team ~executors ~timeout body
+    ~protocols =
+  let register_with_protocol protocol =
+    let (title, tags) = add_to_test_parameters protocol title tags in
+    Long_test.register
+      ~__FILE__
+      ~title
+      ~tags
+      ?team
+      ~executors
+      ~timeout
+      (fun () -> body protocol)
   in
   List.iter register_with_protocol protocols
 

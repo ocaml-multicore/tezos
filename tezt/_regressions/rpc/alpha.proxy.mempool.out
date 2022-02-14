@@ -1,13 +1,13 @@
 tezt/_regressions/rpc/alpha.proxy.mempool.out
 
-curl -s 'http://localhost:16385/chains/main/mempool/monitor_operations?applied=true&outdated=true&branch_delayed=true&refused=true&branch_refused=true'
-[{"hash":"[OPERATION_HASH]","protocol":"ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK","branch":"[BRANCH_HASH]","contents":[{"kind":"endorsement","slot":10,"level":2,"round":10,"block_payload_hash":"[BLOCK_PAYLOAD_HASH]"}],"signature":"[SIGNATURE]"}]
+curl -s 'http://localhost:[PORT]/chains/main/mempool/monitor_operations?applied=true&outdated=true&branch_delayed=true&refused=true&branch_refused=true'
+[]
 [{"hash":"[OPERATION_HASH]","protocol":"ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK","branch":"[BRANCH_HASH]","contents":[{"kind":"transaction","source":"[PUBLIC_KEY_HASH]","fee":"1000","counter":"1","gas_limit":"1040","storage_limit":"257","amount":"1000000","destination":"[PUBLIC_KEY_HASH]"}],"signature":"[SIGNATURE]","error":[{"kind":"branch","id":"proto.alpha.contract.counter_in_the_past","contract":"[PUBLIC_KEY_HASH]","expected":"2","found":"1"}]}]
 [{"hash":"[OPERATION_HASH]","protocol":"ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK","branch":"[BRANCH_HASH]","contents":[{"kind":"transaction","source":"[PUBLIC_KEY_HASH]","fee":"1000","counter":"5","gas_limit":"1040","storage_limit":"257","amount":"1000000","destination":"[PUBLIC_KEY_HASH]"}],"signature":"[SIGNATURE]","error":[{"kind":"temporary","id":"proto.alpha.contract.counter_in_the_future","contract":"[PUBLIC_KEY_HASH]","expected":"1","found":"5"}]}]
 [{"hash":"[OPERATION_HASH]","protocol":"ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK","branch":"[BRANCH_HASH]","contents":[{"kind":"transaction","source":"[PUBLIC_KEY_HASH]","fee":"0","counter":"1","gas_limit":"1040","storage_limit":"257","amount":"1000000","destination":"[PUBLIC_KEY_HASH]"}],"signature":"[SIGNATURE]"}]
 [{"hash":"[OPERATION_HASH]","protocol":"ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK","branch":"[BRANCH_HASH]","contents":[{"kind":"transaction","source":"[PUBLIC_KEY_HASH]","fee":"1000","counter":"1","gas_limit":"1040","storage_limit":"257","amount":"1000000","destination":"[PUBLIC_KEY_HASH]"}],"signature":"[SIGNATURE]"}]
 
-./tezos-client --mode proxy rpc get /chains/main/mempool/pending_operations
+./tezos-client --mode proxy rpc get '/chains/main/mempool/pending_operations?version=1&applied=true&refused=true&outdated=true&branch_delayed=true&branch_refused=true'
 protocol of proxy unspecified, using the node's protocol: ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK
 { "applied":
     [ { "hash": "[OPERATION_HASH]",
@@ -21,83 +21,157 @@ protocol of proxy unspecified, using the node's protocol: ProtoALphaALphaALphaAL
         "signature":
           "[SIGNATURE]" } ],
   "refused":
-    [ [ "[OPERATION_HASH]",
-        { "protocol": "ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK",
-          "branch": "[BRANCH_HASH]",
-          "contents":
-            [ { "kind": "transaction",
-                "source": "[PUBLIC_KEY_HASH]", "fee": "0",
-                "counter": "1", "gas_limit": "1040", "storage_limit": "257",
-                "amount": "1000000",
-                "destination": "[PUBLIC_KEY_HASH]" } ],
-          "signature":
-            "[SIGNATURE]",
-          "error":
-            [ { "kind": "permanent",
-                "id": "proto.alpha.prefilter.fees_too_low" } ] } ] ],
-  "outdated":
-    [ [ "[OPERATION_HASH]",
-        { "protocol": "ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK",
-          "branch": "[BRANCH_HASH]",
-          "contents":
-            [ { "kind": "endorsement", "slot": 10, "level": 2, "round": 10,
-                "block_payload_hash":
-                  "[BLOCK_PAYLOAD_HASH]" } ],
-          "signature":
-            "[SIGNATURE]",
-          "error":
-            [ { "kind": "outdated",
-                "id": "proto.alpha.consensus_operation_for_old_level",
-                "expected": 4, "provided": 2 } ] } ] ],
+    [ { "hash": "[OPERATION_HASH]",
+        "protocol": "ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK",
+        "branch": "[BRANCH_HASH]",
+        "contents":
+          [ { "kind": "transaction",
+              "source": "[PUBLIC_KEY_HASH]", "fee": "0",
+              "counter": "1", "gas_limit": "1040", "storage_limit": "257",
+              "amount": "1000000",
+              "destination": "[PUBLIC_KEY_HASH]" } ],
+        "signature":
+          "[SIGNATURE]",
+        "error":
+          [ { "kind": "permanent",
+              "id": "proto.alpha.prefilter.fees_too_low" } ] } ],
+  "outdated": [],
   "branch_refused":
-    [ [ "[OPERATION_HASH]",
-        { "protocol": "ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK",
-          "branch": "[BRANCH_HASH]",
-          "contents":
-            [ { "kind": "transaction",
-                "source": "[PUBLIC_KEY_HASH]",
-                "fee": "1000", "counter": "1", "gas_limit": "1040",
-                "storage_limit": "257", "amount": "1000000",
-                "destination": "[PUBLIC_KEY_HASH]" } ],
-          "signature":
-            "[SIGNATURE]",
-          "error":
-            [ { "kind": "branch",
-                "id": "proto.alpha.contract.counter_in_the_past",
-                "contract": "[PUBLIC_KEY_HASH]",
-                "expected": "2", "found": "1" } ] } ] ],
+    [ { "hash": "[OPERATION_HASH]",
+        "protocol": "ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK",
+        "branch": "[BRANCH_HASH]",
+        "contents":
+          [ { "kind": "transaction",
+              "source": "[PUBLIC_KEY_HASH]",
+              "fee": "1000", "counter": "1", "gas_limit": "1040",
+              "storage_limit": "257", "amount": "1000000",
+              "destination": "[PUBLIC_KEY_HASH]" } ],
+        "signature":
+          "[SIGNATURE]",
+        "error":
+          [ { "kind": "branch",
+              "id": "proto.alpha.contract.counter_in_the_past",
+              "contract": "[PUBLIC_KEY_HASH]",
+              "expected": "2", "found": "1" } ] } ],
   "branch_delayed":
-    [ [ "[OPERATION_HASH]",
-        { "protocol": "ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK",
-          "branch": "[BRANCH_HASH]",
-          "contents":
-            [ { "kind": "transaction",
-                "source": "[PUBLIC_KEY_HASH]",
-                "fee": "1000", "counter": "5", "gas_limit": "1040",
-                "storage_limit": "257", "amount": "1000000",
-                "destination": "[PUBLIC_KEY_HASH]" } ],
-          "signature":
-            "[SIGNATURE]",
-          "error":
-            [ { "kind": "temporary",
-                "id": "proto.alpha.contract.counter_in_the_future",
-                "contract": "[PUBLIC_KEY_HASH]",
-                "expected": "1", "found": "5" } ] } ] ], "unprocessed": [] }
+    [ { "hash": "[OPERATION_HASH]",
+        "protocol": "ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK",
+        "branch": "[BRANCH_HASH]",
+        "contents":
+          [ { "kind": "transaction",
+              "source": "[PUBLIC_KEY_HASH]",
+              "fee": "1000", "counter": "5", "gas_limit": "1040",
+              "storage_limit": "257", "amount": "1000000",
+              "destination": "[PUBLIC_KEY_HASH]" } ],
+        "signature":
+          "[SIGNATURE]",
+        "error":
+          [ { "kind": "temporary",
+              "id": "proto.alpha.contract.counter_in_the_future",
+              "contract": "[PUBLIC_KEY_HASH]",
+              "expected": "1", "found": "5" } ] } ], "unprocessed": [] }
 
-curl -s 'http://localhost:16385/chains/main/mempool/monitor_operations?applied=true&outdated=true&branch_delayed=true&refused=true&branch_refused=true'
+./tezos-client --mode proxy rpc get '/chains/main/mempool/pending_operations?version=1&applied=true&refused=false&outdated=false&branch_delayed=false&branch_refused=false'
+protocol of proxy unspecified, using the node's protocol: ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK
+{ "applied":
+    [ { "hash": "[OPERATION_HASH]",
+        "branch": "[BRANCH_HASH]",
+        "contents":
+          [ { "kind": "transaction",
+              "source": "[PUBLIC_KEY_HASH]",
+              "fee": "1000", "counter": "1", "gas_limit": "1040",
+              "storage_limit": "257", "amount": "1000000",
+              "destination": "[PUBLIC_KEY_HASH]" } ],
+        "signature":
+          "[SIGNATURE]" } ],
+  "refused": [], "outdated": [], "branch_refused": [], "branch_delayed": [],
+  "unprocessed": [] }
+
+./tezos-client --mode proxy rpc get '/chains/main/mempool/pending_operations?version=1&applied=false&refused=true&outdated=false&branch_delayed=false&branch_refused=false'
+protocol of proxy unspecified, using the node's protocol: ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK
+{ "applied": [],
+  "refused":
+    [ { "hash": "[OPERATION_HASH]",
+        "protocol": "ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK",
+        "branch": "[BRANCH_HASH]",
+        "contents":
+          [ { "kind": "transaction",
+              "source": "[PUBLIC_KEY_HASH]", "fee": "0",
+              "counter": "1", "gas_limit": "1040", "storage_limit": "257",
+              "amount": "1000000",
+              "destination": "[PUBLIC_KEY_HASH]" } ],
+        "signature":
+          "[SIGNATURE]",
+        "error":
+          [ { "kind": "permanent",
+              "id": "proto.alpha.prefilter.fees_too_low" } ] } ],
+  "outdated": [], "branch_refused": [], "branch_delayed": [],
+  "unprocessed": [] }
+
+./tezos-client --mode proxy rpc get '/chains/main/mempool/pending_operations?version=1&applied=false&refused=false&outdated=false&branch_delayed=true&branch_refused=false'
+protocol of proxy unspecified, using the node's protocol: ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK
+{ "applied": [], "refused": [], "outdated": [], "branch_refused": [],
+  "branch_delayed":
+    [ { "hash": "[OPERATION_HASH]",
+        "protocol": "ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK",
+        "branch": "[BRANCH_HASH]",
+        "contents":
+          [ { "kind": "transaction",
+              "source": "[PUBLIC_KEY_HASH]",
+              "fee": "1000", "counter": "5", "gas_limit": "1040",
+              "storage_limit": "257", "amount": "1000000",
+              "destination": "[PUBLIC_KEY_HASH]" } ],
+        "signature":
+          "[SIGNATURE]",
+        "error":
+          [ { "kind": "temporary",
+              "id": "proto.alpha.contract.counter_in_the_future",
+              "contract": "[PUBLIC_KEY_HASH]",
+              "expected": "1", "found": "5" } ] } ], "unprocessed": [] }
+
+./tezos-client --mode proxy rpc get '/chains/main/mempool/pending_operations?version=1&applied=false&refused=false&outdated=false&branch_delayed=false&branch_refused=true'
+protocol of proxy unspecified, using the node's protocol: ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK
+{ "applied": [], "refused": [], "outdated": [],
+  "branch_refused":
+    [ { "hash": "[OPERATION_HASH]",
+        "protocol": "ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK",
+        "branch": "[BRANCH_HASH]",
+        "contents":
+          [ { "kind": "transaction",
+              "source": "[PUBLIC_KEY_HASH]",
+              "fee": "1000", "counter": "1", "gas_limit": "1040",
+              "storage_limit": "257", "amount": "1000000",
+              "destination": "[PUBLIC_KEY_HASH]" } ],
+        "signature":
+          "[SIGNATURE]",
+        "error":
+          [ { "kind": "branch",
+              "id": "proto.alpha.contract.counter_in_the_past",
+              "contract": "[PUBLIC_KEY_HASH]",
+              "expected": "2", "found": "1" } ] } ], "branch_delayed": [],
+  "unprocessed": [] }
+
+./tezos-client --mode proxy rpc get '/chains/main/mempool/pending_operations?version=1&applied=false&refused=false&outdated=true&branch_delayed=false&branch_refused=false'
+protocol of proxy unspecified, using the node's protocol: ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK
+{ "applied": [], "refused": [], "outdated": [], "branch_refused": [],
+  "branch_delayed": [], "unprocessed": [] }
+
+curl -s 'http://localhost:[PORT]/chains/main/mempool/monitor_operations?applied=true&outdated=true&branch_delayed=true&refused=true&branch_refused=true'
 [{"hash":"[OPERATION_HASH]","protocol":"ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK","branch":"[BRANCH_HASH]","contents":[{"kind":"transaction","source":"[PUBLIC_KEY_HASH]","fee":"1000","counter":"1","gas_limit":"1040","storage_limit":"257","amount":"1000000","destination":"[PUBLIC_KEY_HASH]"}],"signature":"[SIGNATURE]"},{"hash":"[OPERATION_HASH]","protocol":"ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK","branch":"[BRANCH_HASH]","contents":[{"kind":"transaction","source":"[PUBLIC_KEY_HASH]","fee":"0","counter":"1","gas_limit":"1040","storage_limit":"257","amount":"1000000","destination":"[PUBLIC_KEY_HASH]"}],"signature":"[SIGNATURE]","error":[{"kind":"permanent","id":"proto.alpha.prefilter.fees_too_low"}]},{"hash":"[OPERATION_HASH]","protocol":"ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK","branch":"[BRANCH_HASH]","contents":[{"kind":"transaction","source":"[PUBLIC_KEY_HASH]","fee":"1000","counter":"1","gas_limit":"1040","storage_limit":"257","amount":"1000000","destination":"[PUBLIC_KEY_HASH]"}],"signature":"[SIGNATURE]","error":[{"kind":"branch","id":"proto.alpha.contract.counter_in_the_past","contract":"[PUBLIC_KEY_HASH]","expected":"2","found":"1"}]},{"hash":"[OPERATION_HASH]","protocol":"ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK","branch":"[BRANCH_HASH]","contents":[{"kind":"transaction","source":"[PUBLIC_KEY_HASH]","fee":"1000","counter":"5","gas_limit":"1040","storage_limit":"257","amount":"1000000","destination":"[PUBLIC_KEY_HASH]"}],"signature":"[SIGNATURE]","error":[{"kind":"temporary","id":"proto.alpha.contract.counter_in_the_future","contract":"[PUBLIC_KEY_HASH]","expected":"1","found":"5"}]}]
 
 ./tezos-client --mode proxy rpc get /chains/main/mempool/filter
 protocol of proxy unspecified, using the node's protocol: ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK
 { "minimal_fees": "100", "minimal_nanotez_per_gas_unit": [ "100", "1" ],
   "minimal_nanotez_per_byte": [ "1000", "1" ], "allow_script_failure": true,
-  "replace_by_fee_factor": [ "21", "20" ] }
+  "replace_by_fee_factor": [ "21", "20" ],
+  "max_prechecked_manager_operations": 5000 }
 
 ./tezos-client --mode proxy rpc get '/chains/main/mempool/filter?include_default=true'
 protocol of proxy unspecified, using the node's protocol: ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK
 { "minimal_fees": "100", "minimal_nanotez_per_gas_unit": [ "100", "1" ],
   "minimal_nanotez_per_byte": [ "1000", "1" ], "allow_script_failure": true,
-  "replace_by_fee_factor": [ "21", "20" ] }
+  "replace_by_fee_factor": [ "21", "20" ],
+  "max_prechecked_manager_operations": 5000 }
 
 ./tezos-client --mode proxy rpc get '/chains/main/mempool/filter?include_default=false'
 protocol of proxy unspecified, using the node's protocol: ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK
@@ -118,19 +192,22 @@ protocol of proxy unspecified, using the node's protocol: ProtoALphaALphaALphaAL
 protocol of proxy unspecified, using the node's protocol: ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK
 { "minimal_fees": "50", "minimal_nanotez_per_gas_unit": [ "201", "5" ],
   "minimal_nanotez_per_byte": [ "56", "3" ], "allow_script_failure": false,
-  "replace_by_fee_factor": [ "21", "20" ] }
+  "replace_by_fee_factor": [ "21", "20" ],
+  "max_prechecked_manager_operations": 5000 }
 
 ./tezos-client --mode proxy rpc get /chains/main/mempool/filter
 protocol of proxy unspecified, using the node's protocol: ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK
 { "minimal_fees": "50", "minimal_nanotez_per_gas_unit": [ "201", "5" ],
   "minimal_nanotez_per_byte": [ "56", "3" ], "allow_script_failure": false,
-  "replace_by_fee_factor": [ "21", "20" ] }
+  "replace_by_fee_factor": [ "21", "20" ],
+  "max_prechecked_manager_operations": 5000 }
 
 ./tezos-client --mode proxy rpc get '/chains/main/mempool/filter?include_default=true'
 protocol of proxy unspecified, using the node's protocol: ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK
 { "minimal_fees": "50", "minimal_nanotez_per_gas_unit": [ "201", "5" ],
   "minimal_nanotez_per_byte": [ "56", "3" ], "allow_script_failure": false,
-  "replace_by_fee_factor": [ "21", "20" ] }
+  "replace_by_fee_factor": [ "21", "20" ],
+  "max_prechecked_manager_operations": 5000 }
 
 ./tezos-client --mode proxy rpc get '/chains/main/mempool/filter?include_default=false'
 protocol of proxy unspecified, using the node's protocol: ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK
@@ -144,19 +221,22 @@ protocol of proxy unspecified, using the node's protocol: ProtoALphaALphaALphaAL
 protocol of proxy unspecified, using the node's protocol: ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK
 { "minimal_fees": "200", "minimal_nanotez_per_gas_unit": [ "100", "1" ],
   "minimal_nanotez_per_byte": [ "1000", "1" ], "allow_script_failure": true,
-  "replace_by_fee_factor": [ "21", "20" ] }
+  "replace_by_fee_factor": [ "21", "20" ],
+  "max_prechecked_manager_operations": 5000 }
 
 ./tezos-client --mode proxy rpc get /chains/main/mempool/filter
 protocol of proxy unspecified, using the node's protocol: ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK
 { "minimal_fees": "200", "minimal_nanotez_per_gas_unit": [ "100", "1" ],
   "minimal_nanotez_per_byte": [ "1000", "1" ], "allow_script_failure": true,
-  "replace_by_fee_factor": [ "21", "20" ] }
+  "replace_by_fee_factor": [ "21", "20" ],
+  "max_prechecked_manager_operations": 5000 }
 
 ./tezos-client --mode proxy rpc get '/chains/main/mempool/filter?include_default=true'
 protocol of proxy unspecified, using the node's protocol: ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK
 { "minimal_fees": "200", "minimal_nanotez_per_gas_unit": [ "100", "1" ],
   "minimal_nanotez_per_byte": [ "1000", "1" ], "allow_script_failure": true,
-  "replace_by_fee_factor": [ "21", "20" ] }
+  "replace_by_fee_factor": [ "21", "20" ],
+  "max_prechecked_manager_operations": 5000 }
 
 ./tezos-client --mode proxy rpc get '/chains/main/mempool/filter?include_default=false'
 protocol of proxy unspecified, using the node's protocol: ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK
@@ -166,25 +246,28 @@ protocol of proxy unspecified, using the node's protocol: ProtoALphaALphaALphaAL
 protocol of proxy unspecified, using the node's protocol: ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK
 { "minimal_fees": "100", "minimal_nanotez_per_gas_unit": [ "100", "1" ],
   "minimal_nanotez_per_byte": [ "1000", "1" ], "allow_script_failure": true,
-  "replace_by_fee_factor": [ "21", "20" ] }
+  "replace_by_fee_factor": [ "21", "20" ],
+  "max_prechecked_manager_operations": 5000 }
 
 ./tezos-client --mode proxy rpc get /chains/main/mempool/filter
 protocol of proxy unspecified, using the node's protocol: ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK
 { "minimal_fees": "100", "minimal_nanotez_per_gas_unit": [ "100", "1" ],
   "minimal_nanotez_per_byte": [ "1000", "1" ], "allow_script_failure": true,
-  "replace_by_fee_factor": [ "21", "20" ] }
+  "replace_by_fee_factor": [ "21", "20" ],
+  "max_prechecked_manager_operations": 5000 }
 
 ./tezos-client --mode proxy rpc get '/chains/main/mempool/filter?include_default=true'
 protocol of proxy unspecified, using the node's protocol: ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK
 { "minimal_fees": "100", "minimal_nanotez_per_gas_unit": [ "100", "1" ],
   "minimal_nanotez_per_byte": [ "1000", "1" ], "allow_script_failure": true,
-  "replace_by_fee_factor": [ "21", "20" ] }
+  "replace_by_fee_factor": [ "21", "20" ],
+  "max_prechecked_manager_operations": 5000 }
 
 ./tezos-client --mode proxy rpc get '/chains/main/mempool/filter?include_default=false'
 protocol of proxy unspecified, using the node's protocol: ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK
 {}
 
-curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
+curl -s 'http://localhost:[PORT]/describe/chains/main/mempool?recurse=yes'
 {
   "static": {
     "subdirs": {
@@ -284,7 +367,7 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                     "$ref": "#/definitions/error",
                     "definitions": {
                       "error": {
-                        "description": "The full list of error is available with the global RPC `GET errors`"
+                        "description": "The full list of errors is available with the global RPC `GET errors`"
                       }
                     }
                   },
@@ -368,7 +451,7 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                     "$ref": "#/definitions/error",
                     "definitions": {
                       "error": {
-                        "description": "The full list of error is available with the global RPC `GET errors`"
+                        "description": "The full list of errors is available with the global RPC `GET errors`"
                       }
                     }
                   },
@@ -460,7 +543,7 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                     "$ref": "#/definitions/error",
                     "definitions": {
                       "error": {
-                        "description": "The full list of error is available with the global RPC `GET errors`"
+                        "description": "The full list of errors is available with the global RPC `GET errors`"
                       }
                     }
                   },
@@ -582,7 +665,7 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                           "$ref": "#/definitions/Signature"
                         },
                         "error": {
-                          "$ref": "#/definitions/error"
+                          "$ref": "#/definitions/error_opt"
                         }
                       },
                       "required": [
@@ -700,11 +783,6 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                           "level"
                         ],
                         "additionalProperties": false
-                      },
-                      "alpha.contract_id": {
-                        "title": "A contract handle",
-                        "description": "A contract notation as given to an RPC or inside scripts. Can be a base58 implicit contract hash or a base58 originated contract hash.",
-                        "$ref": "#/definitions/unistring"
                       },
                       "alpha.entrypoint": {
                         "title": "entrypoint",
@@ -1374,7 +1452,7 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                                 "$ref": "#/definitions/alpha.mutez"
                               },
                               "destination": {
-                                "$ref": "#/definitions/alpha.contract_id"
+                                "$ref": "#/definitions/alpha.transaction_destination"
                               },
                               "parameters": {
                                 "type": "object",
@@ -1775,8 +1853,152 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                               "kind"
                             ],
                             "additionalProperties": false
+                          },
+                          {
+                            "title": "Tx_rollup_submit_batch",
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "tx_rollup_submit_batch"
+                                ]
+                              },
+                              "source": {
+                                "$ref": "#/definitions/Signature.Public_key_hash"
+                              },
+                              "fee": {
+                                "$ref": "#/definitions/alpha.mutez"
+                              },
+                              "counter": {
+                                "$ref": "#/definitions/positive_bignum"
+                              },
+                              "gas_limit": {
+                                "$ref": "#/definitions/positive_bignum"
+                              },
+                              "storage_limit": {
+                                "$ref": "#/definitions/positive_bignum"
+                              },
+                              "rollup": {
+                                "$ref": "#/definitions/alpha.tx_rollup_id"
+                              },
+                              "content": {
+                                "$ref": "#/definitions/unistring"
+                              }
+                            },
+                            "required": [
+                              "content",
+                              "rollup",
+                              "storage_limit",
+                              "gas_limit",
+                              "counter",
+                              "fee",
+                              "source",
+                              "kind"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "title": "Sc_rollup_originate",
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "sc_rollup_originate"
+                                ]
+                              },
+                              "source": {
+                                "$ref": "#/definitions/Signature.Public_key_hash"
+                              },
+                              "fee": {
+                                "$ref": "#/definitions/alpha.mutez"
+                              },
+                              "counter": {
+                                "$ref": "#/definitions/positive_bignum"
+                              },
+                              "gas_limit": {
+                                "$ref": "#/definitions/positive_bignum"
+                              },
+                              "storage_limit": {
+                                "$ref": "#/definitions/positive_bignum"
+                              },
+                              "kind": {
+                                "oneOf": [
+                                  {
+                                    "title": "Example_arith smart contract rollup kind"
+                                  }
+                                ]
+                              },
+                              "boot_sector": {
+                                "$ref": "#/definitions/unistring"
+                              }
+                            },
+                            "required": [
+                              "boot_sector",
+                              "kind",
+                              "storage_limit",
+                              "gas_limit",
+                              "counter",
+                              "fee",
+                              "source",
+                              "kind"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "title": "Sc_rollup_add_messages",
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "sc_rollup_add_messages"
+                                ]
+                              },
+                              "source": {
+                                "$ref": "#/definitions/Signature.Public_key_hash"
+                              },
+                              "fee": {
+                                "$ref": "#/definitions/alpha.mutez"
+                              },
+                              "counter": {
+                                "$ref": "#/definitions/positive_bignum"
+                              },
+                              "gas_limit": {
+                                "$ref": "#/definitions/positive_bignum"
+                              },
+                              "storage_limit": {
+                                "$ref": "#/definitions/positive_bignum"
+                              },
+                              "rollup": {
+                                "$ref": "#/definitions/alpha.rollup_address"
+                              },
+                              "message": {
+                                "type": "array",
+                                "items": {
+                                  "$ref": "#/definitions/unistring"
+                                }
+                              }
+                            },
+                            "required": [
+                              "message",
+                              "rollup",
+                              "storage_limit",
+                              "gas_limit",
+                              "counter",
+                              "fee",
+                              "source",
+                              "kind"
+                            ],
+                            "additionalProperties": false
                           }
                         ]
+                      },
+                      "alpha.rollup_address": {
+                        "title": "A smart contract rollup address",
+                        "description": "A smart contract rollup is identified by a base58 address starting with scr1",
+                        "$ref": "#/definitions/unistring"
                       },
                       "alpha.scripted.contracts": {
                         "type": "object",
@@ -1942,6 +2164,16 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                         ],
                         "additionalProperties": false
                       },
+                      "alpha.transaction_destination": {
+                        "title": "A destination of a transaction",
+                        "description": "A destination notation compatible with the contract notation as given to an RPC or inside scripts. Can be a base58 implicit contract hash or a base58 originated contract hash.",
+                        "$ref": "#/definitions/unistring"
+                      },
+                      "alpha.tx_rollup_id": {
+                        "title": "A tx rollup handle",
+                        "description": "A tx rollup notation as given to an RPC or inside scripts, is a base58 tx rollup hash",
+                        "$ref": "#/definitions/unistring"
+                      },
                       "bignum": {
                         "title": "Big number",
                         "description": "Decimal representation of a big number",
@@ -1955,8 +2187,8 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                         "title": "A nonce hash (Base58Check-encoded)",
                         "$ref": "#/definitions/unistring"
                       },
-                      "error": {
-                        "description": "The full list of error is available with the global RPC `GET errors`"
+                      "error_opt": {
+                        "description": "An optional error-trace (None indicates no error). The full list of errors is available with the global RPC `GET errors`"
                       },
                       "fitness": {
                         "title": "Block fitness",
@@ -2111,6 +2343,71 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                     "fields": [
                       {
                         "description": {
+                          "title": "X_1"
+                        },
+                        "encoding": {
+                          "fields": [
+                            {
+                              "kind": "dyn",
+                              "num_fields": 1,
+                              "size": "Uint30"
+                            },
+                            {
+                              "layout": {
+                                "kind": "String"
+                              },
+                              "kind": "anon",
+                              "data_kind": {
+                                "kind": "Variable"
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "description": {
+                          "title": "X_2"
+                        },
+                        "encoding": {
+                          "tag_size": "Uint16",
+                          "kind": {
+                            "size": 2,
+                            "kind": "Float"
+                          },
+                          "cases": [
+                            {
+                              "tag": 0,
+                              "fields": [
+                                {
+                                  "name": "Tag",
+                                  "layout": {
+                                    "size": "Uint16",
+                                    "kind": "Int"
+                                  },
+                                  "data_kind": {
+                                    "size": 2,
+                                    "kind": "Float"
+                                  },
+                                  "kind": "named"
+                                },
+                                {
+                                  "layout": {
+                                    "kind": "Zero_width"
+                                  },
+                                  "kind": "anon",
+                                  "data_kind": {
+                                    "size": 0,
+                                    "kind": "Float"
+                                  }
+                                }
+                              ],
+                              "name": "Example_arith smart contract rollup kind"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "description": {
                           "title": "alpha.scripted.contracts"
                         },
                         "encoding": {
@@ -2150,7 +2447,7 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                       },
                       {
                         "description": {
-                          "title": "alpha.contract_id"
+                          "title": "alpha.transaction_destination"
                         },
                         "encoding": {
                           "tag_size": "Uint8",
@@ -2419,7 +2716,7 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                       },
                       {
                         "description": {
-                          "title": "X_1"
+                          "title": "X_3"
                         },
                         "encoding": {
                           "fields": [
@@ -3818,7 +4115,7 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                                 {
                                   "name": "destination",
                                   "layout": {
-                                    "name": "alpha.contract_id",
+                                    "name": "alpha.transaction_destination",
                                     "kind": "Ref"
                                   },
                                   "data_kind": {
@@ -3834,7 +4131,7 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                                 {
                                   "name": "parameters",
                                   "layout": {
-                                    "name": "X_1",
+                                    "name": "X_3",
                                     "kind": "Ref"
                                   },
                                   "data_kind": {
@@ -4298,6 +4595,316 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                                 }
                               ],
                               "name": "Tx_rollup_origination"
+                            },
+                            {
+                              "tag": 151,
+                              "fields": [
+                                {
+                                  "name": "Tag",
+                                  "layout": {
+                                    "size": "Uint8",
+                                    "kind": "Int"
+                                  },
+                                  "data_kind": {
+                                    "size": 1,
+                                    "kind": "Float"
+                                  },
+                                  "kind": "named"
+                                },
+                                {
+                                  "name": "source",
+                                  "layout": {
+                                    "name": "public_key_hash",
+                                    "kind": "Ref"
+                                  },
+                                  "data_kind": {
+                                    "size": 21,
+                                    "kind": "Float"
+                                  },
+                                  "kind": "named"
+                                },
+                                {
+                                  "name": "fee",
+                                  "layout": {
+                                    "name": "N.t",
+                                    "kind": "Ref"
+                                  },
+                                  "data_kind": {
+                                    "kind": "Dynamic"
+                                  },
+                                  "kind": "named"
+                                },
+                                {
+                                  "name": "counter",
+                                  "layout": {
+                                    "name": "N.t",
+                                    "kind": "Ref"
+                                  },
+                                  "data_kind": {
+                                    "kind": "Dynamic"
+                                  },
+                                  "kind": "named"
+                                },
+                                {
+                                  "name": "gas_limit",
+                                  "layout": {
+                                    "name": "N.t",
+                                    "kind": "Ref"
+                                  },
+                                  "data_kind": {
+                                    "kind": "Dynamic"
+                                  },
+                                  "kind": "named"
+                                },
+                                {
+                                  "name": "storage_limit",
+                                  "layout": {
+                                    "name": "N.t",
+                                    "kind": "Ref"
+                                  },
+                                  "data_kind": {
+                                    "kind": "Dynamic"
+                                  },
+                                  "kind": "named"
+                                },
+                                {
+                                  "name": "rollup",
+                                  "layout": {
+                                    "kind": "Bytes"
+                                  },
+                                  "data_kind": {
+                                    "size": 20,
+                                    "kind": "Float"
+                                  },
+                                  "kind": "named"
+                                },
+                                {
+                                  "kind": "dyn",
+                                  "num_fields": 1,
+                                  "size": "Uint30"
+                                },
+                                {
+                                  "name": "content",
+                                  "layout": {
+                                    "kind": "String"
+                                  },
+                                  "data_kind": {
+                                    "kind": "Variable"
+                                  },
+                                  "kind": "named"
+                                }
+                              ],
+                              "name": "Tx_rollup_submit_batch"
+                            },
+                            {
+                              "tag": 200,
+                              "fields": [
+                                {
+                                  "name": "Tag",
+                                  "layout": {
+                                    "size": "Uint8",
+                                    "kind": "Int"
+                                  },
+                                  "data_kind": {
+                                    "size": 1,
+                                    "kind": "Float"
+                                  },
+                                  "kind": "named"
+                                },
+                                {
+                                  "name": "source",
+                                  "layout": {
+                                    "name": "public_key_hash",
+                                    "kind": "Ref"
+                                  },
+                                  "data_kind": {
+                                    "size": 21,
+                                    "kind": "Float"
+                                  },
+                                  "kind": "named"
+                                },
+                                {
+                                  "name": "fee",
+                                  "layout": {
+                                    "name": "N.t",
+                                    "kind": "Ref"
+                                  },
+                                  "data_kind": {
+                                    "kind": "Dynamic"
+                                  },
+                                  "kind": "named"
+                                },
+                                {
+                                  "name": "counter",
+                                  "layout": {
+                                    "name": "N.t",
+                                    "kind": "Ref"
+                                  },
+                                  "data_kind": {
+                                    "kind": "Dynamic"
+                                  },
+                                  "kind": "named"
+                                },
+                                {
+                                  "name": "gas_limit",
+                                  "layout": {
+                                    "name": "N.t",
+                                    "kind": "Ref"
+                                  },
+                                  "data_kind": {
+                                    "kind": "Dynamic"
+                                  },
+                                  "kind": "named"
+                                },
+                                {
+                                  "name": "storage_limit",
+                                  "layout": {
+                                    "name": "N.t",
+                                    "kind": "Ref"
+                                  },
+                                  "data_kind": {
+                                    "kind": "Dynamic"
+                                  },
+                                  "kind": "named"
+                                },
+                                {
+                                  "name": "kind",
+                                  "layout": {
+                                    "name": "X_2",
+                                    "kind": "Ref"
+                                  },
+                                  "data_kind": {
+                                    "size": 2,
+                                    "kind": "Float"
+                                  },
+                                  "kind": "named"
+                                },
+                                {
+                                  "kind": "dyn",
+                                  "num_fields": 1,
+                                  "size": "Uint30"
+                                },
+                                {
+                                  "name": "boot_sector",
+                                  "layout": {
+                                    "kind": "String"
+                                  },
+                                  "data_kind": {
+                                    "kind": "Variable"
+                                  },
+                                  "kind": "named"
+                                }
+                              ],
+                              "name": "Sc_rollup_originate"
+                            },
+                            {
+                              "tag": 201,
+                              "fields": [
+                                {
+                                  "name": "Tag",
+                                  "layout": {
+                                    "size": "Uint8",
+                                    "kind": "Int"
+                                  },
+                                  "data_kind": {
+                                    "size": 1,
+                                    "kind": "Float"
+                                  },
+                                  "kind": "named"
+                                },
+                                {
+                                  "name": "source",
+                                  "layout": {
+                                    "name": "public_key_hash",
+                                    "kind": "Ref"
+                                  },
+                                  "data_kind": {
+                                    "size": 21,
+                                    "kind": "Float"
+                                  },
+                                  "kind": "named"
+                                },
+                                {
+                                  "name": "fee",
+                                  "layout": {
+                                    "name": "N.t",
+                                    "kind": "Ref"
+                                  },
+                                  "data_kind": {
+                                    "kind": "Dynamic"
+                                  },
+                                  "kind": "named"
+                                },
+                                {
+                                  "name": "counter",
+                                  "layout": {
+                                    "name": "N.t",
+                                    "kind": "Ref"
+                                  },
+                                  "data_kind": {
+                                    "kind": "Dynamic"
+                                  },
+                                  "kind": "named"
+                                },
+                                {
+                                  "name": "gas_limit",
+                                  "layout": {
+                                    "name": "N.t",
+                                    "kind": "Ref"
+                                  },
+                                  "data_kind": {
+                                    "kind": "Dynamic"
+                                  },
+                                  "kind": "named"
+                                },
+                                {
+                                  "name": "storage_limit",
+                                  "layout": {
+                                    "name": "N.t",
+                                    "kind": "Ref"
+                                  },
+                                  "data_kind": {
+                                    "kind": "Dynamic"
+                                  },
+                                  "kind": "named"
+                                },
+                                {
+                                  "kind": "dyn",
+                                  "name": "alpha.rollup_address",
+                                  "num_fields": 1,
+                                  "size": "Uint30"
+                                },
+                                {
+                                  "name": "rollup",
+                                  "layout": {
+                                    "kind": "String"
+                                  },
+                                  "data_kind": {
+                                    "kind": "Variable"
+                                  },
+                                  "kind": "named"
+                                },
+                                {
+                                  "kind": "dyn",
+                                  "num_fields": 1,
+                                  "size": "Uint30"
+                                },
+                                {
+                                  "name": "message",
+                                  "layout": {
+                                    "layout": {
+                                      "name": "X_1",
+                                      "kind": "Ref"
+                                    },
+                                    "kind": "Seq"
+                                  },
+                                  "data_kind": {
+                                    "kind": "Variable"
+                                  },
+                                  "kind": "named"
+                                }
+                              ],
+                              "name": "Sc_rollup_add_messages"
                             }
                           ]
                         }
@@ -4367,7 +4974,7 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                             },
                             {
                               "kind": "dyn",
-                              "name": "error",
+                              "name": "error_opt",
                               "num_fields": 1,
                               "size": "Uint30"
                             },
@@ -4393,7 +5000,7 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                     "$ref": "#/definitions/error",
                     "definitions": {
                       "error": {
-                        "description": "The full list of error is available with the global RPC `GET errors`"
+                        "description": "The full list of errors is available with the global RPC `GET errors`"
                       }
                     }
                   },
@@ -4440,6 +5047,56 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                       "single": {
                         "id": "single",
                         "name": "int"
+                      }
+                    }
+                  },
+                  {
+                    "name": "applied",
+                    "description": "Include applied operations (true by default)",
+                    "kind": {
+                      "single": {
+                        "id": "single",
+                        "name": "bool"
+                      }
+                    }
+                  },
+                  {
+                    "name": "refused",
+                    "description": "Include refused operations (true by default)",
+                    "kind": {
+                      "single": {
+                        "id": "single",
+                        "name": "bool"
+                      }
+                    }
+                  },
+                  {
+                    "name": "outdated",
+                    "description": "Include outdated operations (true by default)",
+                    "kind": {
+                      "single": {
+                        "id": "single",
+                        "name": "bool"
+                      }
+                    }
+                  },
+                  {
+                    "name": "branch_refused",
+                    "description": "Include branch refused operations (true by default)",
+                    "kind": {
+                      "single": {
+                        "id": "single",
+                        "name": "bool"
+                      }
+                    }
+                  },
+                  {
+                    "name": "branch_delayed",
+                    "description": "Include branch delayed operations (true by default)",
+                    "kind": {
+                      "single": {
+                        "id": "single",
+                        "name": "bool"
                       }
                     }
                   }
@@ -5056,11 +5713,6 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                           "level"
                         ],
                         "additionalProperties": false
-                      },
-                      "alpha.contract_id": {
-                        "title": "A contract handle",
-                        "description": "A contract notation as given to an RPC or inside scripts. Can be a base58 implicit contract hash or a base58 originated contract hash.",
-                        "$ref": "#/definitions/unistring"
                       },
                       "alpha.entrypoint": {
                         "title": "entrypoint",
@@ -5730,7 +6382,7 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                                 "$ref": "#/definitions/alpha.mutez"
                               },
                               "destination": {
-                                "$ref": "#/definitions/alpha.contract_id"
+                                "$ref": "#/definitions/alpha.transaction_destination"
                               },
                               "parameters": {
                                 "type": "object",
@@ -6131,8 +6783,152 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                               "kind"
                             ],
                             "additionalProperties": false
+                          },
+                          {
+                            "title": "Tx_rollup_submit_batch",
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "tx_rollup_submit_batch"
+                                ]
+                              },
+                              "source": {
+                                "$ref": "#/definitions/Signature.Public_key_hash"
+                              },
+                              "fee": {
+                                "$ref": "#/definitions/alpha.mutez"
+                              },
+                              "counter": {
+                                "$ref": "#/definitions/positive_bignum"
+                              },
+                              "gas_limit": {
+                                "$ref": "#/definitions/positive_bignum"
+                              },
+                              "storage_limit": {
+                                "$ref": "#/definitions/positive_bignum"
+                              },
+                              "rollup": {
+                                "$ref": "#/definitions/alpha.tx_rollup_id"
+                              },
+                              "content": {
+                                "$ref": "#/definitions/unistring"
+                              }
+                            },
+                            "required": [
+                              "content",
+                              "rollup",
+                              "storage_limit",
+                              "gas_limit",
+                              "counter",
+                              "fee",
+                              "source",
+                              "kind"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "title": "Sc_rollup_originate",
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "sc_rollup_originate"
+                                ]
+                              },
+                              "source": {
+                                "$ref": "#/definitions/Signature.Public_key_hash"
+                              },
+                              "fee": {
+                                "$ref": "#/definitions/alpha.mutez"
+                              },
+                              "counter": {
+                                "$ref": "#/definitions/positive_bignum"
+                              },
+                              "gas_limit": {
+                                "$ref": "#/definitions/positive_bignum"
+                              },
+                              "storage_limit": {
+                                "$ref": "#/definitions/positive_bignum"
+                              },
+                              "kind": {
+                                "oneOf": [
+                                  {
+                                    "title": "Example_arith smart contract rollup kind"
+                                  }
+                                ]
+                              },
+                              "boot_sector": {
+                                "$ref": "#/definitions/unistring"
+                              }
+                            },
+                            "required": [
+                              "boot_sector",
+                              "kind",
+                              "storage_limit",
+                              "gas_limit",
+                              "counter",
+                              "fee",
+                              "source",
+                              "kind"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "title": "Sc_rollup_add_messages",
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "sc_rollup_add_messages"
+                                ]
+                              },
+                              "source": {
+                                "$ref": "#/definitions/Signature.Public_key_hash"
+                              },
+                              "fee": {
+                                "$ref": "#/definitions/alpha.mutez"
+                              },
+                              "counter": {
+                                "$ref": "#/definitions/positive_bignum"
+                              },
+                              "gas_limit": {
+                                "$ref": "#/definitions/positive_bignum"
+                              },
+                              "storage_limit": {
+                                "$ref": "#/definitions/positive_bignum"
+                              },
+                              "rollup": {
+                                "$ref": "#/definitions/alpha.rollup_address"
+                              },
+                              "message": {
+                                "type": "array",
+                                "items": {
+                                  "$ref": "#/definitions/unistring"
+                                }
+                              }
+                            },
+                            "required": [
+                              "message",
+                              "rollup",
+                              "storage_limit",
+                              "gas_limit",
+                              "counter",
+                              "fee",
+                              "source",
+                              "kind"
+                            ],
+                            "additionalProperties": false
                           }
                         ]
+                      },
+                      "alpha.rollup_address": {
+                        "title": "A smart contract rollup address",
+                        "description": "A smart contract rollup is identified by a base58 address starting with scr1",
+                        "$ref": "#/definitions/unistring"
                       },
                       "alpha.scripted.contracts": {
                         "type": "object",
@@ -6298,6 +7094,16 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                         ],
                         "additionalProperties": false
                       },
+                      "alpha.transaction_destination": {
+                        "title": "A destination of a transaction",
+                        "description": "A destination notation compatible with the contract notation as given to an RPC or inside scripts. Can be a base58 implicit contract hash or a base58 originated contract hash.",
+                        "$ref": "#/definitions/unistring"
+                      },
+                      "alpha.tx_rollup_id": {
+                        "title": "A tx rollup handle",
+                        "description": "A tx rollup notation as given to an RPC or inside scripts, is a base58 tx rollup hash",
+                        "$ref": "#/definitions/unistring"
+                      },
                       "bignum": {
                         "title": "Big number",
                         "description": "Decimal representation of a big number",
@@ -6312,7 +7118,7 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                         "$ref": "#/definitions/unistring"
                       },
                       "error": {
-                        "description": "The full list of error is available with the global RPC `GET errors`"
+                        "description": "The full list of errors is available with the global RPC `GET errors`"
                       },
                       "fitness": {
                         "title": "Block fitness",
@@ -6509,7 +7315,7 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                     "$ref": "#/definitions/error",
                     "definitions": {
                       "error": {
-                        "description": "The full list of error is available with the global RPC `GET errors`"
+                        "description": "The full list of errors is available with the global RPC `GET errors`"
                       }
                     }
                   },
@@ -6617,7 +7423,7 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                     "$ref": "#/definitions/error",
                     "definitions": {
                       "error": {
-                        "description": "The full list of error is available with the global RPC `GET errors`"
+                        "description": "The full list of errors is available with the global RPC `GET errors`"
                       }
                     }
                   },
@@ -6711,7 +7517,7 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                     "$ref": "#/definitions/error",
                     "definitions": {
                       "error": {
-                        "description": "The full list of error is available with the global RPC `GET errors`"
+                        "description": "The full list of errors is available with the global RPC `GET errors`"
                       }
                     }
                   },
@@ -6836,7 +7642,7 @@ curl -s 'http://localhost:16385/describe/chains/main/mempool?recurse=yes'
                     "$ref": "#/definitions/error",
                     "definitions": {
                       "error": {
-                        "description": "The full list of error is available with the global RPC `GET errors`"
+                        "description": "The full list of errors is available with the global RPC `GET errors`"
                       }
                     }
                   },

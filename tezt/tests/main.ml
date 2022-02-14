@@ -32,9 +32,9 @@
             other files.
  *)
 
-let protocols = [Protocol.Alpha; Protocol.Hangzhou; Protocol.Granada]
+let protocols = [Protocol.Alpha; Protocol.Ithaca; Protocol.Hangzhou]
 
-let migrate_from = Protocol.Hangzhou
+let migrate_from = Protocol.Ithaca
 
 let migrate_to = Protocol.Alpha
 
@@ -55,8 +55,9 @@ let () =
   Normalize.register ~protocols:[Alpha] ;
   Double_bake.register ~protocols:[Alpha] ;
   Light.register ~protocols:[Alpha] ;
-  Mockup.register ~protocols:[Granada; Hangzhou; Alpha] ;
+  Mockup.register ~protocols:[Hangzhou; Ithaca; Alpha] ;
   Mockup.register_constant_migration ~migrate_from ~migrate_to ;
+  Mockup.register_migration_ticket_balance ~migrate_from ~migrate_to ;
   Mockup.register_global_constants ~protocols:[Alpha] ;
   Node_event_level.register ~protocols:[Alpha] ;
   Proxy.register ~protocols ;
@@ -67,6 +68,7 @@ let () =
   User_activated_upgrade.register ~migrate_from ~migrate_to ;
   Rpc_config_logging.register ~protocols:[Alpha] ;
   Protocol_table_update.register ~migrate_from ~migrate_to ;
+  Cache_cache.register ~protocols:[Hangzhou; Alpha] ;
   (* TODO: https://gitlab.com/tezos/tezos/-/issues/1823
      the "Baking" test does not have a documentation.
      I don't know if it is about baking accounts (and thus it is not a protocol-agnostic
@@ -74,12 +76,12 @@ let () =
      on previous protocols, if not for a problem that was introduced in
      Client.bake_for which causes the default key to be a baking account key). *)
   Baking.register ~protocols:[Alpha] ;
-  Mempool.register ~protocols:[Alpha] ;
+  Prevalidator.register ~protocols:[Ithaca; Alpha] ;
   Monitor_operations.register ~protocols:[Alpha] ;
   Stresstest_command.register ~protocols:[Alpha] ;
   (* Adding a new protocol would require adding samples at ./tezt/tests/encoding_samples directory*)
   Encoding.register ~protocols ;
-  Precheck.register ~protocols:[Alpha] ;
+  Precheck.register ~protocols:[Ithaca; Alpha] ;
   Tenderbake.register ~protocols:[Alpha] ;
   (* Tests that are protocol-independent.
      They do not take a protocol as a parameter and thus need to be registered only once. *)
@@ -93,19 +95,23 @@ let () =
      Those modules define different tests for different protocols in their [register]. *)
   RPC_test.register () ;
   Voting.register
-    ~from_protocol:Granada
-    ~to_protocol:(Known Hangzhou)
+    ~from_protocol:Hangzhou
+    ~to_protocol:(Known Ithaca)
     ~loser_protocols:[Alpha] ;
   Voting.register
-    ~from_protocol:Granada
+    ~from_protocol:Hangzhou
     ~to_protocol:Injected_test
     ~loser_protocols:[Alpha; Hangzhou] ;
   (* This file tests an RPC added in protocol G *)
   Big_map_all.register () ;
   Reject_malformed_micheline.register ~protocols:[Alpha] ;
   Tx_rollup.register ~protocols:[Alpha] ;
-
   Manager_operations.register ~protocols ;
-  Replace_by_fees.register ~protocols:[Alpha] ;
+  Replace_by_fees.register ~protocols:[Ithaca; Alpha] ;
+  Sc_rollup.register ~protocols:[Alpha] ;
+  Views.register ~protocols:[Alpha] () ;
+  Runtime_script_failure.register ~protocols ;
+  (* Relies on a feature only available since J. *)
+  Run_script.register ~protocols:[Alpha] ;
   (* Test.run () should be the last statement, don't register afterwards! *)
   Test.run ()

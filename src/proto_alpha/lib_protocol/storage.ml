@@ -2,6 +2,7 @@
 (*                                                                           *)
 (* Open Source License                                                       *)
 (* Copyright (c) 2018 Dynamic Ledger Solutions, Inc. <contact@tezos.com>     *)
+(* Copyright (c) 2022 Trili Tech, <contact@trili.tech>                       *)
 (*                                                                           *)
 (* Permission is hereby granted, free of charge, to any person obtaining a   *)
 (* copy of this software and associated documentation files (the "Software"),*)
@@ -27,34 +28,32 @@ open Storage_functors
 open Storage_sigs
 
 module Encoding = struct
-  module UInt16 = struct
+  module UInt16 : VALUE with type t = int = struct
     type t = int
 
     let encoding = Data_encoding.uint16
   end
 
-  module Int32 = struct
+  module Int32 : VALUE with type t = Int32.t = struct
     type t = Int32.t
 
     let encoding = Data_encoding.int32
   end
 
-  module Int64 = struct
+  module Int64 : VALUE with type t = Int64.t = struct
     type t = Int64.t
 
     let encoding = Data_encoding.int64
   end
 
-  module Z = struct
+  module Z : VALUE with type t = Z.t = struct
     type t = Z.t
 
     let encoding = Data_encoding.z
   end
 end
 
-module Int31_index : sig
-  include INDEX with type t = int
-end = struct
+module Int31_index : INDEX with type t = int = struct
   type t = int
 
   let path_length = 1
@@ -411,7 +410,11 @@ module type NEXT = sig
 end
 
 module Global_constants = struct
-  module Map =
+  module Map :
+    Non_iterable_indexed_carbonated_data_storage
+      with type t := Raw_context.t
+       and type key = Script_expr_hash.t
+       and type value = Script_repr.expr =
     Make_indexed_carbonated_data_storage
       (Make_subcontext (Registered) (Raw_context)
          (struct
@@ -924,7 +927,7 @@ end
 
 module Public_key_hash_index = Make_index (Public_key_hash)
 
-module Protocol_hash = struct
+module Protocol_hash_with_path_encoding = struct
   include Protocol_hash
   include Path_encoding.Make_hex (Protocol_hash)
 end
@@ -1342,12 +1345,20 @@ module Vote = struct
       end)
       (Protocol_hash)
 
-  module Listings_size =
+  (* To be removed when removing migration from Ithaca *)
+  module Legacy_listings_size =
     Make_single_data_storage (Registered) (Raw_context)
       (struct
         let name = ["listings_size"]
       end)
       (Encoding.Int32)
+
+  module Voting_power_in_listings =
+    Make_single_data_storage (Registered) (Raw_context)
+      (struct
+        let name = ["voting_power_in_listings"]
+      end)
+      (Encoding.Int64)
 
   module Listings =
     Make_indexed_data_storage
@@ -1356,7 +1367,7 @@ module Vote = struct
            let name = ["listings"]
          end))
          (Public_key_hash_index)
-      (Encoding.Int32)
+      (Encoding.Int64)
 
   module Proposals =
     Make_data_set_storage
@@ -1364,7 +1375,10 @@ module Vote = struct
          (struct
            let name = ["proposals"]
          end))
-         (Pair (Make_index (Protocol_hash)) (Public_key_hash_index))
+         (Pair
+            (Make_index
+               (Protocol_hash_with_path_encoding))
+               (Public_key_hash_index))
 
   module Proposals_count =
     Make_indexed_data_storage
@@ -1450,7 +1464,11 @@ module Seed = struct
       Cycle.Nonce.remove (ctxt, l.cycle) l.level
   end
 
-  module Nonce_legacy = struct
+  module Nonce_legacy :
+    Non_iterable_indexed_data_storage
+      with type key := Level_repr.t
+       and type value := nonce_status
+       and type t := Raw_context.t = struct
     open Level_repr
 
     type context = Raw_context.t
@@ -1610,7 +1628,7 @@ module Ticket_balance = struct
   end
 
   module Sub_context = Make_subcontext (Registered) (Raw_context) (Name)
-  module Index = Make_index (Script_expr_hash)
+  module Index = Make_index (Ticket_hash_repr.Index)
   module Table =
     Make_indexed_carbonated_data_storage (Sub_context) (Index) (Encoding.Z)
 end
@@ -1631,13 +1649,160 @@ module Tx_rollup = struct
          (Make_index (Tx_rollup_repr.Index))
 
   module State =
-    Indexed_context.Make_map
+    Indexed_context.Make_carbonated_map
       (struct
         let name = ["state"]
       end)
-      (struct
-        type t = Tx_rollup_repr.state
+      (Tx_rollup_state_repr)
 
-        let encoding = Tx_rollup_repr.state_encoding
+  module Level_context =
+    Make_indexed_subcontext
+      (Make_subcontext (Registered) (Raw_context)
+         (struct
+           let name = ["level_index"]
+         end))
+         (Make_index (Raw_level_repr.Index))
+
+  module Level_tx_rollup_context =
+    Make_indexed_subcontext
+      (Make_subcontext (Registered) (Level_context.Raw_context)
+         (struct
+           let name = ["tx_rollup_index"]
+         end))
+         (Make_index (Tx_rollup_repr.Index))
+
+  let fold ctxt level =
+    Level_tx_rollup_context.fold_keys (ctxt, level) ~order:`Undefined
+
+  module Inbox_metadata =
+    Level_tx_rollup_context.Make_carbonated_map
+      (struct
+        let name = ["inbox_size"]
       end)
+      (struct
+        type t = Tx_rollup_inbox_repr.metadata
+
+        let encoding = Tx_rollup_inbox_repr.metadata_encoding
+      end)
+
+  module Inbox_rev_contents =
+    Level_tx_rollup_context.Make_carbonated_map
+      (struct
+        let name = ["inbox_contents"]
+      end)
+      (struct
+        type t = Tx_rollup_message_repr.hash list
+
+        let encoding = Data_encoding.list Tx_rollup_message_repr.hash_encoding
+      end)
+end
+
+module Sc_rollup = struct
+  module Raw_context =
+    Make_subcontext (Registered) (Raw_context)
+      (struct
+        let name = ["sc_rollup"]
+      end)
+
+  module Indexed_context =
+    Make_indexed_subcontext
+      (Make_subcontext (Registered) (Raw_context)
+         (struct
+           let name = ["index"]
+         end))
+         (Make_index (Sc_rollup_repr.Index))
+
+  module PVM_kind =
+    Indexed_context.Make_map
+      (struct
+        let name = ["kind"]
+      end)
+      (struct
+        type t = Sc_rollup_repr.Kind.t
+
+        let encoding = Sc_rollup_repr.Kind.encoding
+      end)
+
+  module Boot_sector =
+    Indexed_context.Make_map
+      (struct
+        let name = ["boot_sector"]
+      end)
+      (struct
+        type t = Sc_rollup_repr.PVM.boot_sector
+
+        let encoding = Sc_rollup_repr.PVM.boot_sector_encoding
+      end)
+
+  module Inbox =
+    Indexed_context.Make_carbonated_map
+      (struct
+        let name = ["inbox"]
+      end)
+      (struct
+        type t = Sc_rollup_inbox.t
+
+        let encoding = Sc_rollup_inbox.encoding
+      end)
+
+  module Last_final_commitment =
+    Indexed_context.Make_carbonated_map
+      (struct
+        let name = ["last_final_commitment"]
+      end)
+      (struct
+        type t = Sc_rollup_repr.Commitment_hash.t
+
+        let encoding = Sc_rollup_repr.Commitment_hash.encoding
+      end)
+
+  module Stakers =
+    Make_indexed_carbonated_data_storage
+      (Make_subcontext (Registered) (Indexed_context.Raw_context)
+         (struct
+           let name = ["stakers"]
+         end))
+         (Public_key_hash_index)
+      (struct
+        type t = Sc_rollup_repr.Commitment_hash.t
+
+        let encoding = Sc_rollup_repr.Commitment_hash.encoding
+      end)
+
+  module Stakers_size =
+    Indexed_context.Make_carbonated_map
+      (struct
+        let name = ["stakers_size"]
+      end)
+      (struct
+        type t = int32
+
+        let encoding = Data_encoding.int32
+      end)
+
+  module Commitments =
+    Make_indexed_carbonated_data_storage
+      (Make_subcontext (Registered) (Indexed_context.Raw_context)
+         (struct
+           let name = ["commitments"]
+         end))
+         (Make_index (Sc_rollup_repr.Commitment_hash_index))
+         (struct
+           type t = Sc_rollup_repr.Commitment.t
+
+           let encoding = Sc_rollup_repr.Commitment.encoding
+         end)
+
+  module Commitment_stake_count =
+    Make_indexed_carbonated_data_storage
+      (Make_subcontext (Registered) (Indexed_context.Raw_context)
+         (struct
+           let name = ["commitment_stake_count"]
+         end))
+         (Make_index (Sc_rollup_repr.Commitment_hash_index))
+         (struct
+           type t = int32
+
+           let encoding = Data_encoding.int32
+         end)
 end

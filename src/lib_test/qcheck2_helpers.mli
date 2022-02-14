@@ -72,6 +72,17 @@ val qcheck_eq' :
   unit ->
   bool
 
+(** [qcheck_cond pp cond a] evaluate [cond a], if this condition is false,
+    raises a failure and prints an error message.
+
+    If [pp] is provided, use this to print [a] if [cond a] is false. *)
+val qcheck_cond :
+  ?pp:(Format.formatter -> 'a -> unit) ->
+  cond:('a -> bool) ->
+  'a ->
+  unit ->
+  bool
+
 (** [int64_range_gen a b] generates an [int64] between [a] inclusive
     and [b] inclusive.
 
@@ -116,6 +127,17 @@ val bytes_gen : bytes QCheck2.Gen.t
     [(http|https)://(string\.)+(:port)?]. It is by no means the most
     general [Uri.t] generator. Generalize it if needed. *)
 val endpoint_gen : Uri.t QCheck2.Gen.t
+
+(** A generator that returns a sublist of the given list. Lists returned
+    by this generator are not in the same order as the given list
+    (they are shuffled). This generator can return a list equal to the input list
+    (this generator does not guarantee to return strict sublists of the input list). *)
+val sublist : 'a list -> 'a list QCheck2.Gen.t
+
+(** A generator that returns lists whose elements are from the given list,
+    preserving the order. For example, given the input list [0, 1, 2],
+    this generator can produce [], [0], [0, 2], [1, 2], [1], etc. *)
+val holey : 'a list -> 'a list QCheck2.Gen.t
 
 (** Map-related generators. *)
 module MakeMapGen (Map : Stdlib.Map.S) : sig

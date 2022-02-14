@@ -73,6 +73,12 @@ module Kind = struct
 
   type tx_rollup_origination = Tx_rollup_origination_kind
 
+  type tx_rollup_submit_batch = Tx_rollup_submit_batch_kind
+
+  type sc_rollup_originate = Sc_rollup_originate_kind
+
+  type sc_rollup_add_messages = Sc_rollup_add_messages_kind
+
   type 'a manager =
     | Reveal_manager_kind : reveal manager
     | Transaction_manager_kind : transaction manager
@@ -81,6 +87,9 @@ module Kind = struct
     | Register_global_constant_manager_kind : register_global_constant manager
     | Set_deposits_limit_manager_kind : set_deposits_limit manager
     | Tx_rollup_origination_manager_kind : tx_rollup_origination manager
+    | Tx_rollup_submit_batch_manager_kind : tx_rollup_submit_batch manager
+    | Sc_rollup_originate_manager_kind : sc_rollup_originate manager
+    | Sc_rollup_add_messages_manager_kind : sc_rollup_add_messages manager
 end
 
 type 'a consensus_operation_type =
@@ -237,8 +246,8 @@ and _ manager_operation =
   | Transaction : {
       amount : Tez_repr.tez;
       parameters : Script_repr.lazy_expr;
-      entrypoint : string;
-      destination : Contract_repr.contract;
+      entrypoint : Entrypoint_repr.t;
+      destination : Destination_repr.t;
     }
       -> Kind.transaction manager_operation
   | Origination : {
@@ -259,6 +268,21 @@ and _ manager_operation =
       Tez_repr.t option
       -> Kind.set_deposits_limit manager_operation
   | Tx_rollup_origination : Kind.tx_rollup_origination manager_operation
+  | Tx_rollup_submit_batch : {
+      tx_rollup : Tx_rollup_repr.t;
+      content : string;
+    }
+      -> Kind.tx_rollup_submit_batch manager_operation
+  | Sc_rollup_originate : {
+      kind : Sc_rollup_repr.Kind.t;
+      boot_sector : Sc_rollup_repr.PVM.boot_sector;
+    }
+      -> Kind.sc_rollup_originate manager_operation
+  | Sc_rollup_add_messages : {
+      rollup : Sc_rollup_repr.t;
+      messages : string list;
+    }
+      -> Kind.sc_rollup_add_messages manager_operation
 
 and counter = Z.t
 
@@ -271,6 +295,9 @@ let manager_kind : type kind. kind manager_operation -> kind Kind.manager =
   | Register_global_constant _ -> Kind.Register_global_constant_manager_kind
   | Set_deposits_limit _ -> Kind.Set_deposits_limit_manager_kind
   | Tx_rollup_origination -> Kind.Tx_rollup_origination_manager_kind
+  | Tx_rollup_submit_batch _ -> Kind.Tx_rollup_submit_batch_manager_kind
+  | Sc_rollup_originate _ -> Kind.Sc_rollup_originate_manager_kind
+  | Sc_rollup_add_messages _ -> Kind.Sc_rollup_add_messages_manager_kind
 
 type 'kind internal_operation = {
   source : Contract_repr.contract;
@@ -300,9 +327,11 @@ let pack ({shell; protocol_data} : _ operation) : packed_operation =
 type packed_internal_operation =
   | Internal_operation : 'kind internal_operation -> packed_internal_operation
 
-let rec to_list = function
-  | Contents_list (Single o) -> [Contents o]
-  | Contents_list (Cons (o, os)) -> Contents o :: to_list (Contents_list os)
+let rec contents_list_to_list : type a. a contents_list -> _ = function
+  | Single o -> [Contents o]
+  | Cons (o, os) -> Contents o :: contents_list_to_list os
+
+let to_list = function Contents_list l -> contents_list_to_list l
 
 (* This first version of of_list has the type (_, string) result expected by
    the conv_with_guard combinator of Data_encoding. For a more conventional
@@ -329,6 +358,16 @@ let of_list l =
   | Error s -> error @@ Contents_list_error s
 
 let tx_rollup_operation_tag_offset = 150
+
+let tx_rollup_operation_origination_tag = tx_rollup_operation_tag_offset + 0
+
+let tx_rollup_operation_submit_batch_tag = tx_rollup_operation_tag_offset + 1
+
+let sc_rollup_operation_tag_offset = 200
+
+let sc_rollup_operation_origination_tag = sc_rollup_operation_tag_offset + 0
+
+let sc_rollup_operation_add_message_tag = sc_rollup_operation_tag_offset + 1
 
 module Encoding = struct
   open Data_encoding
@@ -365,35 +404,6 @@ module Encoding = struct
           inj = (fun pkh -> Reveal pkh);
         }
 
-    let entrypoint_encoding =
-      def
-        ~title:"entrypoint"
-        ~description:"Named entrypoint to a Michelson smart contract"
-        "entrypoint"
-      @@
-      let builtin_case tag name =
-        Data_encoding.case
-          (Tag tag)
-          ~title:name
-          (constant name)
-          (fun n -> if Compare.String.(n = name) then Some () else None)
-          (fun () -> name)
-      in
-      union
-        [
-          builtin_case 0 "default";
-          builtin_case 1 "root";
-          builtin_case 2 "do";
-          builtin_case 3 "set_delegate";
-          builtin_case 4 "remove_delegate";
-          Data_encoding.case
-            (Tag 255)
-            ~title:"named"
-            (Bounded.string 31)
-            (fun s -> Some s)
-            (fun s -> s);
-        ]
-
     let[@coq_axiom_with_reason "gadt"] transaction_case =
       MCase
         {
@@ -402,11 +412,11 @@ module Encoding = struct
           encoding =
             obj3
               (req "amount" Tez_repr.encoding)
-              (req "destination" Contract_repr.encoding)
+              (req "destination" Destination_repr.encoding)
               (opt
                  "parameters"
                  (obj2
-                    (req "entrypoint" entrypoint_encoding)
+                    (req "entrypoint" Entrypoint_repr.smart_encoding)
                     (req "value" Script_repr.lazy_expr_encoding)));
           select =
             (function Manager (Transaction _ as op) -> Some op | _ -> None);
@@ -416,7 +426,7 @@ module Encoding = struct
                 let parameters =
                   if
                     Script_repr.is_unit_parameter parameters
-                    && Compare.String.(entrypoint = "default")
+                    && Entrypoint_repr.is_default entrypoint
                   then None
                   else Some (entrypoint, parameters)
                 in
@@ -425,7 +435,7 @@ module Encoding = struct
             (fun (amount, destination, parameters) ->
               let (entrypoint, parameters) =
                 match parameters with
-                | None -> ("default", Script_repr.unit_parameter)
+                | None -> (Entrypoint_repr.default, Script_repr.unit_parameter)
                 | Some (entrypoint, value) -> (entrypoint, value)
               in
               Transaction {amount; destination; parameters; entrypoint});
@@ -503,7 +513,7 @@ module Encoding = struct
     let[@coq_axiom_with_reason "gadt"] tx_rollup_origination_case =
       MCase
         {
-          tag = tx_rollup_operation_tag_offset;
+          tag = tx_rollup_operation_origination_tag;
           name = "tx_rollup_origination";
           encoding = obj1 (req "tx_rollup_origination" Data_encoding.unit);
           select =
@@ -511,6 +521,65 @@ module Encoding = struct
             | Manager (Tx_rollup_origination as op) -> Some op | _ -> None);
           proj = (function Tx_rollup_origination -> ());
           inj = (fun () -> Tx_rollup_origination);
+        }
+
+    let[@coq_axiom_with_reason "gadt"] tx_rollup_submit_batch_case =
+      MCase
+        {
+          tag = tx_rollup_operation_submit_batch_tag;
+          name = "tx_rollup_submit_batch";
+          encoding =
+            obj2
+              (req "rollup" Tx_rollup_repr.encoding)
+              (req "content" Data_encoding.string);
+          select =
+            (function
+            | Manager (Tx_rollup_submit_batch _ as op) -> Some op | _ -> None);
+          proj =
+            (function
+            | Tx_rollup_submit_batch {tx_rollup; content} -> (tx_rollup, content));
+          inj =
+            (fun (tx_rollup, content) ->
+              Tx_rollup_submit_batch {tx_rollup; content});
+        }
+
+    let[@coq_axiom_with_reason "gadt"] sc_rollup_originate_case =
+      MCase
+        {
+          tag = sc_rollup_operation_origination_tag;
+          name = "sc_rollup_originate";
+          encoding =
+            obj2
+              (req "kind" Sc_rollup_repr.Kind.encoding)
+              (req "boot_sector" Sc_rollup_repr.PVM.boot_sector_encoding);
+          select =
+            (function
+            | Manager (Sc_rollup_originate _ as op) -> Some op | _ -> None);
+          proj =
+            (function
+            | Sc_rollup_originate {kind; boot_sector} -> (kind, boot_sector));
+          inj =
+            (fun (kind, boot_sector) -> Sc_rollup_originate {kind; boot_sector});
+        }
+
+    let[@coq_axiom_with_reason "gadt"] sc_rollup_add_messages_case =
+      MCase
+        {
+          tag = sc_rollup_operation_add_message_tag;
+          name = "sc_rollup_add_messages";
+          encoding =
+            obj2
+              (req "rollup" Sc_rollup_repr.encoding)
+              (req "message" (list string));
+          select =
+            (function
+            | Manager (Sc_rollup_add_messages _ as op) -> Some op | _ -> None);
+          proj =
+            (function
+            | Sc_rollup_add_messages {rollup; messages} -> (rollup, messages));
+          inj =
+            (fun (rollup, messages) ->
+              Sc_rollup_add_messages {rollup; messages});
         }
 
     let encoding =
@@ -533,6 +602,9 @@ module Encoding = struct
           make register_global_constant_case;
           make set_deposits_limit_case;
           make tx_rollup_origination_case;
+          make tx_rollup_submit_batch_case;
+          make sc_rollup_originate_case;
+          make sc_rollup_add_messages_case;
         ]
   end
 
@@ -836,6 +908,21 @@ module Encoding = struct
       tx_rollup_operation_tag_offset
       Manager_operations.tx_rollup_origination_case
 
+  let tx_rollup_submit_batch_case =
+    make_manager_case
+      (tx_rollup_operation_tag_offset + 1)
+      Manager_operations.tx_rollup_submit_batch_case
+
+  let sc_rollup_originate_case =
+    make_manager_case
+      sc_rollup_operation_origination_tag
+      Manager_operations.sc_rollup_originate_case
+
+  let sc_rollup_add_messages_case =
+    make_manager_case
+      sc_rollup_operation_add_message_tag
+      Manager_operations.sc_rollup_add_messages_case
+
   let contents_encoding =
     let make (Case {tag; name; encoding; select; proj; inj}) =
       case
@@ -865,6 +952,9 @@ module Encoding = struct
            make failing_noop_case;
            make register_global_constant_case;
            make tx_rollup_origination_case;
+           make tx_rollup_submit_batch_case;
+           make sc_rollup_originate_case;
+           make sc_rollup_add_messages_case;
          ]
 
   let contents_list_encoding =
@@ -1066,6 +1156,12 @@ let equal_manager_operation_kind :
   | (Set_deposits_limit _, _) -> None
   | (Tx_rollup_origination, Tx_rollup_origination) -> Some Eq
   | (Tx_rollup_origination, _) -> None
+  | (Tx_rollup_submit_batch _, Tx_rollup_submit_batch _) -> Some Eq
+  | (Tx_rollup_submit_batch _, _) -> None
+  | (Sc_rollup_originate _, Sc_rollup_originate _) -> Some Eq
+  | (Sc_rollup_originate _, _) -> None
+  | (Sc_rollup_add_messages _, Sc_rollup_add_messages _) -> Some Eq
+  | (Sc_rollup_add_messages _, _) -> None
 
 let equal_contents_kind : type a b. a contents -> b contents -> (a, b) eq option
     =
@@ -1140,8 +1236,8 @@ let internal_manager_operation_size (type a) (op : a manager_operation) =
       ret_adding
         (script_lazy_expr_size parameters)
         (h4w +! int64_size
-        +! string_size_gen (String.length entrypoint)
-        +! Contract_repr.in_memory_size destination)
+        +! Entrypoint_repr.in_memory_size entrypoint
+        +! Destination_repr.in_memory_size destination)
   | Origination {delegate; script; credit = _; preorigination} ->
       ret_adding
         (script_repr_size script)
@@ -1157,6 +1253,8 @@ let internal_manager_operation_size (type a) (op : a manager_operation) =
         +! option_size
              (fun _ -> Contract_repr.public_key_hash_in_memory_size)
              pkh_opt )
+  | Sc_rollup_originate _ -> (Nodes.zero, h2w)
+  | Sc_rollup_add_messages _ -> (Nodes.zero, h2w)
   | Reveal _ ->
       (* Reveals can't occur as internal operations *)
       assert false
@@ -1168,6 +1266,9 @@ let internal_manager_operation_size (type a) (op : a manager_operation) =
       assert false
   | Tx_rollup_origination ->
       (* Tx_rollup_origination operation can’t occur as internal operations *)
+      assert false
+  | Tx_rollup_submit_batch _ ->
+      (* Tx_rollup_submit_batch operation can’t occur as internal operations *)
       assert false
 
 let packed_internal_operation_in_memory_size :

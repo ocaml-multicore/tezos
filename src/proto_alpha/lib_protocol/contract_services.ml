@@ -105,7 +105,7 @@ module S = struct
       ~query:RPC_query.empty
       ~output:Script.expr_encoding
       RPC_path.(
-        custom_root /: Contract.rpc_arg / "entrypoints" /: RPC_arg.string)
+        custom_root /: Contract.rpc_arg / "entrypoints" /: Entrypoint.rpc_arg)
 
   let list_entrypoints =
     RPC_service.get_service
@@ -364,20 +364,23 @@ let[@coq_axiom_with_reason "gadt"] register () =
             ctxt
             expr
           >>?= fun (expr, _) ->
-          parse_toplevel ctxt ~legacy expr
-          >>=? fun ({arg_type; root_name; _}, ctxt) ->
+          parse_toplevel ctxt ~legacy expr >>=? fun ({arg_type; _}, ctxt) ->
           Lwt.return
-            (( parse_parameter_ty ctxt ~legacy arg_type
-             >>? fun (Ex_ty arg_type, _) ->
-               Script_ir_translator.find_entrypoint
-                 ~root_name
-                 arg_type
-                 entrypoint )
-             |> function
-             | Ok (_f, Ex_ty ty) ->
-                 unparse_ty ~loc:() ctxt ty >|? fun (ty_node, _) ->
-                 Some (Micheline.strip_locations ty_node)
-             | Error _ -> Result.return_none)) ;
+            ( parse_parameter_ty_and_entrypoints ctxt ~legacy arg_type
+            >>? fun (Ex_parameter_ty_and_entrypoints {arg_type; entrypoints}, _)
+              ->
+              Gas_monad.run ctxt
+              @@ Script_ir_translator.find_entrypoint
+                   ~error_details:Informative
+                   arg_type
+                   entrypoints
+                   entrypoint
+              >>? fun (r, ctxt) ->
+              r |> function
+              | Ok (_f, Ex_ty ty) ->
+                  unparse_ty ~loc:() ctxt ty >|? fun (ty_node, _) ->
+                  Some (Micheline.strip_locations ty_node)
+              | Error _ -> Result.return_none )) ;
   opt_register1 ~chunked:true S.list_entrypoints (fun ctxt v () () ->
       Contract.get_script_code ctxt v >>=? fun (_, expr) ->
       match expr with
@@ -391,19 +394,20 @@ let[@coq_axiom_with_reason "gadt"] register () =
             ctxt
             expr
           >>?= fun (expr, _) ->
-          parse_toplevel ctxt ~legacy expr
-          >>=? fun ({arg_type; root_name; _}, ctxt) ->
+          parse_toplevel ctxt ~legacy expr >>=? fun ({arg_type; _}, ctxt) ->
           Lwt.return
-            ( ( parse_parameter_ty ctxt ~legacy arg_type
-              >>? fun (Ex_ty arg_type, _) ->
-                Script_ir_translator.list_entrypoints ~root_name arg_type ctxt
+            ( ( parse_parameter_ty_and_entrypoints ctxt ~legacy arg_type
+              >>? fun ( Ex_parameter_ty_and_entrypoints {arg_type; entrypoints},
+                        _ ) ->
+                Script_ir_translator.list_entrypoints ctxt arg_type entrypoints
               )
             >|? fun (unreachable_entrypoint, map) ->
               Some
                 ( unreachable_entrypoint,
-                  Entrypoints_map.fold
+                  Entrypoint.Map.fold
                     (fun entry (_, ty) acc ->
-                      (entry, Micheline.strip_locations ty) :: acc)
+                      (Entrypoint.to_string entry, Micheline.strip_locations ty)
+                      :: acc)
                     map
                     [] ) )) ;
   opt_register1

@@ -12,16 +12,17 @@ src_dir="$(dirname "$script_dir")"
 ocaml_version=${ocaml_version:?}
 opam_repository=${opam_repository:?}
 
+create_opam_switch() {
+    [ -n "$1" ] || { echo "create_opam_switch expects a non-empty argument"; return 1; }
+    opam switch create "$1" --repositories=tezos "ocaml-variants.$ocaml_version"
+}
+
 if [ "$1" = "--dev" ]; then
     dev=yes
 else
     dev=
 fi
 
-create_opam_switch() {
-    [ -n "$1" ] || { echo "create_opam_switch expects a non-empty argument"; return 1; }
-    opam switch create "$1" --repositories=tezos ocaml-variants.$ocaml_version
-}
 
 # $OPAMSWITCH variable makes the following commands fail if the switch referred
 # to by it does not exist. Since we're going to create it later, for now let's
@@ -101,7 +102,7 @@ if [ -n "$dev" ]; then
     # Note: ocaml-lsp-server.1.6.0 dependencies are not constrained
     # enough (for [ppx_yojson_conv_lib] in particular), so we add a
     # minimal bound to ensure it won’t be picked by opam.
-    opam install --yes merlin odoc utop ocp-indent "ocaml-lsp-server>=1.6.1" --criteria="-changed,-removed"
+    opam install --yes merlin odoc utop ocp-indent "ocaml-lsp-server>=1.6.1" js_of_ocaml-compiler --criteria="-changed,-removed"
 fi
 
 "$script_dir"/install_sapling_parameters.sh

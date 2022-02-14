@@ -1,3 +1,5 @@
+# This file was automatically generated, do not edit.
+# Edit file manifest/main.ml instead.
 opam-version: "2.0"
 maintainer: "contact@tezos.com"
 authors: ["Tezos devteam"]
@@ -11,12 +13,15 @@ depends: [
   "base-unix" {with-test}
   "coq-of-ocaml" { = "2.5.0" }
   "ocamlformat" { = "0.18.0" }
-  "bisect_ppx" { >= "2.3" }
+  "bisect_ppx" { >= "2.7.0" }
   "tezos-protocol-compiler"
   "tezos-base"
 ]
 depopts: [
-  "utop" { >= "2.8" }
+  "utop"
+]
+conflicts: [
+  "utop" { < "2.8" }
 ]
 build: [
   ["dune" "build" "-p" name "-j" jobs]

@@ -2,6 +2,7 @@
 (*                                                                           *)
 (* Open Source License                                                       *)
 (* Copyright (c) 2018 Dynamic Ledger Solutions, Inc. <contact@tezos.com>     *)
+(* Copyright (c) 2021-2022 Nomadic Labs <contact@nomadic-labs.com>           *)
 (* Copyright (c) 2020 Metastate AG <hello@metastate.dev>                     *)
 (*                                                                           *)
 (* Permission is hereby granted, free of charge, to any person obtaining a   *)
@@ -27,9 +28,11 @@
 open Alpha_context
 open Script_typed_ir
 
-let compare_address (x, ex) (y, ey) =
-  let lres = Contract.compare x y in
-  if Compare.Int.(lres = 0) then Compare.String.compare ex ey else lres
+let compare_address {destination = destination1; entrypoint = entrypoint1}
+    {destination = destination2; entrypoint = entrypoint2} =
+  let lres = Destination.compare destination1 destination2 in
+  if Compare.Int.(lres = 0) then Entrypoint.compare entrypoint1 entrypoint2
+  else lres
 
 type compare_comparable_cont =
   | Compare_comparable :
@@ -42,34 +45,36 @@ let compare_comparable : type a. a comparable_ty -> a -> a -> int =
       type a. a comparable_ty -> compare_comparable_cont -> a -> a -> int =
    fun kind k x y ->
     match (kind, x, y) with
-    | (Unit_key _, (), ()) -> (apply [@tailcall]) 0 k
-    | (Never_key _, _, _) -> .
-    | (Signature_key _, x, y) -> (apply [@tailcall]) (Signature.compare x y) k
-    | (String_key _, x, y) -> (apply [@tailcall]) (Script_string.compare x y) k
-    | (Bool_key _, x, y) -> (apply [@tailcall]) (Compare.Bool.compare x y) k
-    | (Mutez_key _, x, y) -> (apply [@tailcall]) (Tez.compare x y) k
-    | (Key_hash_key _, x, y) ->
+    | (Unit_key, (), ()) -> (apply [@tailcall]) 0 k
+    | (Never_key, _, _) -> .
+    | (Signature_key, x, y) ->
+        (apply [@tailcall]) (Script_signature.compare x y) k
+    | (String_key, x, y) -> (apply [@tailcall]) (Script_string.compare x y) k
+    | (Bool_key, x, y) -> (apply [@tailcall]) (Compare.Bool.compare x y) k
+    | (Mutez_key, x, y) -> (apply [@tailcall]) (Tez.compare x y) k
+    | (Key_hash_key, x, y) ->
         (apply [@tailcall]) (Signature.Public_key_hash.compare x y) k
-    | (Key_key _, x, y) ->
+    | (Key_key, x, y) ->
         (apply [@tailcall]) (Signature.Public_key.compare x y) k
-    | (Int_key _, x, y) -> (apply [@tailcall]) (Script_int.compare x y) k
-    | (Nat_key _, x, y) -> (apply [@tailcall]) (Script_int.compare x y) k
-    | (Timestamp_key _, x, y) ->
+    | (Int_key, x, y) -> (apply [@tailcall]) (Script_int.compare x y) k
+    | (Nat_key, x, y) -> (apply [@tailcall]) (Script_int.compare x y) k
+    | (Timestamp_key, x, y) ->
         (apply [@tailcall]) (Script_timestamp.compare x y) k
-    | (Address_key _, x, y) -> (apply [@tailcall]) (compare_address x y) k
-    | (Bytes_key _, x, y) -> (apply [@tailcall]) (Compare.Bytes.compare x y) k
-    | (Chain_id_key _, x, y) -> (apply [@tailcall]) (Chain_id.compare x y) k
-    | (Pair_key ((tl, _), (tr, _), _), (lx, rx), (ly, ry)) ->
+    | (Address_key, x, y) -> (apply [@tailcall]) (compare_address x y) k
+    | (Bytes_key, x, y) -> (apply [@tailcall]) (Compare.Bytes.compare x y) k
+    | (Chain_id_key, x, y) ->
+        (apply [@tailcall]) (Script_chain_id.compare x y) k
+    | (Pair_key (tl, tr, _), (lx, rx), (ly, ry)) ->
         (compare_comparable [@tailcall])
           tl
           (Compare_comparable (tr, rx, ry, k))
           lx
           ly
-    | (Union_key ((tl, _), _, _), L x, L y) ->
+    | (Union_key (tl, _, _), L x, L y) ->
         (compare_comparable [@tailcall]) tl k x y
     | (Union_key _, L _, R _) -> -1
     | (Union_key _, R _, L _) -> 1
-    | (Union_key (_, (tr, _), _), R x, R y) ->
+    | (Union_key (_, tr, _), R x, R y) ->
         (compare_comparable [@tailcall]) tr k x y
     | (Option_key _, None, None) -> (apply [@tailcall]) 0 k
     | (Option_key _, None, Some _) -> -1

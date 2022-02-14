@@ -40,13 +40,38 @@ and specific to the Hangzhou protocol can be found at:
 
 - `hangzhou-mempool-openapi.json (version 11.0) <https://gitlab.com/tezos/tezos/-/blob/master/docs/api/hangzhou-mempool-openapi.json>`_
 
+Ithaca RPCs
+-----------
+
+The OpenAPI specification for RPCs which are specific to the Ithaca (``Psithaca``)
+protocol can be found at:
+
+- `ithaca-openapi.json (version 12.0~rc2) <https://gitlab.com/tezos/tezos/-/blob/master/docs/api/ithaca-openapi.json>`_
+
+The OpenAPI specification for RPCs which are related to the mempool
+and specific to the Ithaca protocol can be found at:
+
+- `ithaca-mempool-openapi.json (version 12.0~rc2) <https://gitlab.com/tezos/tezos/-/blob/master/docs/api/ithaca-mempool-openapi.json>`_
+
 How to Generate
 ---------------
 
-To generate the above files, run the ``src/openapi/generate.sh`` script
+To generate the above files, run the ``src/bin_openapi/generate.sh`` script
 from the root of the Tezos repository.
 It will start a sandbox node, activate the protocol,
 get the RPC specifications from this node and convert them to OpenAPI specifications.
+
+To generate the OpenAPI specification for the RPCs provided by a specific protocol,
+update the following variables in :src:`src/bin_openapi/generate.sh`:
+
+```sh
+protocol_hash=ProtoALphaALphaALphaALphaALphaALphaALphaALphaDdp3zK
+protocol_parameters=src/proto_alpha/parameters/sandbox-parameters.json
+protocol_name=alpha
+```
+
+For ``protocol_hash``, use the value defined in ``TEZOS_PROTOCOL``.
+
 
 How to Test
 -----------

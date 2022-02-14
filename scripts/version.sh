@@ -20,12 +20,13 @@ export recommended_node_version=14.12.0
 
 ## full_opam_repository is a commit hash of the public OPAM repository, i.e.
 ## https://github.com/ocaml/opam-repository
-export full_opam_repository_tag=28242c987fe0ddfe6d17bf4c8a9d4c450b8978a8
+export full_opam_repository_tag=b0287f75170afa0e21bf5a38e0ff0e90e0244c49
 
 ## opam_repository is an additional, tezos-specific opam repository.
+
 ## This value MUST be the same as `build_deps_image_version` in `.gitlab-ci.yml
 export opam_repository_url=https://github.com/ocaml-multicore/tezos-opam-repository
-export opam_repository_tag=a1545517aa61be25303cd4e8731dc22f000887f8
+export opam_repository_tag=1448d7d8871675e69602cf60401d5408db8667cb
 export opam_repository_git=$opam_repository_url.git
 export opam_repository=$opam_repository_git\#$opam_repository_tag
 
@@ -35,3 +36,6 @@ raw_opam_repository_url=https://raw.githubusercontent.com/ocaml-multicore/tezos-
 
 ## Other variables, used both in Makefile and scripts
 export COVERAGE_OUTPUT=_coverage_output
+
+## for sapling param, fork is on github, url convention not the same in install_sapling_parameters
+raw_opam_repository_url=https://raw.githubusercontent.com/ocaml-multicore/tezos-opam-repository/4.12.0%2Bdomains

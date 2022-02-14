@@ -28,6 +28,19 @@
 open Block_validator_errors
 open Validation_errors
 
+module Event = struct
+  include Internal_event.Simple
+
+  let inherited_inconsistent_cache =
+    declare_1
+      ~section:["block"; "validation"]
+      ~name:"block_validation_inconsistent_cache"
+      ~msg:"applied block {hash} with an inconsistent cache: reloading cache"
+      ~level:Warning
+      ~pp1:Block_hash.pp
+      ("hash", Block_hash.encoding)
+end
+
 type validation_store = {
   context_hash : Context_hash.t;
   timestamp : Time.Protocol.t;
@@ -395,7 +408,11 @@ module Make (Proto : Registered_protocol.T) = struct
             ~predecessor_hash
             block_header.shell.timestamp
         in
-        let* operations = parse_operations block_hash operations in
+        let* operations =
+          (parse_operations
+             block_hash
+             operations [@time.duration_lwt operations_parsing])
+        in
         let*! context =
           match predecessor_block_metadata_hash with
           | None -> Lwt.return context
@@ -411,34 +428,37 @@ module Make (Proto : Registered_protocol.T) = struct
         let* (validation_result, block_data, ops_metadata) =
           let*! r =
             let* state =
-              Proto.begin_application
-                ~chain_id
-                ~predecessor_context:context
-                ~predecessor_timestamp:predecessor_block_header.shell.timestamp
-                ~predecessor_fitness:predecessor_block_header.shell.fitness
-                block_header
-                ~cache
+              (Proto.begin_application
+                 ~chain_id
+                 ~predecessor_context:context
+                 ~predecessor_timestamp:predecessor_block_header.shell.timestamp
+                 ~predecessor_fitness:predecessor_block_header.shell.fitness
+                 ~cache
+                 block_header [@time.duration_lwt application_beginning])
             in
             let* (state, ops_metadata) =
-              List.fold_left_es
-                (fun (state, acc) ops ->
-                  let* (state, ops_metadata) =
-                    List.fold_left_es
-                      (fun (state, acc) op ->
-                        let* (state, op_metadata) =
-                          Proto.apply_operation state op
-                        in
-                        return (state, op_metadata :: acc))
-                      (state, [])
-                      ops
-                  in
-                  return (state, List.rev ops_metadata :: acc))
-                (state, [])
-                operations
+              (List.fold_left_es
+                 (fun (state, acc) ops ->
+                   let* (state, ops_metadata) =
+                     List.fold_left_es
+                       (fun (state, acc) op ->
+                         let* (state, op_metadata) =
+                           Proto.apply_operation state op
+                         in
+                         return (state, op_metadata :: acc))
+                       (state, [])
+                       ops
+                   in
+                   return (state, List.rev ops_metadata :: acc))
+                 (state, [])
+                 operations [@time.duration_lwt operations_application])
             in
             let ops_metadata = List.rev ops_metadata in
             let* (validation_result, block_data) =
-              Proto.finalize_block state (Some block_header.shell)
+              (Proto.finalize_block
+                 state
+                 (Some block_header.shell)
+               [@time.duration_lwt block_finalization])
             in
             return (validation_result, block_data, ops_metadata)
           in
@@ -521,7 +541,7 @@ module Make (Proto : Registered_protocol.T) = struct
             block_data
         in
         let* ops_metadata =
-          try
+          try[@time.duration_lwt metadata_serde_check]
             return
               (List.map
                  (List.map (fun receipt ->
@@ -549,9 +569,9 @@ module Make (Proto : Registered_protocol.T) = struct
           Shell_context.unwrap_disk_context validation_result.context
         in
         let*! (ops_metadata_hashes, block_metadata_hash) =
-          match new_protocol_env_version with
+          match[@time.duration_lwt metadata_hash] new_protocol_env_version with
           | Protocol.V0 -> Lwt.return (None, None)
-          | Protocol.V1 | Protocol.V2 | Protocol.V3 | Protocol.V4 ->
+          | Protocol.(V1 | V2 | V3 | V4 | V5) ->
               Lwt.return
                 ( Some
                     (List.map
@@ -561,10 +581,16 @@ module Make (Proto : Registered_protocol.T) = struct
                   Some (Block_metadata_hash.hash_bytes [block_metadata]) )
         in
         let*! context_hash =
-          Context.commit
-            ~time:block_header.shell.timestamp
-            ?message:validation_result.message
-            context
+          (Context.commit
+             ~time:block_header.shell.timestamp
+             ?message:validation_result.message
+             context [@time.duration_lwt context_commitment] [@time.flush])
+        in
+        let* () =
+          fail_unless
+            (Context_hash.equal context_hash block_header.shell.context)
+            (Validation_errors.Inconsistent_hash
+               (context_hash, block_header.shell.context))
         in
         let validation_store =
           {
@@ -663,9 +689,10 @@ module Make (Proto : Registered_protocol.T) = struct
          testchain genesis block and activation block, even when they
          are using environment V1, they contain no operations. *)
       let is_from_genesis = predecessor_shell_header.validation_passes = 0 in
-      (match Proto.environment_version with
-      | Protocol.V0 -> false
-      | Protocol.V1 | Protocol.V2 | Protocol.V3 | Protocol.V4 -> true)
+      Protocol.(
+        match Proto.environment_version with
+        | V0 -> false
+        | V1 | V2 | V3 | V4 | V5 -> true)
       && not is_from_genesis
     in
     let* context =
@@ -891,7 +918,7 @@ module Make (Proto : Registered_protocol.T) = struct
     let*! (ops_metadata_hashes, block_metadata_hash) =
       match new_protocol_env_version with
       | Protocol.V0 -> Lwt.return (None, None)
-      | Protocol.V1 | Protocol.V2 | Protocol.V3 | Protocol.V4 ->
+      | Protocol.(V1 | V2 | V3 | V4 | V5) ->
           Lwt.return
             ( Some
                 (List.map
@@ -988,9 +1015,9 @@ module Make (Proto : Registered_protocol.T) = struct
     in
     match r with
     | Error err ->
-        Lwt_tzresult_syntax.fail
+        Error_monad.fail
           (invalid_block block_hash (Economic_protocol_error err))
-    | Ok () -> Lwt_tzresult_syntax.return_unit
+    | Ok () -> return_ok_unit
 end
 
 let assert_no_duplicate_operations block_hash live_operations operations =
@@ -1056,9 +1083,8 @@ let apply ?cached_result
       predecessor_block_metadata_hash;
       predecessor_ops_metadata_hash;
       predecessor_context;
-    } ~cache block_header operations =
+    } ~cache block_hash block_header operations =
   let open Lwt_tzresult_syntax in
-  let block_hash = Block_header.hash block_header in
   let*! pred_protocol_hash = Context.get_protocol predecessor_context in
   let* (module Proto) =
     match Registered_protocol.get pred_protocol_hash with
@@ -1084,11 +1110,40 @@ let apply ?cached_result
     operations
 
 let apply ?cached_result c ~cache block_header operations =
-  let open Lwt_syntax in
-  let* r = apply ?cached_result c ~cache block_header operations in
+  let open Lwt_tzresult_syntax in
+  let block_hash = Block_header.hash block_header in
+  let*! r =
+    (* The cache might be inconsistent with the context. By forcing
+       the reloading of the cache, we restore the consistency. *)
+    let*! r =
+      apply ?cached_result c ~cache block_hash block_header operations
+    in
+    match r with
+    | Error (Validation_errors.Inconsistent_hash _ :: _) ->
+        let*! protocol_hash = Context.get_protocol c.predecessor_context in
+        let hanghzhou_hash =
+          Protocol_hash.of_b58check_exn
+            "PtHangz2aRngywmSRGGvrcTyMbbdpWdpFKuS4uMWxg2RaH9i1qx"
+        in
+        if protocol_hash = hanghzhou_hash then (
+          Environment_context.Context
+          .reset_cache_cache_hangzhou_issue_do_not_use_except_if_you_know_what_you_are_doing
+            () ;
+          Lwt.return r)
+        else
+          let*! () = Event.(emit inherited_inconsistent_cache) block_hash in
+          apply
+            ?cached_result
+            c
+            ~cache:`Force_load
+            block_hash
+            block_header
+            operations
+    | (Ok _ | Error _) as res -> Lwt.return res
+  in
   match r with
   | Error (Exn (Unix.Unix_error (errno, fn, msg)) :: _) ->
-      Lwt_tzresult_syntax.fail
+      Error_monad.fail
         (System_error {errno = Unix.error_message errno; fn; msg})
   | (Ok _ | Error _) as res -> Lwt.return res
 
@@ -1115,7 +1170,7 @@ let precheck ~chain_id ~predecessor_block_header ~predecessor_block_hash
     ~block_header
     operations
 
-let preapply ~chain_id ~cache ~user_activated_upgrades
+let preapply ~chain_id ~user_activated_upgrades
     ~user_activated_protocol_overrides ~timestamp ~protocol_data ~live_blocks
     ~live_operations ~predecessor_context ~predecessor_shell_header
     ~predecessor_hash ~predecessor_max_operations_ttl
@@ -1133,6 +1188,8 @@ let preapply ~chain_id ~cache ~user_activated_upgrades
           protocol
     | Some protocol -> return protocol
   in
+  (* The cache might be inconsistent with the context. By forcing the
+     reloading of the cache, we restore the consistency. *)
   let module Block_validation = Make (Proto) in
   let* protocol_data =
     match
@@ -1145,7 +1202,7 @@ let preapply ~chain_id ~cache ~user_activated_upgrades
   in
   Block_validation.preapply
     ~chain_id
-    ~cache
+    ~cache:`Force_load
     ~user_activated_upgrades
     ~user_activated_protocol_overrides
     ~protocol_data
@@ -1160,7 +1217,7 @@ let preapply ~chain_id ~cache ~user_activated_upgrades
     ~predecessor_ops_metadata_hash
     ~operations
 
-let preapply ~chain_id ~cache ~user_activated_upgrades
+let preapply ~chain_id ~user_activated_upgrades
     ~user_activated_protocol_overrides ~timestamp ~protocol_data ~live_blocks
     ~live_operations ~predecessor_context ~predecessor_shell_header
     ~predecessor_hash ~predecessor_max_operations_ttl
@@ -1169,7 +1226,6 @@ let preapply ~chain_id ~cache ~user_activated_upgrades
   let* r =
     preapply
       ~chain_id
-      ~cache
       ~user_activated_upgrades
       ~user_activated_protocol_overrides
       ~timestamp
@@ -1186,6 +1242,6 @@ let preapply ~chain_id ~cache ~user_activated_upgrades
   in
   match r with
   | Error (Exn (Unix.Unix_error (errno, fn, msg)) :: _) ->
-      Lwt_tzresult_syntax.fail
+      Error_monad.fail
         (System_error {errno = Unix.error_message errno; fn; msg})
   | (Ok _ | Error _) as res -> Lwt.return res

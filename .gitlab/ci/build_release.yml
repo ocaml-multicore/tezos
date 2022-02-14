@@ -1,0 +1,82 @@
+---
+.build_docker_release_template:
+  extends:
+    - .default_settings_template
+    - .image_template__latest # Docker-in-Docker (dind)
+    - .docker_registry_auth # Sets up a before_script
+  variables:
+    IMAGE_ARCH_PREFIX: ""
+  script:
+    - apk --no-cache --virtual add git
+    # Environment variables from before_script
+    - . ./scripts/ci/docker.env
+    # Build normal, bare and debug image
+    - ./scripts/create_docker_image.sh
+        "${DOCKER_IMAGE_NAME}"
+        "${DOCKER_IMAGE_TAG}"
+        "${build_deps_image_name}"
+        "${build_deps_image_version}"
+        "${CI_COMMIT_SHORT_SHA}"
+    # auth gitlab or dockerhub registry
+    # notice the different namespace for gitlab and that we remove the `-`
+    # Test the bare image
+    - ./scripts/ci/docker_smoke_test.sh "${DOCKER_IMAGE_NAME}bare:${DOCKER_IMAGE_TAG}" "${CI_COMMIT_SHORT_SHA}" version
+    - docker push "${DOCKER_IMAGE_NAME%?}:${DOCKER_IMAGE_TAG}" ;
+    - docker push "${DOCKER_IMAGE_NAME}bare:${DOCKER_IMAGE_TAG}" ;
+    - docker push "${DOCKER_IMAGE_NAME}debug:${DOCKER_IMAGE_TAG}" ;
+
+docker:manual_build_amd64:
+  extends:
+    - .build_docker_release_template
+    - .rules_template__development_docker
+  variables:
+    IMAGE_ARCH_PREFIX: "amd64_"
+  stage: manual
+  interruptible: false
+  needs: []
+
+docker:manual_build_arm64:
+  extends:
+    - .build_docker_release_template
+    - .rules_template__development_docker
+  variables:
+    IMAGE_ARCH_PREFIX: "arm64_"
+  stage: manual
+  interruptible: false
+  needs: []
+  tags:
+    - arm64
+
+docker:build_amd64:
+  extends:
+    - .build_docker_release_template
+    - .rules_template__master_and_releases
+  variables:
+    IMAGE_ARCH_PREFIX: "amd64_"
+  stage: build
+
+docker:build_arm64:
+  extends:
+    - .build_docker_release_template
+    - .rules_template__master_and_releases
+  variables:
+    IMAGE_ARCH_PREFIX: "arm64_"
+  stage: build
+  tags:
+    - arm64
+
+upload-gitlab-packages:
+  extends:
+    - .rules_template__master_and_releases
+  image: registry.gitlab.com/gitlab-org/release-cli
+  variables:
+    PACKAGE_REGISTRY_URL: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/tezos/${CI_COMMIT_TAG}"
+  stage: build_release
+  needs:
+    - build:static-arm64-linux-binaries
+    - build:static-x86_64-linux-binaries
+  script:
+    - apk --no-cache --virtual add jq curl git
+    - scripts/release/upload-static-binaries-to-package-registry.sh "x86_64-"
+    - scripts/release/upload-static-binaries-to-package-registry.sh "arm64-"
+    - scripts/release/upload-tarball-to-package-registry.sh

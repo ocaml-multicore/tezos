@@ -1,3 +1,5 @@
+# This file was automatically generated, do not edit.
+# Edit file manifest/main.ml instead.
 opam-version: "2.0"
 maintainer: "contact@tezos.com"
 authors: ["Tezos devteam"]
@@ -9,11 +11,10 @@ depends: [
   "dune" { >= "2.9" }
   "conf-rust"
   "integers"
-  "ctypes"
-  "hex"
+  "ctypes" { >= "0.18.0" }
   "data-encoding" { >= "0.4" & < "0.5" }
-  "tezos-crypto"
   "tezos-stdlib"
+  "tezos-crypto"
   "tezos-error-monad"
   "tezos-rust-libs" { = "1.1" }
   "tezos-lwt-result-stdlib"

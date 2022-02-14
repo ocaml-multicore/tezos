@@ -61,42 +61,48 @@ module type FILTER = sig
         [oph] from the state of the filter *)
     val remove : filter_state:state -> Operation_hash.t -> state
 
-    (** [precheck config ~filter_state ~validation_state shell_header oph]
+    (** [precheck config ~filter_state ~validation_state oph op
+        ~nb_successful_prechecks]
         should be used to decide whether an operation can be gossiped to the
         network without executing it. This is a wrapper around
         [Proto.precheck_manager] and [Proto.check_signature]. This
         function hereby has a similar return type.
 
-        Returns [`Passed_precheck] if the operation was successfully
+        Returns [`Passed_precheck `No_replace] if the operation was successfully
         prechecked. In case the operation is successfully prechecked
         but replaces an already prechecked operation [old_oph], the
-        result [`Passed_precheck_with_replace old_oph] is returned.
-        If the function returns [`Undecided] it means that 
+        result [`Passed_precheck (`Replace (old_oph, clasification))] is
+        returned, where [classification] is the new classifiation of the
+        replaced operation. If the function returns [`Undecided] it means that
         [apply_operation] should be called.
 
         This function takes a [state] as parameter and returns it updated if the
-        operation has been [prechecked]. *)
+        operation has been [prechecked]. It also takes an under-approximation
+        [nb_successful_prechecks] of the number of times the given operation
+        has been successfully prechecked. *)
     val precheck :
       config ->
       filter_state:state ->
       validation_state:Proto.validation_state ->
-      Tezos_base.Operation.shell_header ->
       Operation_hash.t ->
-      Proto.operation_data ->
-      [ `Passed_precheck of state
-      | `Passed_precheck_with_replace of Operation_hash.t * state
-      | `Branch_delayed of tztrace
-      | `Branch_refused of tztrace
-      | `Refused of tztrace
-      | `Outdated of tztrace
-      | `Undecided ]
+      Proto.operation ->
+      nb_successful_prechecks:int ->
+      [ `Passed_precheck of
+        state
+        * [ `No_replace
+          | `Replace of
+            Operation_hash.t * Prevalidator_classification.error_classification
+          ]
+      | `Undecided
+      | Prevalidator_classification.error_classification ]
       Lwt.t
 
     (** [pre_filter config ~filter_state ?validation_state_before operation_data]
         is called on arrival of an operation and after a flush of
         the prevalidator. This function calls the [pre_filter] in the protocol
-        plugin and returns [`Passed_prefilter] if no error occurs during
-        checking of the [operation_data]. More tests are done using the
+        plugin and returns [`Passed_prefilter priority] if no error occurs during
+        checking of the [operation_data], where priority is the priority computed by
+        the protocol filter plug-in. More tests are done using the
         [filter_state]. We classify an operation that passes the prefilter as
         [`Passed_prefilter] since we do not know yet if the operation is
         applicable or not. If an error occurs during the checks, this function
@@ -106,12 +112,9 @@ module type FILTER = sig
       config ->
       filter_state:state ->
       ?validation_state_before:Proto.validation_state ->
-      Proto.operation_data ->
-      [ `Passed_prefilter
-      | `Branch_delayed of tztrace
-      | `Branch_refused of tztrace
-      | `Refused of tztrace
-      | `Outdated of tztrace ]
+      Proto.operation ->
+      [ `Passed_prefilter of Prevalidator_pending_operations.priority
+      | Prevalidator_classification.error_classification ]
       Lwt.t
 
     (** [post_filter config ~filter_state ~validation_state_before
@@ -127,7 +130,7 @@ module type FILTER = sig
       filter_state:state ->
       validation_state_before:Proto.validation_state ->
       validation_state_after:Proto.validation_state ->
-      Proto.operation_data * Proto.operation_receipt ->
+      Proto.operation * Proto.operation_receipt ->
       [`Passed_postfilter of state | `Refused of tztrace] Lwt.t
   end
 

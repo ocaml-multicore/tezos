@@ -342,7 +342,6 @@ let initial_alpha_context ?(commitments = []) constants
     in
     (({script with storage}, lazy_storage_diff), ctxt)
   in
-  Main.init_cache ctxt >>= fun ctxt ->
   Alpha_context.prepare_first_block ~typecheck ~level ~timestamp ctxt
   >|= Environment.wrap_tzresult
 
@@ -411,7 +410,8 @@ let validate_initial_accounts (initial_accounts : (Account.t * Tez.t) list)
 let prepare_initial_context_params ?consensus_threshold ?min_proposal_quorum
     ?level ?cost_per_byte ?liquidity_baking_subsidy ?endorsing_reward_per_slot
     ?baking_reward_bonus_per_slot ?baking_reward_fixed_portion ?origination_size
-    ?blocks_per_cycle ?tx_rollup_enable initial_accounts =
+    ?blocks_per_cycle ?blocks_per_voting_period ?tx_rollup_enable
+    ?sc_rollup_enable initial_accounts =
   let open Tezos_protocol_alpha_parameters in
   let constants = Default_parameters.constants_test in
   let min_proposal_quorum =
@@ -446,12 +446,20 @@ let prepare_initial_context_params ?consensus_threshold ?min_proposal_quorum
   let blocks_per_cycle =
     Option.value ~default:constants.blocks_per_cycle blocks_per_cycle
   in
+  let blocks_per_voting_period =
+    Option.value
+      ~default:constants.blocks_per_voting_period
+      blocks_per_voting_period
+  in
   (* ?origination_size *)
   let consensus_threshold =
     Option.value ~default:constants.consensus_threshold consensus_threshold
   in
   let tx_rollup_enable =
     Option.value ~default:constants.tx_rollup_enable tx_rollup_enable
+  in
+  let sc_rollup_enable =
+    Option.value ~default:constants.sc_rollup_enable sc_rollup_enable
   in
   let constants =
     {
@@ -461,11 +469,13 @@ let prepare_initial_context_params ?consensus_threshold ?min_proposal_quorum
       baking_reward_fixed_portion;
       origination_size;
       blocks_per_cycle;
+      blocks_per_voting_period;
       min_proposal_quorum;
       cost_per_byte;
       liquidity_baking_subsidy;
       consensus_threshold;
       tx_rollup_enable;
+      sc_rollup_enable;
     }
   in
   (* Check there is at least one roll *)
@@ -512,7 +522,8 @@ let genesis ?commitments ?consensus_threshold ?min_proposal_quorum
     ?bootstrap_contracts ?level ?cost_per_byte ?liquidity_baking_subsidy
     ?endorsing_reward_per_slot ?baking_reward_bonus_per_slot
     ?baking_reward_fixed_portion ?origination_size ?blocks_per_cycle
-    ?tx_rollup_enable (initial_accounts : (Account.t * Tez.t) list) =
+    ?blocks_per_voting_period ?tx_rollup_enable ?sc_rollup_enable
+    (initial_accounts : (Account.t * Tez.t) list) =
   prepare_initial_context_params
     ?consensus_threshold
     ?min_proposal_quorum
@@ -524,7 +535,9 @@ let genesis ?commitments ?consensus_threshold ?min_proposal_quorum
     ?baking_reward_fixed_portion
     ?origination_size
     ?blocks_per_cycle
+    ?blocks_per_voting_period
     ?tx_rollup_enable
+    ?sc_rollup_enable
     initial_accounts
   >>=? fun (constants, shell, hash) ->
   initial_context
@@ -683,20 +696,18 @@ let bake_n_with_all_balance_updates ?(baking_mode = Application) ?policy
         List.fold_left
           (fun balance_updates_rev ->
             let open Apply_results in
-            function
-            | Successful_manager_result (Reveal_result _)
-            | Successful_manager_result (Delegation_result _)
-            | Successful_manager_result (Tx_rollup_origination_result _) ->
-                balance_updates_rev
-            | Successful_manager_result (Set_deposits_limit_result _) ->
-                balance_updates_rev
-            | Successful_manager_result
-                (Transaction_result {balance_updates; _})
-            | Successful_manager_result
-                (Origination_result {balance_updates; _})
-            | Successful_manager_result
-                (Register_global_constant_result {balance_updates; _}) ->
-                List.rev_append balance_updates balance_updates_rev)
+            fun (Successful_manager_result r) ->
+              match r with
+              | Reveal_result _ | Delegation_result _
+              | Set_deposits_limit_result _ | Tx_rollup_origination_result _
+              | Tx_rollup_submit_batch_result _ | Sc_rollup_originate_result _
+              | Sc_rollup_add_messages_result _ ->
+                  balance_updates_rev
+              | Transaction_result
+                  (Transaction_to_contract_result {balance_updates; _})
+              | Origination_result {balance_updates; _}
+              | Register_global_constant_result {balance_updates; _} ->
+                  List.rev_append balance_updates balance_updates_rev)
           balance_updates_rev
           metadata.implicit_operations_results
       in
@@ -719,7 +730,10 @@ let bake_n_with_origination_results ?(baking_mode = Application) ?policy n b =
             | Successful_manager_result (Transaction_result _)
             | Successful_manager_result (Register_global_constant_result _)
             | Successful_manager_result (Set_deposits_limit_result _)
-            | Successful_manager_result (Tx_rollup_origination_result _) ->
+            | Successful_manager_result (Tx_rollup_origination_result _)
+            | Successful_manager_result (Tx_rollup_submit_batch_result _)
+            | Successful_manager_result (Sc_rollup_originate_result _)
+            | Successful_manager_result (Sc_rollup_add_messages_result _) ->
                 origination_results_rev
             | Successful_manager_result (Origination_result x) ->
                 Origination_result x :: origination_results_rev)

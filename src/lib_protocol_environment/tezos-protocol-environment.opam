@@ -1,3 +1,5 @@
+# This file was automatically generated, do not edit.
+# Edit file manifest/main.ml instead.
 opam-version: "2.0"
 maintainer: "contact@tezos.com"
 authors: ["Tezos devteam"]
@@ -7,9 +9,11 @@ dev-repo: "git+https://gitlab.com/tezos/tezos.git"
 license: "MIT"
 depends: [
   "dune" { >= "2.9" }
-  "zarith" { >= "1.12" & < "1.13" } # the signature of the [Z] module has changed in 1.12
+  "zarith" { >= "1.12" & < "1.13" }
   "zarith_stubs_js"
-  "bls12-381" { >= "1.1.0" & < "1.2.0" } # for env4
+  "bls12-381" { >= "1.1.0" & < "1.2.0" }
+  "ringo" { = "0.7" }
+  "ringo-lwt" { = "0.7" }
   "tezos-base"
   "tezos-sapling"
   "tezos-protocol-environment-sigs"
@@ -20,7 +24,7 @@ depends: [
   "bls12-381-unix" {with-test}
   "alcotest-lwt" { with-test & >= "1.5.0" }
   "tezos-test-helpers" {with-test}
-  "qcheck-alcotest" {with-test}
+  "qcheck-alcotest" { with-test & >= "0.15" }
   "lwt" { with-test & >= "5.4.0" }
 ]
 build: [
