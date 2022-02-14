@@ -26,7 +26,7 @@ export full_opam_repository_tag=b0287f75170afa0e21bf5a38e0ff0e90e0244c49
 
 ## This value MUST be the same as `build_deps_image_version` in `.gitlab-ci.yml
 export opam_repository_url=https://github.com/ocaml-multicore/tezos-opam-repository
-export opam_repository_tag=4138659057683d257e65ba887dd2e65cee9e37dc
+export opam_repository_tag=1448d7d8871675e69602cf60401d5408db8667cb
 export opam_repository_git=$opam_repository_url.git
 export opam_repository=$opam_repository_git\#$opam_repository_tag
 
