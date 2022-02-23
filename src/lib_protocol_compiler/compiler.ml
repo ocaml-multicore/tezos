@@ -27,8 +27,6 @@ let warnings = "+a-4-6-7-9-29-40..42-44-45-48-60-67"
 
 let warn_error = "-a+8"
 
-let () = Clflags.unsafe_string := false
-
 (** Override the default 'Env.Persistent_signature.load'
     with a lookup in locally defined hashtable.
 *)
@@ -267,8 +265,8 @@ let main {compile_ml; pack_objects; link_shared} =
   Clflags.nopervasives := true ;
   Clflags.no_std_include := true ;
   Clflags.include_dirs := [Filename.dirname functor_file] ;
-  Warnings.parse_options false warnings ;
-  Warnings.parse_options true warn_error ;
+  Warnings.parse_options false warnings |> ignore;
+  Warnings.parse_options true warn_error |> ignore;
   load_embedded_cmis tezos_protocol_env ;
   let packed_protocol_object = compile_ml ~for_pack functor_file in
   let register_objects =
