@@ -359,7 +359,7 @@ include Tezos_raw_protocol_011_PtHangz2.Main
  (libraries tezos_protocol_environment_011_PtHangz2)
  (library_flags (:standard -linkall))
  (flags (:standard -nopervasives -nostdlib
-                   -w +a-4-40..42-44-45-48
+                   -w +a-4-40-41-42-44-45-48-51-70
                    -warn-error +a
                    -open Tezos_protocol_environment_011_PtHangz2__Environment
                    -open Pervasives
@@ -476,7 +476,7 @@ include Tezos_raw_protocol_011_PtHangz2.Main
       tezos-protocol-environment
       tezos-protocol-environment-sigs
       tezos_raw_protocol_011_PtHangz2)
- (flags -w "+a-4-40..42-44-45-48"
+ (flags -w "+a-4-40-41-42-44-45-48-51-70"
         -warn-error "+a"
         -nopervasives)
  (modules Protocol))
@@ -491,7 +491,7 @@ include Tezos_raw_protocol_011_PtHangz2.Main
       tezos-protocol-environment
       tezos-protocol-environment-sigs
       tezos-protocol-011-PtHangz2.raw)
- (flags -w "+a-4-40..42-44-45-48"
+ (flags -w "+a-4-40-41-42-44-45-48-51-70"
         -warn-error "+a"
         -nopervasives)
  (modules Functor))
@@ -504,7 +504,7 @@ include Tezos_raw_protocol_011_PtHangz2.Main
  (libraries tezos-protocol-011-PtHangz2
             tezos-protocol-updater
             tezos-protocol-environment)
- (flags (:standard -w +a-4-40..42-44-45-48
+ (flags (:standard -w +a-4-40-41-42-44-45-48-51-70
                    -warn-error +a))
  (modules Registerer))
 

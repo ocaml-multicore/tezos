@@ -80,7 +80,7 @@ include Tezos_raw_protocol_genesis_carthagenet.Main
  (libraries tezos_protocol_environment_genesis_carthagenet)
  (library_flags (:standard -linkall))
  (flags (:standard -nopervasives -nostdlib
-                   -w +a-4-6-7-9-16-29-32-40..42-44-45-48-60-67-68
+                   -w +a-4-6-7-9-16-29-32-40..42-44-45-48-60-67-68-70
                    -warn-error +a
                    -open Tezos_protocol_environment_genesis_carthagenet__Environment
                    -open Pervasives
@@ -103,7 +103,7 @@ include Tezos_raw_protocol_genesis_carthagenet.Main
       tezos-protocol-environment
       tezos-protocol-environment-sigs
       tezos_raw_protocol_genesis_carthagenet)
- (flags -w "+a-4-6-7-9-16-29-40..42-44-45-48-60-67-68"
+ (flags -w "+a-4-6-7-9-16-29-40..42-44-45-48-60-67-68-70"
         -warn-error "-A"
         -nopervasives)
  (modules Protocol))
@@ -118,7 +118,7 @@ include Tezos_raw_protocol_genesis_carthagenet.Main
       tezos-protocol-environment
       tezos-protocol-environment-sigs
       tezos-protocol-genesis-carthagenet.raw)
- (flags -w "+a-4-6-7-9-16-29-40..42-44-45-48-60-67-68"
+ (flags -w "+a-4-6-7-9-16-29-40..42-44-45-48-60-67-68-70"
         -warn-error "-A"
         -nopervasives)
  (modules Functor))
@@ -131,7 +131,7 @@ include Tezos_raw_protocol_genesis_carthagenet.Main
  (libraries tezos-protocol-genesis-carthagenet
             tezos-protocol-updater
             tezos-protocol-environment)
- (flags (:standard -w +a-4-6-7-9-16-29-32-40..42-44-45-48-60-67
+ (flags (:standard -w +a-4-6-7-9-16-29-32-40..42-44-45-48-60-67-70
                    -warn-error +a))
  (modules Registerer))
 
