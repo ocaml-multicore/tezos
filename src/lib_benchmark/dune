@@ -13,5 +13,6 @@
   data-encoding
   prbnmcn-stats
   benchmark-utils
-  pyml-plot)
+  pyml-plot
+  ocaml-compiler-libs.common)
  (flags (:standard -open Tezos_base.TzPervasives -open Tezos_stdlib_unix)))

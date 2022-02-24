@@ -18,6 +18,7 @@ depends: [
   "benchmark-utils"
   "pyml-plot"
   "hashcons"
+  "ocaml-compiler-libs"
 ]
 build: [
   ["dune" "build" "-p" name "-j" jobs]
