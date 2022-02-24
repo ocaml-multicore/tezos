@@ -208,6 +208,6 @@ let info =
     ]
   in
   let version = Tezos_version.Bin_version.version_string in
-  Term.info name ~version ~doc ~exits:Term.default_exits ~man
+  Cmd.info name ~version ~doc ~exits:Cmd.Exit.defaults ~man
 
-let () = Term.exit @@ Term.eval (term, info)
+let () = Stdlib.exit @@ Cmd.eval (Cmd.v info term)

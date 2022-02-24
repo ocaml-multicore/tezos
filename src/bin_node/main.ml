@@ -99,9 +99,9 @@ let man = description @ Node_run_command.Manpage.examples
 
 let info =
   let version = Tezos_version.Bin_version.version_string in
-  Cmdliner.Term.info ~doc:"The Tezos node" ~man ~version "tezos-node"
+  Cmdliner.Cmd.info ~doc:"The Tezos node" ~man ~version "tezos-node"
 
-let commands =
+let commands   =
   [
     Node_run_command.cmd;
     Node_replay_command.cmd;
@@ -130,8 +130,6 @@ let () =
 
 let () =
   Random.self_init () ;
-  match Cmdliner.Term.eval_choice (term, info) commands with
-  | `Error _ -> exit 1
-  | `Help -> exit 0
-  | `Version -> exit 0
-  | `Ok () -> exit 0
+  match Cmdliner.Cmd.eval (Cmdliner.Cmd.group ~default:term info (List.map (fun (x, y) -> Cmdliner.Cmd.v y x) commands)) with (* commands *)
+  | 0 -> exit 0
+  | _ -> exit 1

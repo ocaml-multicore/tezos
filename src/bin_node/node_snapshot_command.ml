@@ -430,7 +430,7 @@ module Manpage = struct
 
   let man = description @ options @ examples @ Node_shared_arg.Manpage.bugs
 
-  let info = Cmdliner.Term.info ~doc:"Manage snapshots" ~man "snapshot"
+  let info = Cmdliner.Cmd.info ~doc:"Manage snapshots" ~man "snapshot"
 end
 
 let cmd = (Term.term, Manpage.info)

@@ -336,7 +336,7 @@ module Term = struct
       "The directory where the Tezos node will store all its data. Parent \
        directories are created if necessary."
     in
-    let env = Arg.env_var Node_config_file.data_dir_env_name in
+    let env = Cmd.Env.info Node_config_file.data_dir_env_name in
     Arg.(
       value
       & opt (some string) None

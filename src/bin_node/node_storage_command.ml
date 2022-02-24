@@ -325,7 +325,7 @@ module Manpage = struct
   let man = commands @ Node_shared_arg.Manpage.bugs
 
   let info =
-    Cmdliner.Term.info
+    Cmdliner.Cmd.info
       ~doc:"Query the storage layer (EXPERIMENTAL)"
       ~man
       "storage"

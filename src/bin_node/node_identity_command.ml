@@ -163,7 +163,7 @@ module Manpage = struct
     @ (* [ `S misc_docs ] @ *)
     Node_shared_arg.Manpage.bugs
 
-  let info = Cmdliner.Term.info ~doc:"Manage node identities" ~man "identity"
+  let info = Cmdliner.Cmd.info ~doc:"Manage node identities" ~man "identity"
 end
 
 let cmd = (Term.term, Manpage.info)

@@ -196,7 +196,7 @@ module Manpage = struct
     description @ Node_shared_arg.Manpage.args @ options
     @ Node_shared_arg.Manpage.bugs
 
-  let info = Cmdliner.Term.info ~doc:"Manage node configuration" ~man "config"
+  let info = Cmdliner.Cmd.info ~doc:"Manage node configuration" ~man "config"
 end
 
 let cmd = (Term.term, Manpage.info)

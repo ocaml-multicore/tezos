@@ -517,7 +517,7 @@ module Manpage = struct
     @ Node_shared_arg.Manpage.bugs
 
   let info =
-    Cmdliner.Term.info
+    Cmdliner.Cmd.info
       ~doc:"Replay a set of previously validated blocks"
       ~man
       "replay"
