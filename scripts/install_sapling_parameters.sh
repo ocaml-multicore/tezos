@@ -9,8 +9,8 @@ script_dir="$(cd "$(dirname "$0")" && pwd -P)"
 
 # Install Sapling parameters.
 ZCASH_PARAMS="${OPAM_SWITCH_PREFIX}/share/zcash-params"
-OUTPUT_PARAMETERS="${opam_repository_url}/-/raw/${opam_repository_tag}/zcash-params/sapling-output.params"
-SPEND_PARAMETERS="${opam_repository_url}/-/raw/${opam_repository_tag}/zcash-params/sapling-spend.params"
+OUTPUT_PARAMETERS="${raw_opam_repository_url}/zcash-params/sapling-output.params"
+SPEND_PARAMETERS="${raw_opam_repository_url}/zcash-params/sapling-spend.params"
 
 echo "Installing Sapling parameters in ${ZCASH_PARAMS}"
 rm -rf "${ZCASH_PARAMS}"
