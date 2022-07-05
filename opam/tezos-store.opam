@@ -24,7 +24,7 @@ depends: [
   "ringo-lwt" { >= "0.9" }
   "camlzip" { >= "1.11" & < "1.12" }
   "tar"
-  "tar-unix" { = "2.0.0" }
+  "tar-unix" { = "2.0.1" }
   "prometheus" { >= "1.2" }
   "tezos-embedded-protocol-demo-noops" {with-test}
   "tezos-embedded-protocol-genesis" {with-test}

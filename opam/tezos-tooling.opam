@@ -10,7 +10,7 @@ license: "MIT"
 depends: [
   "dune" { >= "3.0" }
   "bisect_ppx" { >= "2.7.0" }
-  "ocamlformat" { = "0.21.0" }
+  # "ocamlformat" { = "0.21.0" }
   "ometrics" { >= "0.2.1" }
   "base-unix"
 ]
